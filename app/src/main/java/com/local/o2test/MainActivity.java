@@ -31,6 +31,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.text.Html;
 
 import java.io.File;
 import java.io.FileWriter;
