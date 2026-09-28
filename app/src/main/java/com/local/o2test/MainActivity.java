@@ -93,7 +93,7 @@ public class MainActivity extends Activity {
         mainLayout.setOrientation(LinearLayout.VERTICAL);
         mainLayout.setPadding(15, 15, 15, 15);
 
-        // Верхняя панель метрик с индивидуальным цветом
+        // Верхняя панель метрик
         LinearLayout metricsLayout = new LinearLayout(this);
         metricsLayout.setOrientation(LinearLayout.HORIZONTAL);
         metricsLayout.setGravity(Gravity.CENTER);
@@ -115,7 +115,7 @@ public class MainActivity extends Activity {
         metricsLayout.addView(tvBattery);
         mainLayout.addView(metricsLayout);
 
-        // Меню кнопок
+        // Кнопки управления
         LinearLayout btnBar = new LinearLayout(this);
         btnBar.setOrientation(LinearLayout.HORIZONTAL);
         btnBar.setPadding(0, 5, 0, 5);
@@ -136,7 +136,7 @@ public class MainActivity extends Activity {
         btnSave.setOnClickListener(v -> saveCSVData());
         btnExit.setOnClickListener(v -> exitApp());
 
-        // Графический холст
+        // Холст графика
         chartView = new TrendChartView(this);
         LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 650);
@@ -234,7 +234,7 @@ public class MainActivity extends Activity {
                 bluetoothGatt.close();
             } catch (Exception ignored) {}
         }
-        finish(); // Универсальное завершение работы
+        finish();
     }
 
     private void generateReportSummary() {
@@ -355,8 +355,12 @@ public class MainActivity extends Activity {
                                 gatt.setCharacteristicNotification(notifyChar, true);
                                 BluetoothGattDescriptor descriptor = notifyChar.getDescriptor(CLIENT_CONFIG_DESCRIPTOR);
                                 if (descriptor != null) {
-                                    descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-                                    gatt.writeDescriptor(descriptor);
+                                    if (Build.VERSION.SDK_INT >= 33) {
+                                        gatt.writeDescriptor(descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                                    } else {
+                                        descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                                        gatt.writeDescriptor(descriptor);
+                                    }
                                 }
                             }
                         }
@@ -376,6 +380,11 @@ public class MainActivity extends Activity {
                     if (characteristic != null) {
                         parseData(characteristic.getValue());
                     }
+                }
+
+                // Переопределение для совместимости с Android 13+
+                public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, byte[] value) {
+                    parseData(value);
                 }
             });
         } catch (Exception e) {
@@ -405,8 +414,12 @@ public class MainActivity extends Activity {
         if (bluetoothGatt == null || writeChar == null) return;
         try {
             byte[] cmd = new byte[]{(byte) 0xAA, 0x17, (byte) 0xE8, 0x00, 0x00, 0x00, 0x00, 0x1B};
-            writeChar.setValue(cmd);
-            bluetoothGatt.writeCharacteristic(writeChar);
+            if (Build.VERSION.SDK_INT >= 33) {
+                bluetoothGatt.writeCharacteristic(writeChar, cmd, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+            } else {
+                writeChar.setValue(cmd);
+                bluetoothGatt.writeCharacteristic(writeChar);
+            }
         } catch (Exception ignored) {}
     }
 
@@ -427,7 +440,6 @@ public class MainActivity extends Activity {
             if (spo2 > 0 && spo2 <= 100 && hr > 0 && hr < 250) {
                 long now = System.currentTimeMillis();
 
-                // Обновление цифр верху 1 раз в 3 секунды
                 if (pollTickCounter % 3 == 0) {
                     runOnUiThread(() -> {
                         tvSpO2.setText(String.format(Locale.US, "O2: %d%%", spo2));
@@ -523,21 +535,4 @@ public class MainActivity extends Activity {
             float w = getWidth();
             float h = getHeight();
             float leftPad = 80f;
-            float rightPad = 140f;
-            float plotW = w - leftPad - rightPad;
-
-            float zoneH = (h - 40f) / 3f;
-
-            // Зона O2
-            float z1Top = 10f;
-            float z1Bot = z1Top + zoneH;
-            drawZoneGrid(canvas, "O2", leftPad, w - rightPad, z1Top, z1Bot, Color.CYAN, "90", "100");
-
-            // Зона Pulse
-            float z2Top = z1Bot + 10f;
-            float z2Bot = z2Top + zoneH;
-            drawZoneGrid(canvas, "Pulse", leftPad, w - rightPad, z2Top, z2Bot, Color.GREEN, "50", "120");
-
-            // Зона PI
-            float z3Top = z2Bot + 10f;
-            float z3Bot = z3Top + zo
+      
