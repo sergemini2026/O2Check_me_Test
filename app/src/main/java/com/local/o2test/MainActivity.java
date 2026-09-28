@@ -435,10 +435,11 @@ public class MainActivity extends Activity {
         }
     }
 
-    // Отрисовка графиков тренда
+    // Отрисовка графиков тренда (Шаг 1: 3 изолированные зоны, повышенная амплитуда и цветовая синхронизация)
     public static class TrendChartView extends View {
         private final List<DataPoint> points = new ArrayList<>();
         private final Paint paintGrid = new Paint();
+        private final Paint paintText = new Paint();
         private final Paint paintSpO2 = new Paint();
         private final Paint paintHR = new Paint();
         private final Paint paintPI = new Paint();
@@ -450,21 +451,24 @@ public class MainActivity extends Activity {
 
         private void initPaints() {
             paintGrid.setColor(Color.DKGRAY);
-            paintGrid.setStrokeWidth(1f);
+            paintGrid.setStrokeWidth(1.5f);
 
-            // Кислород — Голубой
+            paintText.setTextSize(22f);
+            paintText.setAntiAlias(true);
+
+            // Кислород — Голубой (Cyan)
             paintSpO2.setColor(Color.CYAN);
             paintSpO2.setStrokeWidth(4f);
             paintSpO2.setStyle(Paint.Style.STROKE);
             paintSpO2.setAntiAlias(true);
 
-            // Пульс — Зеленый
+            // Пульс — Зеленый (Green)
             paintHR.setColor(Color.GREEN);
             paintHR.setStrokeWidth(4f);
             paintHR.setStyle(Paint.Style.STROKE);
             paintHR.setAntiAlias(true);
 
-            // PI — Желтый
+            // PI — Желтый (Yellow)
             paintPI.setColor(Color.YELLOW);
             paintPI.setStrokeWidth(4f);
             paintPI.setStyle(Paint.Style.STROKE);
@@ -488,15 +492,42 @@ public class MainActivity extends Activity {
 
             float w = getWidth();
             float h = getHeight();
-            float padding = 60f;
+            float leftPad = 80f;   // Отступ слева под названия осей
+            float rightPad = 100f; // Отступ справа под текущие значения
+            float topPad = 15f;
+            float bottomPad = 15f;
 
-            canvas.drawLine(padding, padding, padding, h - padding, paintGrid);
-            canvas.drawLine(padding, h - padding, w - padding, h - padding, paintGrid);
+            float availableH = h - topPad - bottomPad;
+            float zoneH = availableH / 3f;
 
-            // Легенда с обновленными цветами
-            canvas.drawText("Голубой: SpO2 (70-100%)", padding + 10, padding + 20, paintSpO2);
-            canvas.drawText("Зеленый: Пульс (40-180 bpm)", padding + 320, padding + 20, paintHR);
-            canvas.drawText("Желтый: PI (0-10%)", padding + 650, padding + 20, paintPI);
+            // Горизонтальные линии-разделители 3 зон
+            for (int i = 0; i <= 3; i++) {
+                float y = topPad + i * zoneH;
+                canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
+            }
+
+            // Метки слева
+            paintText.setColor(Color.CYAN);
+            canvas.drawText("O2", 15f, topPad + zoneH * 0.55f, paintText);
+
+            paintText.setColor(Color.GREEN);
+            canvas.drawText("Pulse", 15f, topPad + zoneH * 1.55f, paintText);
+
+            paintText.setColor(Color.YELLOW);
+            canvas.drawText("PI", 15f, topPad + zoneH * 2.55f, paintText);
+
+            if (points.isEmpty()) return;
+
+            // Текущие цифровые значения справа
+            DataPoint last = points.get(points.size() - 1);
+            paintText.setColor(Color.CYAN);
+            canvas.drawText(last.spo2 + "%", w - rightPad + 15f, topPad + zoneH * 0.55f, paintText);
+
+            paintText.setColor(Color.GREEN);
+            canvas.drawText(last.hr + "", w - rightPad + 15f, topPad + zoneH * 1.55f, paintText);
+
+            paintText.setColor(Color.YELLOW);
+            canvas.drawText(String.format(Locale.US, "%.1f%%", last.pi), w - rightPad + 15f, topPad + zoneH * 2.55f, paintText);
 
             if (points.size() < 2) return;
 
@@ -504,17 +535,27 @@ public class MainActivity extends Activity {
             Path pathHR = new Path();
             Path pathPI = new Path();
 
-            float maxTime = Math.max(60, points.get(points.size() - 1).elapsedSec);
-            float plotW = w - 2 * padding;
-            float plotH = h - 2 * padding;
+            float maxTime = Math.max(60, last.elapsedSec);
+            float plotW = w - leftPad - rightPad;
 
             for (int i = 0; i < points.size(); i++) {
                 DataPoint dp = points.get(i);
-                float x = padding + (dp.elapsedSec / maxTime) * plotW;
+                float x = leftPad + (dp.elapsedSec / maxTime) * plotW;
 
-                float ySpO2 = (h - padding) - ((Math.max(70, dp.spo2) - 70) / 30f) * plotH;
-                float yHR = (h - padding) - ((Math.max(40, dp.hr) - 40) / 140f) * plotH;
-                float yPI = (h - padding) - (Math.min(10f, dp.pi) / 10f) * plotH;
+                // Зона 1: SpO2 (растянуто на 88-100%)
+                float minSpO2 = 88f, maxSpO2 = 100f;
+                float normSpO2 = (Math.max(minSpO2, Math.min(maxSpO2, dp.spo2)) - minSpO2) / (maxSpO2 - minSpO2);
+                float ySpO2 = (topPad + zoneH) - (normSpO2 * (zoneH - 10f)) - 5f;
+
+                // Зона 2: HR (растянуто на 40-180 bpm)
+                float minHR = 40f, maxHR = 180f;
+                float normHR = (Math.max(minHR, Math.min(maxHR, dp.hr)) - minHR) / (maxHR - minHR);
+                float yHR = (topPad + 2 * zoneH) - (normHR * (zoneH - 10f)) - 5f;
+
+                // Зона 3: PI (растянуто на 0-10%)
+                float minPI = 0f, maxPI = 10f;
+                float normPI = (Math.max(minPI, Math.min(maxPI, dp.pi)) - minPI) / (maxPI - minPI);
+                float yPI = (topPad + 3 * zoneH) - (normPI * (zoneH - 10f)) - 5f;
 
                 if (i == 0) {
                     pathSpO2.moveTo(x, ySpO2);
@@ -532,4 +573,6 @@ public class MainActivity extends Activity {
             canvas.drawPath(pathPI, paintPI);
         }
     }
-        }
+}
+
+                
