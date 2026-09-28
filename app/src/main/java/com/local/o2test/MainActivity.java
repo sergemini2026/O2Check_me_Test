@@ -48,6 +48,11 @@ import java.util.UUID;
 public class MainActivity extends Activity {
     private TextView tvLiveMetrics;
     private TextView logView;
+    
+    // Кольцевой буфер лога для предотвращения утечек памяти
+    private static final int MAX_LOG_LINES = 150;
+    private final LinkedList<String> logBuffer = new LinkedList<>();
+    
     private TrendChartView chartView;
 
     private BluetoothLeScanner scanner;
@@ -368,6 +373,42 @@ public class MainActivity extends Activity {
             });
         } catch (SecurityException e) {
             log("Ошибка подключения: " + e.getMessage());
+        }
+    }
+    
+   private void appendLog(final String text) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                logBuffer.add(text);
+                while (logBuffer.size() > MAX_LOG_LINES) {
+                    logBuffer.removeFirst();
+                }
+                StringBuilder sb = new StringBuilder();
+                for (String line : logBuffer) {
+                    sb.append(line).append("\n");
+                }
+                if (tvLog != null) {
+                    tvLog.setText(sb.toString());
+                }
+            }
+        });
+      }
+    
+    private void updateStatusHeader(int spo2, int hr, float pi, int battery) {
+        String formattedHtml = String.format(Locale.US,
+                "<font color='#00FFFF'><b>SpO2: %d%%</b></font> &nbsp;|&nbsp; " +
+                "<font color='#00FF00'><b>HR: %d bpm</b></font> &nbsp;|&nbsp; " +
+                "<font color='#FFFF00'><b>PI: %.1f%%</b></font> &nbsp;|&nbsp; " +
+                "<font color='#AAAAAA'>Заряд: %d%%</font>",
+                spo2, hr, pi, battery);
+
+        if (tvStatus != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                tvStatus.setText(Html.fromHtml(formattedHtml, Html.FROM_HTML_MODE_LEGACY));
+            } else {
+                tvStatus.setText(Html.fromHtml(formattedHtml));
+            }
         }
     }
 
