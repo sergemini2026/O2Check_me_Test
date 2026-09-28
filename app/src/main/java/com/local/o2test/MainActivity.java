@@ -24,6 +24,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Html;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -31,7 +32,6 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
-import android.text.Html;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -40,6 +40,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -101,7 +102,7 @@ public class MainActivity extends Activity {
         tvLiveMetrics = new TextView(this);
         tvLiveMetrics.setTextSize(20);
         tvLiveMetrics.setGravity(Gravity.CENTER);
-        tvLiveMetrics.setText("SpO2: -- % | Пульс: -- bpm | PI: -- % | Заряд: -- %");
+        updateStatusHeader(0, 0, 0f, 0);
         mainLayout.addView(tvLiveMetrics);
 
         // Панель кнопок управления
@@ -138,7 +139,6 @@ public class MainActivity extends Activity {
         ScrollView scrollView = new ScrollView(this);
         logView = new TextView(this);
         logView.setTextSize(12);
-        logView.setText("Система готова. Выберите действие в меню.\n");
         scrollView.addView(logView);
         LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
@@ -146,6 +146,7 @@ public class MainActivity extends Activity {
         mainLayout.addView(scrollView);
 
         setContentView(mainLayout);
+        log("Система готова. Выберите действие в меню.");
         checkAndRequestPermissions();
     }
 
@@ -239,14 +240,50 @@ public class MainActivity extends Activity {
         }
         float endPI = sessionData.get(sessionData.size() - 1).pi;
 
-        log(String.format(Locale.US, "--- ИТОГОВЫЙ ОТЧЕТ СЕАНСА ---"));
+        log("--- ИТОГОВЫЙ ОТЧЕТ СЕАНСА ---");
         log(String.format(Locale.US, "Базовый PI (тонус): %.2f%%", initialPI));
         log(String.format(Locale.US, "Пик вазодилатации: %.2f%% (на %d-й сек)", maxPI, maxPITime));
         log(String.format(Locale.US, "Финишный PI: %.2f%%", endPI));
     }
 
     private void log(String text) {
-        runOnUiThread(() -> logView.append(text + "\n"));
+        appendLog(text);
+    }
+
+    private void appendLog(final String text) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                logBuffer.add(text);
+                while (logBuffer.size() > MAX_LOG_LINES) {
+                    logBuffer.removeFirst();
+                }
+                StringBuilder sb = new StringBuilder();
+                for (String line : logBuffer) {
+                    sb.append(line).append("\n");
+                }
+                if (logView != null) {
+                    logView.setText(sb.toString());
+                }
+            }
+        });
+    }
+
+    private void updateStatusHeader(int spo2, int hr, float pi, int battery) {
+        String formattedHtml = String.format(Locale.US,
+                "<font color='#00FFFF'><b>SpO2: %d%%</b></font> &nbsp;|&nbsp; " +
+                "<font color='#00FF00'><b>HR: %d bpm</b></font> &nbsp;|&nbsp; " +
+                "<font color='#FFFF00'><b>PI: %.1f%%</b></font> &nbsp;|&nbsp; " +
+                "<font color='#AAAAAA'>Заряд: %d%%</font>",
+                spo2, hr, pi, battery);
+
+        if (tvLiveMetrics != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                tvLiveMetrics.setText(Html.fromHtml(formattedHtml, Html.FROM_HTML_MODE_LEGACY));
+            } else {
+                tvLiveMetrics.setText(Html.fromHtml(formattedHtml));
+            }
+        }
     }
 
     private void checkAndRequestPermissions() {
@@ -375,42 +412,6 @@ public class MainActivity extends Activity {
             log("Ошибка подключения: " + e.getMessage());
         }
     }
-    
-   private void appendLog(final String text) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                logBuffer.add(text);
-                while (logBuffer.size() > MAX_LOG_LINES) {
-                    logBuffer.removeFirst();
-                }
-                StringBuilder sb = new StringBuilder();
-                for (String line : logBuffer) {
-                    sb.append(line).append("\n");
-                }
-                if (tvLog != null) {
-                    tvLog.setText(sb.toString());
-                }
-            }
-        });
-      }
-    
-    private void updateStatusHeader(int spo2, int hr, float pi, int battery) {
-        String formattedHtml = String.format(Locale.US,
-                "<font color='#00FFFF'><b>SpO2: %d%%</b></font> &nbsp;|&nbsp; " +
-                "<font color='#00FF00'><b>HR: %d bpm</b></font> &nbsp;|&nbsp; " +
-                "<font color='#FFFF00'><b>PI: %.1f%%</b></font> &nbsp;|&nbsp; " +
-                "<font color='#AAAAAA'>Заряд: %d%%</font>",
-                spo2, hr, pi, battery);
-
-        if (tvStatus != null) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                tvStatus.setText(Html.fromHtml(formattedHtml, Html.FROM_HTML_MODE_LEGACY));
-            } else {
-                tvStatus.setText(Html.fromHtml(formattedHtml));
-            }
-        }
-    }
 
     private void startPeriodicRequest() {
         timerRunnable = new Runnable() {
@@ -450,11 +451,7 @@ public class MainActivity extends Activity {
             if (spo2 > 0 && spo2 <= 100 && hr > 0 && hr < 250) {
                 long now = System.currentTimeMillis();
 
-                runOnUiThread(() -> {
-                    tvLiveMetrics.setText(String.format(Locale.US,
-                            "SpO2: %d %%  |  HR: %d bpm  |  PI: %.1f %%  |  Заряд: %d %%",
-                            spo2, hr, pi, battery));
-                });
+                runOnUiThread(() -> updateStatusHeader(spo2, hr, pi, battery));
 
                 if (isRecording) {
                     int elapsedSec = (int) ((now - sessionStartTime) / 1000);
@@ -476,8 +473,7 @@ public class MainActivity extends Activity {
             } catch (SecurityException ignored) {}
         }
     }
-
-    // Отрисовка графиков тренда (Шаг 3: Плавные кривые Bezier и интерактивный прицел при касании)
+        // Отрисовка графиков тренда
     public static class TrendChartView extends View {
         private final List<DataPoint> points = new ArrayList<>();
         private final Paint paintGrid = new Paint();
@@ -717,15 +713,3 @@ public class MainActivity extends Activity {
         }
     }
 }
-
-
-
-
-
-            
-
-
-            
-
-                
-
