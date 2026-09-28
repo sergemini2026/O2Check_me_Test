@@ -17,6 +17,7 @@ import android.bluetooth.le.ScanResult;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.os.Build;
@@ -45,7 +46,7 @@ import java.util.Set;
 import java.util.UUID;
 
 public class MainActivity extends Activity {
-    private TextView tvLiveMetrics;
+    private TextView tvSpO2, tvHR, tvPI, tvBattery;
     private TextView logView;
     private TrendChartView chartView;
 
@@ -57,6 +58,7 @@ public class MainActivity extends Activity {
 
     private final Handler timerHandler = new Handler(Looper.getMainLooper());
     private Runnable timerRunnable;
+    private int pollTickCounter = 0;
 
     private boolean isRecording = false;
     private long sessionStartTime = 0;
@@ -89,19 +91,34 @@ public class MainActivity extends Activity {
 
         LinearLayout mainLayout = new LinearLayout(this);
         mainLayout.setOrientation(LinearLayout.VERTICAL);
-        mainLayout.setPadding(20, 20, 20, 20);
+        mainLayout.setPadding(15, 15, 15, 15);
 
-        // Метрики реального времени
-        tvLiveMetrics = new TextView(this);
-        tvLiveMetrics.setTextSize(20);
-        tvLiveMetrics.setGravity(Gravity.CENTER);
-        tvLiveMetrics.setText("SpO2: -- % | Пульс: -- bpm | PI: -- % | Заряд: -- %");
-        mainLayout.addView(tvLiveMetrics);
+        // 1. Верхняя панель метрик с индивидуальным цветовым оформлением
+        LinearLayout metricsLayout = new LinearLayout(this);
+        metricsLayout.setOrientation(LinearLayout.HORIZONTAL);
+        metricsLayout.setGravity(Gravity.CENTER);
+        metricsLayout.setPadding(0, 10, 0, 10);
 
-        // Панель кнопок управления
+        tvSpO2 = createMetricTextView("#00FFFF");   // Голубой O2
+        tvHR = createMetricTextView("#00FF00");     // Зеленый Pulse
+        tvPI = createMetricTextView("#FFFF00");     // Желтый PI
+        tvBattery = createMetricTextView("#CCCCCC");// Серый Заряд
+
+        tvSpO2.setText("O2: --%");
+        tvHR.setText("Pulse: -- bpm");
+        tvPI.setText("PI: --%");
+        tvBattery.setText("Заряд: --%");
+
+        metricsLayout.addView(tvSpO2);
+        metricsLayout.addView(tvHR);
+        metricsLayout.addView(tvPI);
+        metricsLayout.addView(tvBattery);
+        mainLayout.addView(metricsLayout);
+
+        // Меню кнопок
         LinearLayout btnBar = new LinearLayout(this);
         btnBar.setOrientation(LinearLayout.HORIZONTAL);
-        btnBar.setPadding(0, 10, 0, 10);
+        btnBar.setPadding(0, 5, 0, 5);
 
         Button btnMonitor = createButton("Панель монитора");
         Button btnStop = createButton("Стоп");
@@ -114,24 +131,23 @@ public class MainActivity extends Activity {
         btnBar.addView(btnExit);
         mainLayout.addView(btnBar);
 
-        // Клик-хэндлеры
         btnMonitor.setOnClickListener(v -> startMonitoringPanel());
         btnStop.setOnClickListener(v -> stopRecordingSession());
         btnSave.setOnClickListener(v -> saveCSVData());
         btnExit.setOnClickListener(v -> exitApp());
 
-        // Встроенный холст для 3 графиков
+        // Графический холст
         chartView = new TrendChartView(this);
         LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 500);
+                LinearLayout.LayoutParams.MATCH_PARENT, 650);
         chartParams.setMargins(0, 10, 0, 10);
         chartView.setLayoutParams(chartParams);
         mainLayout.addView(chartView);
 
-        // Текстовый журнал
+        // Лог событий
         ScrollView scrollView = new ScrollView(this);
         logView = new TextView(this);
-        logView.setTextSize(12);
+        logView.setTextSize(11);
         logView.setText("Система готова. Выберите действие в меню.\n");
         scrollView.addView(logView);
         LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
@@ -143,18 +159,25 @@ public class MainActivity extends Activity {
         checkAndRequestPermissions();
     }
 
+    private TextView createMetricTextView(String colorHex) {
+        TextView tv = new TextView(this);
+        tv.setTextSize(17);
+        tv.setTextColor(Color.parseColor(colorHex));
+        tv.setPadding(12, 0, 12, 0);
+        return tv;
+    }
+
     private Button createButton(String text) {
         Button btn = new Button(this);
         btn.setText(text);
-        btn.setTextSize(12);
+        btn.setTextSize(11);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
-        params.setMargins(4, 0, 4, 0);
+        params.setMargins(2, 0, 2, 0);
         btn.setLayoutParams(params);
         return btn;
     }
 
-    // 1. Панель монитора (Запуск считывания и записи сеанса)
     private void startMonitoringPanel() {
         isRecording = true;
         sessionStartTime = System.currentTimeMillis();
@@ -167,18 +190,16 @@ public class MainActivity extends Activity {
         }
     }
 
-    // 2. Стоп (Остановка записи)
     private void stopRecordingSession() {
         if (isRecording) {
             isRecording = false;
             log("\n>>> ЗАПИСЬ ОСТАНОВЛЕНА <<<");
             generateReportSummary();
         } else {
-            log("Запись не была активна.");
+            log("Запись не активна.");
         }
     }
 
-    // 3. Сохранение данных (CSV)
     private void saveCSVData() {
         if (sessionData.isEmpty()) {
             log("Ошибка: Нет данных для сохранения.");
@@ -199,16 +220,14 @@ public class MainActivity extends Activity {
                 writer.append(String.format(Locale.US, "%d,%d,%d,%d,%.2f\n",
                         dp.timestamp, dp.elapsedSec, dp.spo2, dp.hr, dp.pi));
             }
-            log("Файл сохранён:\n" + file.getAbsolutePath());
+            log("Файл сохранен:\n" + file.getAbsolutePath());
             Toast.makeText(this, "Сохранено в CSV:\n" + fileName, Toast.LENGTH_LONG).show();
         } catch (IOException e) {
             log("Ошибка сохранения CSV: " + e.getMessage());
         }
     }
 
-    // 4. Выход (Закрытие приложения)
     private void exitApp() {
-        log("Завершение работы приложения...");
         stopTimer();
         if (bluetoothGatt != null) {
             try {
@@ -273,12 +292,9 @@ public class MainActivity extends Activity {
         }
 
         scanner = adapter.getBluetoothLeScanner();
-        if (scanner == null) {
-            log("ОШИБКА: BLE-сканер недоступен.");
-            return;
+        if (scanner != null) {
+            startScanning();
         }
-
-        startScanning();
     }
 
     private void startScanning() {
@@ -350,7 +366,7 @@ public class MainActivity extends Activity {
                 @Override
                 public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
                     if (status == BluetoothGatt.GATT_SUCCESS) {
-                        log("Канал готов. Запуск интервала опроса...");
+                        log("Канал готов. Запуск отрисовки (1 сек)...");
                         startPeriodicRequest();
                     }
                 }
@@ -370,12 +386,14 @@ public class MainActivity extends Activity {
         }
     }
 
+    // Запрос данных отправляется каждую секунду для динамичной отрисовки
     private void startPeriodicRequest() {
         timerRunnable = new Runnable() {
             @Override
             public void run() {
                 sendRtDataRequest();
-                timerHandler.postDelayed(this, 3000);
+                pollTickCounter++;
+                timerHandler.postDelayed(this, 1000); // 1 шаг в секунду
             }
         };
         timerHandler.post(timerRunnable);
@@ -402,23 +420,34 @@ public class MainActivity extends Activity {
         if ((data[0] & 0xFF) == 0x55) {
             int spo2 = data[7] & 0xFF;
             int hr = data[8] & 0xFF;
-            float pi = (data[10] & 0xFF) / 10.0f;
-            int battery = (data.length > 14) ? (data[14] & 0xFF) : 0;
+            
+            // Запасной парсинг PI (байт 10 или байт 9 при нормализации)
+            float rawPi = (data[10] & 0xFF) / 10.0f;
+            if (rawPi == 0 && data.length > 11 && (data[11] & 0xFF) > 0) {
+                rawPi = (data[11] & 0xFF) / 10.0f;
+            }
+            final float pi = rawPi;
+            final int battery = (data.length > 14) ? (data[14] & 0xFF) : 0;
 
             if (spo2 > 0 && spo2 <= 100 && hr > 0 && hr < 250) {
                 long now = System.currentTimeMillis();
 
-                runOnUiThread(() -> {
-                    tvLiveMetrics.setText(String.format(Locale.US,
-                            "SpO2: %d %%  |  HR: %d bpm  |  PI: %.1f %%  |  Заряд: %d %%",
-                            spo2, hr, pi, battery));
-                });
+                // Обновление верхних текстовых значений 1 раз в 3 секунды
+                if (pollTickCounter % 3 == 0) {
+                    runOnUiThread(() -> {
+                        tvSpO2.setText(String.format(Locale.US, "O2: %d%%", spo2));
+                        tvHR.setText(String.format(Locale.US, "Pulse: %d bpm", hr));
+                        tvPI.setText(String.format(Locale.US, "PI: %.1f%%", pi));
+                        tvBattery.setText(String.format(Locale.US, "Заряд: %d%%", battery));
+                    });
+                }
 
                 if (isRecording) {
                     int elapsedSec = (int) ((now - sessionStartTime) / 1000);
                     DataPoint dp = new DataPoint(now, elapsedSec, spo2, hr, pi);
                     sessionData.add(dp);
-                    runOnUiThread(() -> chartView.addDataPoint(dp));
+                    // Перерисовка холста графиков происходит каждую секунду
+                    runOnUiThread(() -> chartView.updateCurrentMetrics(dp));
                 }
             }
         }
@@ -435,13 +464,17 @@ public class MainActivity extends Activity {
         }
     }
 
-    // Отрисовка графиков тренда
+    // Класс отрисовки 3 изолированных графиков с высоким масштабом колебаний
     public static class TrendChartView extends View {
         private final List<DataPoint> points = new ArrayList<>();
+        private DataPoint latestPoint = null;
+
         private final Paint paintGrid = new Paint();
+        private final Paint paintDash = new Paint();
         private final Paint paintSpO2 = new Paint();
         private final Paint paintHR = new Paint();
         private final Paint paintPI = new Paint();
+        private final Paint paintText = new Paint();
 
         public TrendChartView(Context context) {
             super(context);
@@ -450,86 +483,52 @@ public class MainActivity extends Activity {
 
         private void initPaints() {
             paintGrid.setColor(Color.DKGRAY);
-            paintGrid.setStrokeWidth(1f);
+            paintGrid.setStrokeWidth(1.5f);
 
-            // Кислород — Голубой
+            paintDash.setColor(Color.parseColor("#333333"));
+            paintDash.setStrokeWidth(1f);
+            paintDash.setStyle(Paint.Style.STROKE);
+            paintDash.setPathEffect(new DashPathEffect(new float[]{5, 5}, 0));
+
+            // Голубой SpO2
             paintSpO2.setColor(Color.CYAN);
-            paintSpO2.setStrokeWidth(4f);
+            paintSpO2.setStrokeWidth(3.5f);
             paintSpO2.setStyle(Paint.Style.STROKE);
             paintSpO2.setAntiAlias(true);
 
-            // Пульс — Зеленый
+            // Зеленый Pulse
             paintHR.setColor(Color.GREEN);
-            paintHR.setStrokeWidth(4f);
+            paintHR.setStrokeWidth(3.5f);
             paintHR.setStyle(Paint.Style.STROKE);
             paintHR.setAntiAlias(true);
 
-            // PI — Желтый
+            // Желтый PI
             paintPI.setColor(Color.YELLOW);
-            paintPI.setStrokeWidth(4f);
+            paintPI.setStrokeWidth(3.5f);
             paintPI.setStyle(Paint.Style.STROKE);
             paintPI.setAntiAlias(true);
+
+            paintText.setTextSize(22f);
+            paintText.setAntiAlias(true);
+            paintText.setFakeBoldText(true);
         }
 
-        public void addDataPoint(DataPoint dp) {
-            points.add(dp);
-            invalidate();
+        public void updateCurrentMetrics(DataPoint dp) {
+            this.latestPoint = dp;
+            this.points.add(dp);
+            invalidate(); // Отрисовка раз в секунду
         }
 
         public void clearData() {
             points.clear();
+            latestPoint = null;
             invalidate();
         }
 
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            canvas.drawColor(Color.parseColor("#121212"));
+            canvas.drawColor(Color.parseColor("#0F0F0F"));
 
             float w = getWidth();
-            float h = getHeight();
-            float padding = 60f;
-
-            canvas.drawLine(padding, padding, padding, h - padding, paintGrid);
-            canvas.drawLine(padding, h - padding, w - padding, h - padding, paintGrid);
-
-            // Легенда с обновленными цветами
-            canvas.drawText("Голубой: SpO2 (70-100%)", padding + 10, padding + 20, paintSpO2);
-            canvas.drawText("Зеленый: Пульс (40-180 bpm)", padding + 320, padding + 20, paintHR);
-            canvas.drawText("Желтый: PI (0-10%)", padding + 650, padding + 20, paintPI);
-
-            if (points.size() < 2) return;
-
-            Path pathSpO2 = new Path();
-            Path pathHR = new Path();
-            Path pathPI = new Path();
-
-            float maxTime = Math.max(60, points.get(points.size() - 1).elapsedSec);
-            float plotW = w - 2 * padding;
-            float plotH = h - 2 * padding;
-
-            for (int i = 0; i < points.size(); i++) {
-                DataPoint dp = points.get(i);
-                float x = padding + (dp.elapsedSec / maxTime) * plotW;
-
-                float ySpO2 = (h - padding) - ((Math.max(70, dp.spo2) - 70) / 30f) * plotH;
-                float yHR = (h - padding) - ((Math.max(40, dp.hr) - 40) / 140f) * plotH;
-                float yPI = (h - padding) - (Math.min(10f, dp.pi) / 10f) * plotH;
-
-                if (i == 0) {
-                    pathSpO2.moveTo(x, ySpO2);
-                    pathHR.moveTo(x, yHR);
-                    pathPI.moveTo(x, yPI);
-                } else {
-                    pathSpO2.lineTo(x, ySpO2);
-                    pathHR.lineTo(x, yHR);
-                    pathPI.lineTo(x, yPI);
-                }
-            }
-
-            canvas.drawPath(pathSpO2, paintSpO2);
-            canvas.drawPath(pathHR, paintHR);
-            canvas.drawPath(pathPI, paintPI);
-        }
-    }
-}
+            float h = getHeigh
