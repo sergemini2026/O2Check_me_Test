@@ -93,7 +93,7 @@ public class MainActivity extends Activity {
         mainLayout.setOrientation(LinearLayout.VERTICAL);
         mainLayout.setPadding(15, 15, 15, 15);
 
-        // 1. Верхняя панель метрик с индивидуальным цветовым оформлением
+        // 1. Верхняя панель метрик с синхронизированными цветами
         LinearLayout metricsLayout = new LinearLayout(this);
         metricsLayout.setOrientation(LinearLayout.HORIZONTAL);
         metricsLayout.setGravity(Gravity.CENTER);
@@ -115,7 +115,7 @@ public class MainActivity extends Activity {
         metricsLayout.addView(tvBattery);
         mainLayout.addView(metricsLayout);
 
-        // Меню кнопок
+        // Кнопки управления
         LinearLayout btnBar = new LinearLayout(this);
         btnBar.setOrientation(LinearLayout.HORIZONTAL);
         btnBar.setPadding(0, 5, 0, 5);
@@ -252,7 +252,7 @@ public class MainActivity extends Activity {
         }
         float endPI = sessionData.get(sessionData.size() - 1).pi;
 
-        log(String.format(Locale.US, "--- ИТОГОВЫЙ ОТЧЕТ СЕАНСА ---"));
+        log("--- ИТОГОВЫЙ ОТЧЕТ СЕАНСА ---");
         log(String.format(Locale.US, "Базовый PI (тонус): %.2f%%", initialPI));
         log(String.format(Locale.US, "Пик вазодилатации: %.2f%% (на %d-й сек)", maxPI, maxPITime));
         log(String.format(Locale.US, "Финишный PI: %.2f%%", endPI));
@@ -263,10 +263,10 @@ public class MainActivity extends Activity {
     }
 
     private void checkAndRequestPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (Build.VERSION.SDK_INT >= 31) {
             requestPermissions(new String[]{
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT,
+                "android.permission.BLUETOOTH_SCAN",
+                "android.permission.BLUETOOTH_CONNECT",
                 Manifest.permission.ACCESS_FINE_LOCATION
             }, 101);
         } else {
@@ -366,19 +366,16 @@ public class MainActivity extends Activity {
                 @Override
                 public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
                     if (status == BluetoothGatt.GATT_SUCCESS) {
-                        log("Канал готов. Запуск отрисовки (1 сек)...");
+                        log("Канал готов. Запуск интервала опроса...");
                         startPeriodicRequest();
                     }
                 }
 
                 @Override
                 public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-                    parseData(characteristic.getValue());
-                }
-
-                @Override
-                public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, byte[] value) {
-                    parseData(value);
+                    if (characteristic != null) {
+                        parseData(characteristic.getValue());
+                    }
                 }
             });
         } catch (SecurityException e) {
@@ -386,14 +383,13 @@ public class MainActivity extends Activity {
         }
     }
 
-    // Запрос данных отправляется каждую секунду для динамичной отрисовки
     private void startPeriodicRequest() {
         timerRunnable = new Runnable() {
             @Override
             public void run() {
                 sendRtDataRequest();
                 pollTickCounter++;
-                timerHandler.postDelayed(this, 1000); // 1 шаг в секунду
+                timerHandler.postDelayed(this, 1000); // Отрисовка каждый 1 шаг (1 сек)
             }
         };
         timerHandler.post(timerRunnable);
@@ -420,8 +416,7 @@ public class MainActivity extends Activity {
         if ((data[0] & 0xFF) == 0x55) {
             int spo2 = data[7] & 0xFF;
             int hr = data[8] & 0xFF;
-            
-            // Запасной парсинг PI (байт 10 или байт 9 при нормализации)
+
             float rawPi = (data[10] & 0xFF) / 10.0f;
             if (rawPi == 0 && data.length > 11 && (data[11] & 0xFF) > 0) {
                 rawPi = (data[11] & 0xFF) / 10.0f;
@@ -432,7 +427,7 @@ public class MainActivity extends Activity {
             if (spo2 > 0 && spo2 <= 100 && hr > 0 && hr < 250) {
                 long now = System.currentTimeMillis();
 
-                // Обновление верхних текстовых значений 1 раз в 3 секунды
+                // Изменение текстовых показателей раз в 3 секунды
                 if (pollTickCounter % 3 == 0) {
                     runOnUiThread(() -> {
                         tvSpO2.setText(String.format(Locale.US, "O2: %d%%", spo2));
@@ -446,7 +441,6 @@ public class MainActivity extends Activity {
                     int elapsedSec = (int) ((now - sessionStartTime) / 1000);
                     DataPoint dp = new DataPoint(now, elapsedSec, spo2, hr, pi);
                     sessionData.add(dp);
-                    // Перерисовка холста графиков происходит каждую секунду
                     runOnUiThread(() -> chartView.updateCurrentMetrics(dp));
                 }
             }
@@ -464,7 +458,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    // Класс отрисовки 3 изолированных графиков с высоким масштабом колебаний
     public static class TrendChartView extends View {
         private final List<DataPoint> points = new ArrayList<>();
         private DataPoint latestPoint = null;
@@ -490,19 +483,16 @@ public class MainActivity extends Activity {
             paintDash.setStyle(Paint.Style.STROKE);
             paintDash.setPathEffect(new DashPathEffect(new float[]{5, 5}, 0));
 
-            // Голубой SpO2
             paintSpO2.setColor(Color.CYAN);
             paintSpO2.setStrokeWidth(3.5f);
             paintSpO2.setStyle(Paint.Style.STROKE);
             paintSpO2.setAntiAlias(true);
 
-            // Зеленый Pulse
             paintHR.setColor(Color.GREEN);
             paintHR.setStrokeWidth(3.5f);
             paintHR.setStyle(Paint.Style.STROKE);
             paintHR.setAntiAlias(true);
 
-            // Желтый PI
             paintPI.setColor(Color.YELLOW);
             paintPI.setStrokeWidth(3.5f);
             paintPI.setStyle(Paint.Style.STROKE);
@@ -516,7 +506,7 @@ public class MainActivity extends Activity {
         public void updateCurrentMetrics(DataPoint dp) {
             this.latestPoint = dp;
             this.points.add(dp);
-            invalidate(); // Отрисовка раз в секунду
+            invalidate();
         }
 
         public void clearData() {
@@ -531,4 +521,21 @@ public class MainActivity extends Activity {
             canvas.drawColor(Color.parseColor("#0F0F0F"));
 
             float w = getWidth();
-            float h = getHeigh
+            float h = getHeight();
+            float leftPad = 80f;
+            float rightPad = 140f;
+            float plotW = w - leftPad - rightPad;
+
+            float zoneH = (h - 40f) / 3f;
+
+            // Сектор 1: O2
+            float z1Top = 10f;
+            float z1Bot = z1Top + zoneH;
+            drawZoneGrid(canvas, "O2", leftPad, w - rightPad, z1Top, z1Bot, Color.CYAN, "90", "100");
+
+            // Сектор 2: Pulse
+            float z2Top = z1Bot + 10f;
+            float z2Bot = z2Top + zoneH;
+            drawZoneGrid(canvas, "Pulse", leftPad, w - rightPad, z2Top, z2Bot, Color.GREEN, "50", "120");
+
+            /
