@@ -12,9 +12,6 @@ import android.bluetooth.BluetoothProfile;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -38,9 +35,6 @@ public class MainActivity extends AppCompatActivity {
     private BluetoothGatt bluetoothGatt;
     private BluetoothDevice targetDevice;
 
-    private static final String TARGET_DEVICE_NAME = "Checkme O2"; // или ваше имя устройства
-    
-    // UUID сервисов Viatom (стандартные)
     private static final UUID UUID_SERVICE = UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb");
     private static final UUID UUID_CHAR_NOTIFY = UUID.fromString("0000ffe4-0000-1000-8000-00805f9b34fb");
     private static final UUID UUID_CHAR_WRITE = UUID.fromString("0000ffe1-0000-1000-8000-00805f9b34fb");
@@ -56,9 +50,7 @@ public class MainActivity extends AppCompatActivity {
     private static class DataPoint {
         String timestamp;
         long elapsedSec;
-        int spo2;
-        int hr;
-        int pi;
+        int spo2, hr, pi;
 
         DataPoint(String timestamp, long elapsedSec, int spo2, int hr, int pi) {
             this.timestamp = timestamp;
@@ -129,7 +121,8 @@ public class MainActivity extends AppCompatActivity {
         tvStatus.setText("Подключение к " + targetDevice.getName() + "...");
         bluetoothGatt = targetDevice.connectGatt(this, false, gattCallback);
     }
-        private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
+
+    private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
@@ -145,7 +138,7 @@ public class MainActivity extends AppCompatActivity {
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 BluetoothGattCharacteristic characteristic = gatt.getService(UUID_SERVICE).getCharacteristic(UUID_CHAR_WRITE);
                 if (characteristic != null) {
-                    characteristic.setValue(new byte[]{0x02, 0x7b, 0x01, 0x42}); // Команда опроса
+                    characteristic.setValue(new byte[]{0x02, 0x7b, 0x01, 0x42});
                     gatt.writeCharacteristic(characteristic);
                 }
                 
