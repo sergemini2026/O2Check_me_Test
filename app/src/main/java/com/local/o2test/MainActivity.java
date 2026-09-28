@@ -435,7 +435,7 @@ public class MainActivity extends Activity {
         }
     }
 
-     // Отрисовка графиков тренда (Шаг 2: Временная шкала X, адаптивные интервалы и границы диапазонов Y)
+    // Отрисовка графиков тренда (Шаг 3: Плавные кривые Bezier и интерактивный прицел при касании)
     public static class TrendChartView extends View {
         private final List<DataPoint> points = new ArrayList<>();
         private final Paint paintGrid = new Paint();
@@ -444,6 +444,10 @@ public class MainActivity extends Activity {
         private final Paint paintSpO2 = new Paint();
         private final Paint paintHR = new Paint();
         private final Paint paintPI = new Paint();
+        private final Paint paintCursor = new Paint();
+        private final Paint paintTooltipBg = new Paint();
+
+        private Float touchX = null;
 
         public TrendChartView(Context context) {
             super(context);
@@ -478,6 +482,14 @@ public class MainActivity extends Activity {
             paintPI.setStrokeWidth(4f);
             paintPI.setStyle(Paint.Style.STROKE);
             paintPI.setAntiAlias(true);
+
+            // Прицел/Визир
+            paintCursor.setColor(Color.WHITE);
+            paintCursor.setStrokeWidth(2f);
+            paintCursor.setAntiAlias(true);
+
+            paintTooltipBg.setColor(Color.parseColor("#CC1E1E1E"));
+            paintTooltipBg.setStyle(Paint.Style.FILL);
         }
 
         public void addDataPoint(DataPoint dp) {
@@ -487,7 +499,25 @@ public class MainActivity extends Activity {
 
         public void clearData() {
             points.clear();
+            touchX = null;
             invalidate();
+        }
+
+        @Override
+        public boolean onTouchEvent(android.view.MotionEvent event) {
+            switch (event.getAction()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                case android.view.MotionEvent.ACTION_MOVE:
+                    touchX = event.getX();
+                    invalidate();
+                    return true;
+                case android.view.MotionEvent.ACTION_UP:
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    touchX = null;
+                    invalidate();
+                    return true;
+            }
+            return super.onTouchEvent(event);
         }
 
         @Override
@@ -512,7 +542,7 @@ public class MainActivity extends Activity {
                 canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
             }
 
-            // Метки диапазонов по оси Y (подсказки верх/низ)
+            // Метки диапазонов по оси Y
             canvas.drawText("100%", leftPad + 5f, topPad + 18f, paintSubText);
             canvas.drawText("88%", leftPad + 5f, topPad + zoneH - 6f, paintSubText);
 
@@ -522,11 +552,9 @@ public class MainActivity extends Activity {
             canvas.drawText("10%", leftPad + 5f, topPad + 2 * zoneH + 18f, paintSubText);
             canvas.drawText("0%", leftPad + 5f, topPad + 3 * zoneH - 6f, paintSubText);
 
-            // 2. Временная шкала по оси X (вертикальная сетка)
+            // 2. Временная шкала по оси X
             int lastSec = points.isEmpty() ? 0 : points.get(points.size() - 1).elapsedSec;
             float maxTime = Math.max(60, lastSec);
-
-            // Динамический шаг сетки: 15 минут (900с), 5 минут (300с) или 1 минута (60с)
             float timeStepSec = (maxTime > 1800) ? 900f : ((maxTime > 300) ? 300f : 60f);
 
             for (float t = 0; t <= maxTime; t += timeStepSec) {
@@ -563,25 +591,25 @@ public class MainActivity extends Activity {
 
             if (points.size() < 2) return;
 
+            // Построение плавной кривой (Quad Bezier)
             Path pathSpO2 = new Path();
             Path pathHR = new Path();
             Path pathPI = new Path();
+
+            float prevX = 0, prevYSpO2 = 0, prevYHR = 0, prevYPI = 0;
 
             for (int i = 0; i < points.size(); i++) {
                 DataPoint dp = points.get(i);
                 float x = leftPad + (dp.elapsedSec / maxTime) * plotW;
 
-                // Зона 1: SpO2 (88-100%)
                 float minSpO2 = 88f, maxSpO2 = 100f;
                 float normSpO2 = (Math.max(minSpO2, Math.min(maxSpO2, dp.spo2)) - minSpO2) / (maxSpO2 - minSpO2);
                 float ySpO2 = (topPad + zoneH) - (normSpO2 * (zoneH - 10f)) - 5f;
 
-                // Зона 2: HR (40-180 bpm)
                 float minHR = 40f, maxHR = 180f;
                 float normHR = (Math.max(minHR, Math.min(maxHR, dp.hr)) - minHR) / (maxHR - minHR);
                 float yHR = (topPad + 2 * zoneH) - (normHR * (zoneH - 10f)) - 5f;
 
-                // Зона 3: PI (0-10%)
                 float minPI = 0f, maxPI = 10f;
                 float normPI = (Math.max(minPI, Math.min(maxPI, dp.pi)) - minPI) / (maxPI - minPI);
                 float yPI = (topPad + 3 * zoneH) - (normPI * (zoneH - 10f)) - 5f;
@@ -591,16 +619,71 @@ public class MainActivity extends Activity {
                     pathHR.moveTo(x, yHR);
                     pathPI.moveTo(x, yPI);
                 } else {
-                    pathSpO2.lineTo(x, ySpO2);
-                    pathHR.lineTo(x, yHR);
-                    pathPI.lineTo(x, yPI);
+                    float midX = (prevX + x) / 2f;
+                    float midYSpO2 = (prevYSpO2 + ySpO2) / 2f;
+                    float midYHR = (prevYHR + yHR) / 2f;
+                    float midYPI = (prevYPI + yPI) / 2f;
+
+                    pathSpO2.quadTo(prevX, prevYSpO2, midX, midYSpO2);
+                    pathHR.quadTo(prevX, prevYHR, midX, midYHR);
+                    pathPI.quadTo(prevX, prevYPI, midX, midYPI);
                 }
+                prevX = x;
+                prevYSpO2 = ySpO2;
+                prevYHR = yHR;
+                prevYPI = yPI;
             }
+            pathSpO2.lineTo(prevX, prevYSpO2);
+            pathHR.lineTo(prevX, prevYHR);
+            pathPI.lineTo(prevX, prevYPI);
 
             canvas.drawPath(pathSpO2, paintSpO2);
             canvas.drawPath(pathHR, paintHR);
             canvas.drawPath(pathPI, paintPI);
+
+            // Интерактивный прицел при касании пальцем
+            if (touchX != null && touchX >= leftPad && touchX <= w - rightPad) {
+                canvas.drawLine(touchX, topPad, touchX, topPad + 3 * zoneH, paintCursor);
+
+                float touchRatio = (touchX - leftPad) / plotW;
+                float targetSec = touchRatio * maxTime;
+
+                DataPoint closest = points.get(0);
+                float minDiff = Math.abs(closest.elapsedSec - targetSec);
+                for (DataPoint dp : points) {
+                    float diff = Math.abs(dp.elapsedSec - targetSec);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        closest = dp;
+                    }
+                }
+
+                String info = String.format(Locale.US, "[%dm%ds] O2:%d%% | HR:%d | PI:%.1f%%",
+                        closest.elapsedSec / 60, closest.elapsedSec % 60,
+                        closest.spo2, closest.hr, closest.pi);
+
+                float boxW = 390f;
+                float boxH = 36f;
+                float boxX = Math.min(Math.max(touchX - boxW / 2f, leftPad), w - rightPad - boxW);
+                float boxY = topPad + 2f;
+
+                canvas.drawRect(boxX, boxY, boxX + boxW, boxY + boxH, paintTooltipBg);
+                paintText.setColor(Color.WHITE);
+                paintText.setTextSize(20f);
+                canvas.drawText(info, boxX + 10f, boxY + 25f, paintText);
+            }
         }
     }
 }
+
+
+
+
+
+            
+
+
+            
+
+                
 
