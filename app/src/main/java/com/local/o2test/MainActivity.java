@@ -127,10 +127,10 @@ public class MainActivity extends Activity {
         btnSave.setOnClickListener(v -> saveCSVData());
         btnExit.setOnClickListener(v -> exitApp());
 
-        // Встроенный холст для 3 графиков
+        // Встроенный холст для 3 графиков (авто-масштаб на 50% экрана)
         chartView = new TrendChartView(this);
         LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 500);
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
         chartParams.setMargins(0, 10, 0, 10);
         chartView.setLayoutParams(chartParams);
         mainLayout.addView(chartView);
