@@ -1,27 +1,22 @@
 package com.local.o2test;
 
+import android.app.Activity;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import androidx.appcompat.app.AppCompatActivity;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 
-public class MainActivity extends AppCompatActivity implements O2BleManager.BleListener {
+public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private O2BleManager bleManager;
     private TextView tvLiveMetrics;
     private TrendChartView chartView;
     private TextView tvLog;
     private ScrollView logScrollView;
-
-    private boolean isRecording = false;
-    private long sessionStartTime = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
