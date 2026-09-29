@@ -1,56 +1,46 @@
 package com.local.o2test;
 
-import android.Manifest;
-import android.app.Activity;
-import android.os.Build;
 import android.os.Bundle;
-import android.text.Html;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
+import androidx.appcompat.app.AppCompatActivity;
 
 import java.util.ArrayList;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 
-public class MainActivity extends Activity implements O2BleManager.BleListener {
+public class MainActivity extends AppCompatActivity implements O2BleManager.BleListener {
 
-    private TextView tvLiveMetrics;
-    private TextView logView;
-
-    private static final int MAX_LOG_LINES = 150;
-    private final LinkedList<String> logBuffer = new LinkedList<>();
-
-    private TrendChartView chartView;
     private O2BleManager bleManager;
+    private TextView tvLiveMetrics;
+    private TrendChartView chartView;
+    private TextView tvLog;
+    private ScrollView logScrollView;
 
     private boolean isRecording = false;
     private long sessionStartTime = 0;
-    private final List<DataPoint> sessionData = new ArrayList<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        
-        txtPi = findViewById(R.id.txtPi); // или ваш ID для PI
-        txtBattery = findViewById(R.id.txtBattery); // или ваш ID для Заряда
-        
+
         bleManager = new O2BleManager(this, this);
 
         LinearLayout mainLayout = new LinearLayout(this);
         mainLayout.setOrientation(LinearLayout.VERTICAL);
         mainLayout.setPadding(20, 20, 20, 20);
 
+        // Шапка показателей
         tvLiveMetrics = new TextView(this);
-        tvLiveMetrics.setTextSize(20);
+        tvLiveMetrics.setTextSize(18);
         tvLiveMetrics.setGravity(Gravity.CENTER);
         updateStatusHeader(0, 0, 0f, 0);
         mainLayout.addView(tvLiveMetrics);
 
+        // Панель кнопок
         LinearLayout btnBar = new LinearLayout(this);
         btnBar.setOrientation(LinearLayout.HORIZONTAL);
         btnBar.setPadding(0, 10, 0, 10);
@@ -66,36 +56,39 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         btnBar.addView(btnExit);
         mainLayout.addView(btnBar);
 
-        btnMonitor.setOnClickListener(v -> startMonitoringPanel());
-        btnStop.setOnClickListener(v -> stopRecordingSession());
-        btnSave.setOnClickListener(v -> saveCSVData());
-        btnExit.setOnClickListener(v -> exitApp());
-
+        // График
         chartView = new TrendChartView(this);
         LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        chartParams.setMargins(0, 10, 0, 10);
         chartView.setLayoutParams(chartParams);
         mainLayout.addView(chartView);
 
-        ScrollView scrollView = new ScrollView(this);
-        logView = new TextView(this);
-        logView.setTextSize(12);
-        scrollView.addView(logView);
-        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
+        // Текстовый лог
+        tvLog = new TextView(this);
+        tvLog.setTextSize(11);
+
+        logScrollView = new ScrollView(this);
+        LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        scrollView.setLayoutParams(scrollParams);
-        mainLayout.addView(scrollView);
+        logScrollView.setLayoutParams(logParams);
+        logScrollView.addView(tvLog);
+        mainLayout.addView(logScrollView);
 
         setContentView(mainLayout);
-        log("Система готова. Выберите действие в меню.");
-        checkAndRequestPermissions();
+
+        // Обработчики кнопок
+        btnMonitor.setOnClickListener(v -> startMonitoringPanel());
+        btnStop.setOnClickListener(v -> stopMonitoring());
+        btnSave.setOnClickListener(v -> saveData());
+        btnExit.setOnClickListener(v -> finish());
+
+        // Запуск BLE сканера
+        bleManager.initAndStartScan();
     }
 
     private Button createButton(String text) {
         Button btn = new Button(this);
         btn.setText(text);
-        btn.setTextSize(12);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
         params.setMargins(4, 0, 4, 0);
@@ -103,145 +96,52 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         return btn;
     }
 
-    private void startMonitoringPanel() {
-        isRecording = true;
-        sessionStartTime = System.currentTimeMillis();
-        sessionData.clear();
-        chartView.clearData();
-        log("\n>>> ПАНЕЛЬ МОНИТОРА: Запущен новый сеанс записи <<<");
-
-        if (!bleManager.isConnected()) {
-            bleManager.initAndStartScan();
-        } else {
-            // Пробуем запустить поток PPG волны
-            bleManager.sendPpgRequest();
-        }
-    }
-
-    private void stopRecordingSession() {
-        if (isRecording) {
-            isRecording = false;
-            log("\n>>> ЗАПИСЬ ОСТАНОВЛЕНА <<<");
-            generateReportSummary();
-        } else {
-            log("Запись не была активна.");
-        }
-    }
-
-    private void saveCSVData() {
-        CsvExporter.saveSessionToCsv(this, sessionData, new CsvExporter.ExportCallback() {
-            @Override
-            public void onSuccess(String filePath, String fileName) {
-                log("Файл сохранён:\n" + filePath);
-                Toast.makeText(MainActivity.this, "Сохранено в CSV:\n" + fileName, Toast.LENGTH_LONG).show();
-            }
-
-            @Override
-            public void onError(String errorMessage) {
-                log(errorMessage);
-                Toast.makeText(MainActivity.this, errorMessage, Toast.LENGTH_SHORT).show();
-            }
-        });
-    }
-
-    private void exitApp() {
-        log("Завершение работы приложения...");
-        bleManager.close();
-        finishAndRemoveTask();
-    }
-
-    private void generateReportSummary() {
-        if (sessionData.isEmpty()) return;
-
-        float initialPI = sessionData.get(0).pi;
-        float maxPI = initialPI;
-        int maxPITime = 0;
-
-        for (DataPoint dp : sessionData) {
-            if (dp.pi > maxPI) {
-                maxPI = dp.pi;
-                maxPITime = dp.elapsedSec;
-            }
-        }
-        float endPI = sessionData.get(sessionData.size() - 1).pi;
-
-        log("--- ИТОГОВЫЙ ОТЧЕТ СЕАНСА ---");
-        log(String.format(Locale.US, "Базовый PI (тонус): %.2f%%", initialPI));
-        log(String.format(Locale.US, "Пик вазодилатации: %.2f%% (на %d-й сек)", maxPI, maxPITime));
-        log(String.format(Locale.US, "Финишный PI: %.2f%%", endPI));
-    }
-
-    private void log(String text) {
-        runOnUiThread(() -> {
-            logBuffer.add(text);
-            while (logBuffer.size() > MAX_LOG_LINES) {
-                logBuffer.removeFirst();
-            }
-            StringBuilder sb = new StringBuilder();
-            for (String line : logBuffer) {
-                sb.append(line).append("\n");
-            }
-            if (logView != null) {
-                logView.setText(sb.toString());
-            }
-        });
-    }
-
     private void updateStatusHeader(int spo2, int hr, float pi, int battery) {
-        String formattedHtml = String.format(Locale.US,
-                "<font color='#00FFFF'><b>SpO2: %d%%</b></font> &nbsp;|&nbsp; " +
-                "<font color='#00FF00'><b>HR: %d bpm</b></font> &nbsp;|&nbsp; " +
-                "<font color='#FFFF00'><b>PI: %.1f%%</b></font> &nbsp;|&nbsp; " +
-                "<font color='#AAAAAA'>Заряд: %d%%</font>",
-                spo2, hr, pi, battery);
-
         if (tvLiveMetrics != null) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                tvLiveMetrics.setText(Html.fromHtml(formattedHtml, Html.FROM_HTML_MODE_LEGACY));
-            } else {
-                tvLiveMetrics.setText(Html.fromHtml(formattedHtml));
-            }
+            tvLiveMetrics.setText(String.format(Locale.US,
+                    "SpO2: %d%%  |  HR: %d bpm  |  PI: %.1f%%  |  Заряд: %d%%",
+                    spo2, hr, pi, battery));
         }
     }
 
-    private void checkAndRequestPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            requestPermissions(new String[]{
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            }, 101);
-        } else {
-            requestPermissions(new String[]{
-                Manifest.permission.ACCESS_FINE_LOCATION
-            }, 101);
-        }
+    private void startMonitoringPanel() {
+        onLog("Панель монитора активна");
+    }
+
+    private void stopMonitoring() {
+        onLog("Мониторинг остановлен");
+    }
+
+    private void saveData() {
+        onLog("Сохранение данных...");
     }
 
     @Override
     public void onLog(String message) {
-        log(message);
-    }
-
-@Override
-public void onDataReceived(byte[] data) {
-    O2Parser.ParseResult result = O2Parser.parse(data);
-    
-    if (result != null && result.isValid) {
         runOnUiThread(() -> {
-            // Обновление текстовых полей в шапке
-            if (txtSpo2 != null) txtSpo2.setText("SpO2: " + result.spo2 + "%");
-            if (txtHr != null) txtHr.setText("HR: " + result.hr + " bpm");
-            if (txtPi != null) txtPi.setText(String.format(java.util.Locale.US, "PI: %.1f%%", result.pi));
-            if (txtBattery != null) txtBattery.setText("Заряд: " + result.battery + "%");
-
-            // Обновление графика (если используется метод добавления точек)
-            if (chartView != null) {
-                chartView.addEntry(result.spo2, result.hr, result.pi);
+            if (tvLog != null) {
+                tvLog.append(message + "\n");
+                if (logScrollView != null) {
+                    logScrollView.post(() -> logScrollView.fullScroll(ScrollView.FOCUS_DOWN));
+                }
             }
         });
     }
-}
+
+    @Override
+    public void onDataReceived(byte[] data) {
+        onLog("RX [" + (data != null ? data.length : 0) + "]: " + O2Parser.bytesToHex(data));
+
+        O2Parser.ParseResult result = O2Parser.parse(data);
+        if (result != null && result.isValid) {
+            runOnUiThread(() -> {
+                updateStatusHeader(result.spo2, result.hr, result.pi, result.battery);
+                if (chartView != null) {
+                    chartView.addPoint(result.spo2, result.hr, result.pi);
+                }
+            });
+        }
+    }
 
     @Override
     protected void onDestroy() {
