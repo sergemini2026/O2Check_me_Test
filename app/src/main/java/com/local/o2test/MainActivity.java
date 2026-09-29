@@ -18,6 +18,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private TextView tvLog;
     private ScrollView logScrollView;
 
+    private long sessionStartTime = 0;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -100,6 +102,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     private void startMonitoringPanel() {
+        sessionStartTime = System.currentTimeMillis();
+        if (chartView != null) {
+            chartView.clearData();
+        }
         onLog("Панель монитора активна");
     }
 
@@ -129,10 +135,17 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         O2Parser.ParseResult result = O2Parser.parse(data);
         if (result != null && result.isValid) {
+            if (sessionStartTime == 0) {
+                sessionStartTime = System.currentTimeMillis();
+            }
+            int elapsedSec = (int) ((System.currentTimeMillis() - sessionStartTime) / 1000);
+
             runOnUiThread(() -> {
                 updateStatusHeader(result.spo2, result.hr, result.pi, result.battery);
+
                 if (chartView != null) {
-                    chartView.addPoint(result.spo2, result.hr, result.pi);
+                    DataPoint dp = new DataPoint(elapsedSec, result.spo2, result.hr, result.pi);
+                    chartView.addDataPoint(dp);
                 }
             });
         }
