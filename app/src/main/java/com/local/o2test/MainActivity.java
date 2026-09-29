@@ -38,6 +38,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -67,7 +68,8 @@ public class MainActivity extends Activity {
 
     private boolean isRecording = false;
     private long sessionStartTime = 0;
-    private final List<DataPoint> sessionData = new ArrayList<>();
+    // Потокобезопасный список точек данных сеанса
+    private final List<DataPoint> sessionData = Collections.synchronizedList(new ArrayList<>());
 
     private static final UUID SERVICE_UUID = UUID.fromString("14839ac4-7d7e-415c-9a42-167340cf2339");
     private static final UUID WRITE_CHAR_UUID = UUID.fromString("8b00ace7-eb0b-49b0-bbe9-9aee0a26e1a3");
@@ -127,435 +129,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-
-        LinearLayout mainLayout = new LinearLayout(this);
-        mainLayout.setOrientation(LinearLayout.VERTICAL);
-        mainLayout.setPadding(20, 20, 20, 20);
-
-        // Метрики реального времени
-        tvLiveMetrics = new TextView(this);
-        tvLiveMetrics.setTextSize(20);
-        tvLiveMetrics.setGravity(Gravity.CENTER);
-        updateStatusHeader(0, 0, 0f, 0);
-        mainLayout.addView(tvLiveMetrics);
-
-        // Панель кнопок управления
-        LinearLayout btnBar = new LinearLayout(this);
-        btnBar.setOrientation(LinearLayout.HORIZONTAL);
-        btnBar.setPadding(0, 10, 0, 10);
-
-        Button btnMonitor = createButton("Панель монитора");
-        Button btnStop = createButton("Стоп");
-        Button btnSave = createButton("Сохранение данных");
-        Button btnExit = createButton("Выход");
-
-        btnBar.addView(btnMonitor);
-        btnBar.addView(btnStop);
-        btnBar.addView(btnSave);
-        btnBar.addView(btnExit);
-        mainLayout.addView(btnBar);
-
-        // Клик-хэндлеры
-        btnMonitor.setOnClickListener(v -> startMonitoringPanel());
-        btnStop.setOnClickListener(v -> stopRecordingSession());
-        btnSave.setOnClickListener(v -> saveCSVData());
-        btnExit.setOnClickListener(v -> exitApp());
-
-        // Встроенный холст для 3 графиков (авто-масштаб на 50% экрана)
-        chartView = new TrendChartView(this);
-        LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        chartParams.setMargins(0, 10, 0, 10);
-        chartView.setLayoutParams(chartParams);
-        mainLayout.addView(chartView);
-
-        // Текстовый журнал
-        ScrollView scrollView = new ScrollView(this);
-        logView = new TextView(this);
-        logView.setTextSize(12);
-        scrollView.addView(logView);
-        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        scrollView.setLayoutParams(scrollParams);
-        mainLayout.addView(scrollView);
-
-        setContentView(mainLayout);
-        log("Система готова. Выберите действие в меню.");
-        checkAndRequestPermissions();
-    }
-
-    private Button createButton(String text) {
-        Button btn = new Button(this);
-        btn.setText(text);
-        btn.setTextSize(12);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
-        params.setMargins(4, 0, 4, 0);
-        btn.setLayoutParams(params);
-        return btn;
-    }
-
-    // 1. Панель монитора (Запуск считывания и записи сеанса)
-    private void startMonitoringPanel() {
-        isRecording = true;
-        sessionStartTime = System.currentTimeMillis();
-        sessionData.clear();
-        chartView.clearData();
-        log("\n>>> ПАНЕЛЬ МОНИТОРА: Запущен новый сеанс записи <<<");
-
-        if (bluetoothGatt == null) {
-            initBLE();
-        }
-    }
-
-    // 2. Стоп (Остановка записи)
-    private void stopRecordingSession() {
-        if (isRecording) {
-            isRecording = false;
-            log("\n>>> ЗАПИСЬ ОСТАНОВЛЕНА <<<");
-            generateReportSummary();
-        } else {
-            log("Запись не была активна.");
-        }
-    }
-
-    // 3. Сохранение данных (CSV)
-    private void saveCSVData() {
-        if (sessionData.isEmpty()) {
-            log("Ошибка: Нет данных для сохранения.");
-            Toast.makeText(this, "Нет данных для сохранения!", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
-        String fileName = "O2_Session_" + timeStamp + ".csv";
-
-        File docDir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
-        if (docDir != null && !docDir.exists()) docDir.mkdirs();
-        File file = new File(docDir, fileName);
-
-        try (FileWriter writer = new FileWriter(file)) {
-            writer.append("Timestamp,Elapsed_Sec,SpO2,HR,PI\n");
-            for (DataPoint dp : sessionData) {
-                writer.append(String.format(Locale.US, "%d,%d,%d,%d,%.2f\n",
-                        dp.timestamp, dp.elapsedSec, dp.spo2, dp.hr, dp.pi));
-            }
-            log("Файл сохранён:\n" + file.getAbsolutePath());
-            Toast.makeText(this, "Сохранено в CSV:\n" + fileName, Toast.LENGTH_LONG).show();
-        } catch (IOException e) {
-            log("Ошибка сохранения CSV: " + e.getMessage());
-        }
-    }
-
-    // 4. Выход (Закрытие приложения)
-    private void exitApp() {
-        log("Завершение работы приложения...");
-        stopTimer();
-        if (bluetoothGatt != null) {
-            try {
-                bluetoothGatt.close();
-            } catch (SecurityException ignored) {}
-        }
-        finishAndRemoveTask();
-    }
-
-    private void generateReportSummary() {
-        if (sessionData.isEmpty()) return;
-
-        float initialPI = sessionData.get(0).pi;
-        float maxPI = initialPI;
-        int maxPITime = 0;
-
-        for (DataPoint dp : sessionData) {
-            if (dp.pi > maxPI) {
-                maxPI = dp.pi;
-                maxPITime = dp.elapsedSec;
-            }
-        }
-        float endPI = sessionData.get(sessionData.size() - 1).pi;
-
-        log("--- ИТОГОВЫЙ ОТЧЕТ СЕАНСА ---");
-        log(String.format(Locale.US, "Базовый PI (тонус): %.2f%%", initialPI));
-        log(String.format(Locale.US, "Пик вазодилатации: %.2f%% (на %d-й сек)", maxPI, maxPITime));
-        log(String.format(Locale.US, "Финишный PI: %.2f%%", endPI));
-    }
-
-    private void log(String text) {
-        appendLog(text);
-    }
-
-    private void appendLog(final String text) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                logBuffer.add(text);
-                while (logBuffer.size() > MAX_LOG_LINES) {
-                    logBuffer.removeFirst();
-                }
-                StringBuilder sb = new StringBuilder();
-                for (String line : logBuffer) {
-                    sb.append(line).append("\n");
-                }
-                if (logView != null) {
-                    logView.setText(sb.toString());
-                }
-            }
-        });
-    }
-
-    private void updateStatusHeader(int spo2, int hr, float pi, int battery) {
-        String formattedHtml = String.format(Locale.US,
-                "<font color='#00FFFF'><b>SpO2: %d%%</b></font> &nbsp;|&nbsp; " +
-                "<font color='#00FF00'><b>HR: %d bpm</b></font> &nbsp;|&nbsp; " +
-                "<font color='#FFFF00'><b>PI: %.1f%%</b></font> &nbsp;|&nbsp; " +
-                "<font color='#AAAAAA'>Заряд: %d%%</font>",
-                spo2, hr, pi, battery);
-
-        if (tvLiveMetrics != null) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                tvLiveMetrics.setText(Html.fromHtml(formattedHtml, Html.FROM_HTML_MODE_LEGACY));
-            } else {
-                tvLiveMetrics.setText(Html.fromHtml(formattedHtml));
-            }
-        }
-    }
-
-    private void checkAndRequestPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            requestPermissions(new String[]{
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            }, 101);
-        } else {
-            requestPermissions(new String[]{
-                Manifest.permission.ACCESS_FINE_LOCATION
-            }, 101);
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        log("Права получены.");
-    }
-
-    private void initBLE() {
-        BluetoothManager manager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
-        BluetoothAdapter adapter = manager != null ? manager.getAdapter() : null;
-
-        if (adapter == null || !adapter.isEnabled()) {
-            log("ОШИБКА: Bluetooth выключен!");
-            return;
-        }
-
-        scanner = adapter.getBluetoothLeScanner();
-        if (scanner == null) {
-            log("ОШИБКА: BLE-сканер недоступен.");
-            return;
-        }
-
-        startScanning();
-    }
-
-    private void startScanning() {
-        discoveredDevices.clear();
-        try {
-            scanner.startScan(new ScanCallback() {
-                @Override
-                public void onScanResult(int callbackType, ScanResult result) {
-                    BluetoothDevice device = result.getDevice();
-                    if (device == null) return;
-
-                    String address = device.getAddress();
-                    String name = device.getName();
-                    if (name == null) return;
-
-                    if (discoveredDevices.add(address)) {
-                        log("Найдено: " + name + " [" + address + "]");
-                    }
-
-                    if (!isConnecting && (name.contains("O2") || name.contains("Viatom") || name.contains("Checkme"))) {
-                        isConnecting = true;
-                        log(">>> ДАТЧИК ОБНАРУЖЕН: " + name + " <<<");
-                        scanner.stopScan(this);
-                        connectToDevice(device);
-                    }
-                }
-            });
-        } catch (SecurityException e) {
-            log("Ошибка разрешений: " + e.getMessage());
-        }
-    }
-
-    private void connectToDevice(BluetoothDevice device) {
-        try {
-            bluetoothGatt = device.connectGatt(this, false, new BluetoothGattCallback() {
-                @Override
-                public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
-                    if (newState == BluetoothProfile.STATE_CONNECTED) {
-                        log("Соединение установлено. Поиск сервисов...");
-                        gatt.discoverServices();
-                    } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                        log("Соединение разорвано.");
-                        isConnecting = false;
-                        stopTimer();
-                    }
-                }
-
-                @Override
-                public void onServicesDiscovered(BluetoothGatt gatt, int status) {
-                    if (status == BluetoothGatt.GATT_SUCCESS) {
-                        BluetoothGattService service = gatt.getService(SERVICE_UUID);
-                        if (service != null) {
-                            writeChar = service.getCharacteristic(WRITE_CHAR_UUID);
-                            BluetoothGattCharacteristic notifyChar = service.getCharacteristic(NOTIFY_CHAR_UUID);
-
-                            if (notifyChar != null) {
-                                log("Подписка на поток данных...");
-                                gatt.setCharacteristicNotification(notifyChar, true);
-                                BluetoothGattDescriptor descriptor = notifyChar.getDescriptor(CLIENT_CONFIG_DESCRIPTOR);
-                                if (descriptor != null) {
-                                    descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-                                    gatt.writeDescriptor(descriptor);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                @Override
-                public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
-                    if (status == BluetoothGatt.GATT_SUCCESS) {
-                        log("Канал готов. Запуск интервала опроса...");
-                        startPeriodicRequest();
-                    }
-                }
-
-                @Override
-                public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-                    parseData(characteristic.getValue());
-                }
-
-                @Override
-                public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, byte[] value) {
-                    parseData(value);
-                }
-            });
-        } catch (SecurityException e) {
-            log("Ошибка подключения: " + e.getMessage());
-        }
-    }
-
-    private void startPeriodicRequest() {
-        timerRunnable = new Runnable() {
-            @Override
-            public void run() {
-                sendRtDataRequest();
-                timerHandler.postDelayed(this, 3000);
-            }
-        };
-        timerHandler.post(timerRunnable);
-    }
-
-    private void stopTimer() {
-        if (timerRunnable != null) {
-            timerHandler.removeCallbacks(timerRunnable);
-        }
-    }
-
-    private void sendRtDataRequest() {
-        if (bluetoothGatt == null || writeChar == null) return;
-        try {
-            byte[] cmd = new byte[]{(byte) 0xAA, 0x14, (byte) 0xEB, 0x00, 0x00, 0x00, 0x00, 0x1F};
-            
-            // Явно задаем тип записи для гарантии отправки в Android 12+
-            writeChar.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
-            
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                int result = bluetoothGatt.writeCharacteristic(writeChar, cmd, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
-                if (result != BluetoothGatt.GATT_SUCCESS) {
-                    log("Ошибка отправки команды: code " + result);
-                }
-            } else {
-                writeChar.setValue(cmd);
-                boolean success = bluetoothGatt.writeCharacteristic(writeChar);
-                if (!success) {
-                    log("Ошибка: writeCharacteristic вернул false");
-                }
-            }
-        } catch (SecurityException e) {
-            log("Ошибка прав при отправке: " + e.getMessage());
-        }
-    }
-
-    private void parseData(byte[] data) {
-        if (data == null || data.length < 8) return;
-
-        int header = data[0] & 0xFF;
-
-        // Вывод сырых байт для отладки структуры пакета
-        StringBuilder hex = new StringBuilder();
-        for (int i = 0; i < Math.min(data.length, 12); i++) {
-            hex.append(String.format("%02X ", data[i]));
-        }
-        
-        if (header == 0x55 || header == 0xA5) {
-            // Базовые смещения Viatom RT-пакета
-            int spo2 = data[6] & 0xFF;
-            int hr = data[7] & 0xFF;
-            
-            // Если SpO2 вне диапазона (например, 255 при снятом кольце), пробуем соседнее смещение
-            if (spo2 > 100 && data.length > 8) {
-                spo2 = data[7] & 0xFF;
-                hr = data[8] & 0xFF;
-            }
-
-            int battery = (data.length > 14) ? (data[14] & 0xFF) : 100;
-
-            // Расчет PI по PPG
-            float calculatedPI = 0.0f;
-            if (data.length >= 12) {
-                for (int i = 8; i < data.length - 1; i++) {
-                    int ppgSample = data[i] & 0xFF;
-                    calculatedPI = piCalculator.addSampleAndCalculatePI(ppgSample);
-                }
-            }
-
-            long now = System.currentTimeMillis();
-            final float currentPI = calculatedPI;
-            final int finalSpO2 = (spo2 <= 100) ? spo2 : 0;
-            final int finalHR = (hr < 250) ? hr : 0;
-
-      // Всегда обновляем заголовок, чтобы видеть текущий статус связи
-            runOnUiThread(() -> updateStatusHeader(finalSpO2, finalHR, currentPI, battery));
-
-            // Добавляем точку на график и в сессию при наличии валидного пульса/кислорода
-            if (isRecording && finalSpO2 > 0 && finalHR > 0) {
-                int elapsedSec = (int) ((now - sessionStartTime) / 1000);
-                DataPoint dp = new DataPoint(now, elapsedSec, finalSpO2, finalHR, currentPI);
-                sessionData.add(dp);
-                runOnUiThread(() -> chartView.addDataPoint(dp));
-            }
-        } else {
-            log("RAW: " + hex.toString());
-        }
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        stopTimer();
-        if (bluetoothGatt != null) {
-            try {
-                bluetoothGatt.close();
-            } catch (SecurityException ignored) {}
-        }
-    }
-}
     // Отрисовка графиков тренда
     public static class TrendChartView extends View {
         private final List<DataPoint> points = new ArrayList<>();
@@ -809,6 +382,439 @@ public class MainActivity extends Activity {
                 paintText.setTextSize(20f);
                 canvas.drawText(info, boxX + 10f, boxY + 25f, paintText);
             }
+        }
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        LinearLayout mainLayout = new LinearLayout(this);
+        mainLayout.setOrientation(LinearLayout.VERTICAL);
+        mainLayout.setPadding(20, 20, 20, 20);
+
+        // Метрики реального времени
+        tvLiveMetrics = new TextView(this);
+        tvLiveMetrics.setTextSize(20);
+        tvLiveMetrics.setGravity(Gravity.CENTER);
+        updateStatusHeader(0, 0, 0f, 0);
+        mainLayout.addView(tvLiveMetrics);
+
+        // Панель кнопок управления
+        LinearLayout btnBar = new LinearLayout(this);
+        btnBar.setOrientation(LinearLayout.HORIZONTAL);
+        btnBar.setPadding(0, 10, 0, 10);
+
+        Button btnMonitor = createButton("Панель монитора");
+        Button btnStop = createButton("Стоп");
+        Button btnSave = createButton("Сохранение данных");
+        Button btnExit = createButton("Выход");
+
+        btnBar.addView(btnMonitor);
+        btnBar.addView(btnStop);
+        btnBar.addView(btnSave);
+        btnBar.addView(btnExit);
+        mainLayout.addView(btnBar);
+
+        // Клик-хэндлеры
+        btnMonitor.setOnClickListener(v -> startMonitoringPanel());
+        btnStop.setOnClickListener(v -> stopRecordingSession());
+        btnSave.setOnClickListener(v -> saveCSVData());
+        btnExit.setOnClickListener(v -> exitApp());
+
+        // Встроенный холст для 3 графиков (авто-масштаб на 50% экрана)
+        chartView = new TrendChartView(this);
+        LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
+        chartParams.setMargins(0, 10, 0, 10);
+        chartView.setLayoutParams(chartParams);
+        mainLayout.addView(chartView);
+
+        // Текстовый журнал
+        ScrollView scrollView = new ScrollView(this);
+        logView = new TextView(this);
+        logView.setTextSize(12);
+        scrollView.addView(logView);
+        LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
+        scrollView.setLayoutParams(scrollParams);
+        mainLayout.addView(scrollView);
+
+        setContentView(mainLayout);
+        log("Система готова. Выберите действие в меню.");
+        checkAndRequestPermissions();
+    }
+
+    private Button createButton(String text) {
+        Button btn = new Button(this);
+        btn.setText(text);
+        btn.setTextSize(12);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+        params.setMargins(4, 0, 4, 0);
+        btn.setLayoutParams(params);
+        return btn;
+        }
+        // 1. Панель монитора (Запуск считывания и записи сеанса)
+    private void startMonitoringPanel() {
+        isRecording = true;
+        sessionStartTime = System.currentTimeMillis();
+        sessionData.clear();
+        chartView.clearData();
+        log("\n>>> ПАНЕЛЬ МОНИТОРА: Запущен новый сеанс записи <<<");
+
+        if (bluetoothGatt == null) {
+            initBLE();
+        }
+    }
+
+    // 2. Стоп (Остановка записи)
+    private void stopRecordingSession() {
+        if (isRecording) {
+            isRecording = false;
+            log("\n>>> ЗАПИСЬ ОСТАНОВЛЕНА <<<");
+            generateReportSummary();
+        } else {
+            log("Запись не была активна.");
+        }
+    }
+
+    // 3. Сохранение данных (CSV)
+    private void saveCSVData() {
+        if (sessionData.isEmpty()) {
+            log("Ошибка: Нет данных для сохранения.");
+            Toast.makeText(this, "Нет данных для сохранения!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
+        String fileName = "O2_Session_" + timeStamp + ".csv";
+
+        File docDir = getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS);
+        if (docDir != null && !docDir.exists()) docDir.mkdirs();
+        File file = new File(docDir, fileName);
+
+        try (FileWriter writer = new FileWriter(file)) {
+            writer.append("Timestamp,Elapsed_Sec,SpO2,HR,PI\n");
+            synchronized (sessionData) {
+                for (DataPoint dp : sessionData) {
+                    writer.append(String.format(Locale.US, "%d,%d,%d,%d,%.2f\n",
+                            dp.timestamp, dp.elapsedSec, dp.spo2, dp.hr, dp.pi));
+                }
+            }
+            log("Файл сохранён:\n" + file.getAbsolutePath());
+            Toast.makeText(this, "Сохранено в CSV:\n" + fileName, Toast.LENGTH_LONG).show();
+        } catch (IOException e) {
+            log("Ошибка сохранения CSV: " + e.getMessage());
+        }
+    }
+
+    // 4. Выход (Закрытие приложения)
+    private void exitApp() {
+        log("Завершение работы приложения...");
+        stopTimer();
+        if (bluetoothGatt != null) {
+            try {
+                bluetoothGatt.close();
+            } catch (SecurityException ignored) {}
+        }
+        finishAndRemoveTask();
+    }
+
+    private void generateReportSummary() {
+        if (sessionData.isEmpty()) return;
+
+        synchronized (sessionData) {
+            if (sessionData.isEmpty()) return;
+            float initialPI = sessionData.get(0).pi;
+            float maxPI = initialPI;
+            int maxPITime = 0;
+
+            for (DataPoint dp : sessionData) {
+                if (dp.pi > maxPI) {
+                    maxPI = dp.pi;
+                    maxPITime = dp.elapsedSec;
+                }
+            }
+            float endPI = sessionData.get(sessionData.size() - 1).pi;
+
+            log("--- ИТОГОВЫЙ ОТЧЕТ СЕАНСА ---");
+            log(String.format(Locale.US, "Базовый PI (тонус): %.2f%%", initialPI));
+            log(String.format(Locale.US, "Пик вазодилатации: %.2f%% (на %d-й сек)", maxPI, maxPITime));
+            log(String.format(Locale.US, "Финишный PI: %.2f%%", endPI));
+        }
+    }
+
+    private void log(String text) {
+        appendLog(text);
+    }
+
+    private void appendLog(final String text) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                logBuffer.add(text);
+                while (logBuffer.size() > MAX_LOG_LINES) {
+                    logBuffer.removeFirst();
+                }
+                StringBuilder sb = new StringBuilder();
+                for (String line : logBuffer) {
+                    sb.append(line).append("\n");
+                }
+                if (logView != null) {
+                    logView.setText(sb.toString());
+                }
+            }
+        });
+    }
+
+    private void updateStatusHeader(int spo2, int hr, float pi, int battery) {
+        String formattedHtml = String.format(Locale.US,
+                "<font color='#00FFFF'><b>SpO2: %d%%</b></font> &nbsp;|&nbsp; " +
+                "<font color='#00FF00'><b>HR: %d bpm</b></font> &nbsp;|&nbsp; " +
+                "<font color='#FFFF00'><b>PI: %.1f%%</b></font> &nbsp;|&nbsp; " +
+                "<font color='#AAAAAA'>Заряд: %d%%</font>",
+                spo2, hr, pi, battery);
+
+        if (tvLiveMetrics != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                tvLiveMetrics.setText(Html.fromHtml(formattedHtml, Html.FROM_HTML_MODE_LEGACY));
+            } else {
+                tvLiveMetrics.setText(Html.fromHtml(formattedHtml));
+            }
+        }
+    }
+
+    private void checkAndRequestPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            requestPermissions(new String[]{
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            }, 101);
+        } else {
+            requestPermissions(new String[]{
+                Manifest.permission.ACCESS_FINE_LOCATION
+            }, 101);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        log("Права получены.");
+    }
+
+    private void initBLE() {
+        BluetoothManager manager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
+        BluetoothAdapter adapter = manager != null ? manager.getAdapter() : null;
+
+        if (adapter == null || !adapter.isEnabled()) {
+            log("ОШИБКА: Bluetooth выключен!");
+            return;
+        }
+
+        scanner = adapter.getBluetoothLeScanner();
+        if (scanner == null) {
+            log("ОШИБКА: BLE-сканер недоступен.");
+            return;
+        }
+
+        startScanning();
+    }
+
+    private void startScanning() {
+        discoveredDevices.clear();
+        try {
+            scanner.startScan(new ScanCallback() {
+                @Override
+                public void onScanResult(int callbackType, ScanResult result) {
+                    BluetoothDevice device = result.getDevice();
+                    if (device == null) return;
+
+                    String address = device.getAddress();
+                    String name = device.getName();
+                    if (name == null) return;
+
+                    if (discoveredDevices.add(address)) {
+                        log("Найдено: " + name + " [" + address + "]");
+                    }
+
+                    if (!isConnecting && (name.contains("O2") || name.contains("Viatom") || name.contains("Checkme"))) {
+                        isConnecting = true;
+                        log(">>> ДАТЧИК ОБНАРУЖЕН: " + name + " <<<");
+                        scanner.stopScan(this);
+                        connectToDevice(device);
+                    }
+                }
+            });
+        } catch (SecurityException e) {
+            log("Ошибка разрешений: " + e.getMessage());
+        }
+    }
+
+    private void connectToDevice(BluetoothDevice device) {
+        try {
+            bluetoothGatt = device.connectGatt(this, false, new BluetoothGattCallback() {
+                @Override
+                public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
+                    if (newState == BluetoothProfile.STATE_CONNECTED) {
+                        log("Соединение установлено. Поиск сервисов...");
+                        gatt.discoverServices();
+                    } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                        log("Соединение разорвано.");
+                        isConnecting = false;
+                        stopTimer();
+                    }
+                }
+
+                @Override
+                public void onServicesDiscovered(BluetoothGatt gatt, int status) {
+                    if (status == BluetoothGatt.GATT_SUCCESS) {
+                        BluetoothGattService service = gatt.getService(SERVICE_UUID);
+                        if (service != null) {
+                            writeChar = service.getCharacteristic(WRITE_CHAR_UUID);
+                            BluetoothGattCharacteristic notifyChar = service.getCharacteristic(NOTIFY_CHAR_UUID);
+
+                            if (notifyChar != null) {
+                                log("Подписка на поток данных...");
+                                gatt.setCharacteristicNotification(notifyChar, true);
+                                BluetoothGattDescriptor descriptor = notifyChar.getDescriptor(CLIENT_CONFIG_DESCRIPTOR);
+                                if (descriptor != null) {
+                                    descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                                    gatt.writeDescriptor(descriptor);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                @Override
+                public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
+                    if (status == BluetoothGatt.GATT_SUCCESS) {
+                        log("Канал готов. Запуск интервала опроса...");
+                        startPeriodicRequest();
+                    }
+                }
+
+                @Override
+                public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
+                    parseData(characteristic.getValue());
+                }
+
+                @Override
+                public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, byte[] value) {
+                    parseData(value);
+                }
+            });
+        } catch (SecurityException e) {
+            log("Ошибка подключения: " + e.getMessage());
+        }
+    }
+
+    private void startPeriodicRequest() {
+        timerRunnable = new Runnable() {
+            @Override
+            public void run() {
+                sendRtDataRequest();
+                timerHandler.postDelayed(this, 3000);
+            }
+        };
+        timerHandler.post(timerRunnable);
+    }
+
+    private void stopTimer() {
+        if (timerRunnable != null) {
+            timerHandler.removeCallbacks(timerRunnable);
+        }
+    }
+
+    private void sendRtDataRequest() {
+        if (bluetoothGatt == null || writeChar == null) return;
+        try {
+            byte[] cmd = new byte[]{(byte) 0xAA, 0x14, (byte) 0xEB, 0x00, 0x00, 0x00, 0x00, 0x1F};
+            
+            // Явно задаем тип записи для гарантии отправки в Android 12+
+            writeChar.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                int result = bluetoothGatt.writeCharacteristic(writeChar, cmd, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+                if (result != BluetoothGatt.GATT_SUCCESS) {
+                    log("Ошибка отправки команды: code " + result);
+                }
+            } else {
+                writeChar.setValue(cmd);
+                boolean success = bluetoothGatt.writeCharacteristic(writeChar);
+                if (!success) {
+                    log("Ошибка: writeCharacteristic вернул false");
+                }
+            }
+        } catch (SecurityException e) {
+            log("Ошибка прав при отправке: " + e.getMessage());
+        }
+    }
+
+    private void parseData(byte[] data) {
+        if (data == null || data.length < 8) return;
+
+        int header = data[0] & 0xFF;
+
+        // Вывод сырых байт для отладки структуры пакета
+        StringBuilder hex = new StringBuilder();
+        for (int i = 0; i < Math.min(data.length, 12); i++) {
+            hex.append(String.format("%02X ", data[i]));
+        }
+        
+        if (header == 0x55 || header == 0xA5) {
+            // Базовые смещения Viatom RT-пакета
+            int spo2 = data[6] & 0xFF;
+            int hr = data[7] & 0xFF;
+            
+            // Если SpO2 вне диапазона (например, 255 при снятом кольце), пробуем соседнее смещение
+            if (spo2 > 100 && data.length > 8) {
+                spo2 = data[7] & 0xFF;
+                hr = data[8] & 0xFF;
+            }
+
+            int battery = (data.length > 14) ? (data[14] & 0xFF) : 100;
+
+            // Расчет PI по PPG
+            float calculatedPI = 0.0f;
+            if (data.length >= 12) {
+                for (int i = 8; i < data.length - 1; i++) {
+                    int ppgSample = data[i] & 0xFF;
+                    calculatedPI = piCalculator.addSampleAndCalculatePI(ppgSample);
+                }
+            }
+
+            long now = System.currentTimeMillis();
+            final float currentPI = calculatedPI;
+            final int finalSpO2 = (spo2 <= 100) ? spo2 : 0;
+            final int finalHR = (hr < 250) ? hr : 0;
+
+            // Всегда обновляем заголовок, чтобы видеть текущий статус связи
+            runOnUiThread(() -> updateStatusHeader(finalSpO2, finalHR, currentPI, battery));
+
+            // Добавляем точку на график и в сессию при наличии валидного пульса/кислорода
+            if (isRecording && finalSpO2 > 0 && finalHR > 0) {
+                int elapsedSec = (int) ((now - sessionStartTime) / 1000);
+                DataPoint dp = new DataPoint(now, elapsedSec, finalSpO2, finalHR, currentPI);
+                sessionData.add(dp);
+                runOnUiThread(() -> chartView.addDataPoint(dp));
+            }
+        } else {
+            log("RAW: " + hex.toString());
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        stopTimer();
+        if (bluetoothGatt != null) {
+            try {
+                bluetoothGatt.close();
+            } catch (SecurityException ignored) {}
         }
     }
 }
