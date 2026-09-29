@@ -220,25 +220,25 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         log(message);
     }
 
-    @Override
-    public void onDataReceived(byte[] data) {
-        // Логирование сырых HEX пакетов
-        log("RX [" + (data != null ? data.length : 0) + "]: " + O2Parser.bytesToHex(data));
+@Override
+public void onDataReceived(byte[] data) {
+    O2Parser.ParseResult result = O2Parser.parse(data);
+    
+    if (result != null && result.isValid) {
+        runOnUiThread(() -> {
+            // Обновление текстовых полей в шапке
+            if (txtSpo2 != null) txtSpo2.setText("SpO2: " + result.spo2 + "%");
+            if (txtHr != null) txtHr.setText("HR: " + result.hr + " bpm");
+            if (txtPi != null) txtPi.setText(String.format(java.util.Locale.US, "PI: %.1f%%", result.pi));
+            if (txtBattery != null) txtBattery.setText("Заряд: " + result.battery + "%");
 
-        O2Parser.ParseResult result = O2Parser.parse(data);
-        if (result.isValid) {
-            long now = System.currentTimeMillis();
-
-            runOnUiThread(() -> updateStatusHeader(result.spo2, result.hr, result.pi, result.battery));
-
-            if (isRecording) {
-                int elapsedSec = (int) ((now - sessionStartTime) / 1000);
-                DataPoint dp = new DataPoint(now, elapsedSec, result.spo2, result.hr, result.pi);
-                sessionData.add(dp);
-                runOnUiThread(() -> chartView.addDataPoint(dp));
+            // Обновление графика (если используется метод добавления точек)
+            if (chartView != null) {
+                chartView.addEntry(result.spo2, result.hr, result.pi);
             }
-        }
+        });
     }
+}
 
     @Override
     protected void onDestroy() {
