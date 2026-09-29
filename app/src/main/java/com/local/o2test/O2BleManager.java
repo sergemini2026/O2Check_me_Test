@@ -168,7 +168,6 @@ public class O2BleManager {
     private synchronized void handleIncomingChunk(byte[] chunk) {
         if (chunk == null || chunk.length == 0) return;
 
-        // Если пришел заголовок нового кадра 0x55, сбрасываем буфер
         if ((chunk[0] & 0xFF) == 0x55) {
             packetBuffer.reset();
         }
@@ -176,12 +175,10 @@ public class O2BleManager {
         packetBuffer.write(chunk, 0, chunk.length);
         byte[] fullData = packetBuffer.toByteArray();
 
-        // Полный кадр содержит 21 байт
         if (fullData.length >= 21) {
             listener.onDataReceived(fullData);
             packetBuffer.reset();
         } else if (fullData.length >= 16 && (fullData[0] & 0xFF) == 0x55) {
-            // Передаем промежуточный пакет для немедленного обновления UI
             listener.onDataReceived(fullData);
         }
     }
@@ -209,6 +206,16 @@ public class O2BleManager {
             byte[] cmd = new byte[]{(byte) 0xAA, 0x17, (byte) 0xE8, 0x00, 0x00, 0x00, 0x00, 0x1B};
             writeChar.setValue(cmd);
             bluetoothGatt.writeCharacteristic(writeChar);
+        } catch (SecurityException ignored) {}
+    }
+
+    public void sendPpgRequest() {
+        if (bluetoothGatt == null || writeChar == null) return;
+        try {
+            byte[] cmd = new byte[]{(byte) 0xAA, 0x14, (byte) 0xEB, 0x00, 0x00, 0x00, 0x00, 0x18};
+            writeChar.setValue(cmd);
+            bluetoothGatt.writeCharacteristic(writeChar);
+            listener.onLog(">>> Отправлен запрос PPG (0x14) <<<");
         } catch (SecurityException ignored) {}
     }
 
