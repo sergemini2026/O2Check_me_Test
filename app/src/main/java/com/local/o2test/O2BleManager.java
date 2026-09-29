@@ -16,6 +16,7 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 
+import java.io.ByteArrayOutputStream;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -40,6 +41,8 @@ public class O2BleManager {
     private BluetoothGattCharacteristic writeChar;
     private final Set<String> discoveredDevices = new HashSet<>();
     private boolean isConnecting = false;
+
+    private final ByteArrayOutputStream packetBuffer = new ByteArrayOutputStream();
 
     private final Handler timerHandler = new Handler(Looper.getMainLooper());
     private Runnable timerRunnable;
@@ -107,23 +110,15 @@ public class O2BleManager {
                 @Override
                 public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
-                        listener.onLog("Соединение установлено. Запрос расширения MTU...");
+                        listener.onLog("Соединение установлено. Поиск сервисов...");
                         try {
-                            gatt.requestMtu(512);
+                            gatt.discoverServices();
                         } catch (SecurityException ignored) {}
                     } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                         listener.onLog("Соединение разорвано.");
                         isConnecting = false;
                         stopTimer();
                     }
-                }
-
-                @Override
-                public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
-                    listener.onLog("MTU изменен на: " + mtu + ". Поиск сервисов...");
-                    try {
-                        gatt.discoverServices();
-                    } catch (SecurityException ignored) {}
                 }
 
                 @Override
@@ -157,16 +152,37 @@ public class O2BleManager {
 
                 @Override
                 public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-                    listener.onDataReceived(characteristic.getValue());
+                    handleIncomingChunk(characteristic.getValue());
                 }
 
                 @Override
                 public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, byte[] value) {
-                    listener.onDataReceived(value);
+                    handleIncomingChunk(value);
                 }
             });
         } catch (SecurityException e) {
             listener.onLog("Ошибка подключения: " + e.getMessage());
+        }
+    }
+
+    private synchronized void handleIncomingChunk(byte[] chunk) {
+        if (chunk == null || chunk.length == 0) return;
+
+        // Если пришел заголовок нового кадра 0x55, сбрасываем буфер
+        if ((chunk[0] & 0xFF) == 0x55) {
+            packetBuffer.reset();
+        }
+
+        packetBuffer.write(chunk, 0, chunk.length);
+        byte[] fullData = packetBuffer.toByteArray();
+
+        // Полный кадр содержит 21 байт
+        if (fullData.length >= 21) {
+            listener.onDataReceived(fullData);
+            packetBuffer.reset();
+        } else if (fullData.length >= 16 && (fullData[0] & 0xFF) == 0x55) {
+            // Передаем промежуточный пакет для немедленного обновления UI
+            listener.onDataReceived(fullData);
         }
     }
 
@@ -187,24 +203,12 @@ public class O2BleManager {
         }
     }
 
-    // Стандартный опрос статусных данных (команда 0x17)
     public void sendRtDataRequest() {
         if (bluetoothGatt == null || writeChar == null) return;
         try {
             byte[] cmd = new byte[]{(byte) 0xAA, 0x17, (byte) 0xE8, 0x00, 0x00, 0x00, 0x00, 0x1B};
             writeChar.setValue(cmd);
             bluetoothGatt.writeCharacteristic(writeChar);
-        } catch (SecurityException ignored) {}
-    }
-
-    // Тестовый запрос пульсовой волны / PPG (команда 0x14)
-    public void sendPpgRequest() {
-        if (bluetoothGatt == null || writeChar == null) return;
-        try {
-            byte[] cmd = new byte[]{(byte) 0xAA, 0x14, (byte) 0xEB, 0x00, 0x00, 0x00, 0x00, 0x18};
-            writeChar.setValue(cmd);
-            bluetoothGatt.writeCharacteristic(writeChar);
-            listener.onLog(">>> Отправлен запрос PPG (0x14) <<<");
         } catch (SecurityException ignored) {}
     }
 
