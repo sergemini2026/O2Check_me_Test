@@ -40,14 +40,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         mainLayout.setOrientation(LinearLayout.VERTICAL);
         mainLayout.setPadding(20, 20, 20, 20);
 
-        // Шапка показателей
         tvLiveMetrics = new TextView(this);
         tvLiveMetrics.setTextSize(18);
         tvLiveMetrics.setGravity(Gravity.CENTER);
         updateStatusHeader(0, 0, 0f, 0);
         mainLayout.addView(tvLiveMetrics);
 
-        // Панель кнопок
         LinearLayout btnBar = new LinearLayout(this);
         btnBar.setOrientation(LinearLayout.HORIZONTAL);
         btnBar.setPadding(0, 10, 0, 10);
@@ -63,14 +61,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         btnBar.addView(btnExit);
         mainLayout.addView(btnBar);
 
-        // График
         chartView = new TrendChartView(this);
         LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
         chartView.setLayoutParams(chartParams);
         mainLayout.addView(chartView);
 
-        // Текстовый лог
         tvLog = new TextView(this);
         tvLog.setTextSize(11);
 
@@ -83,20 +79,18 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         setContentView(mainLayout);
 
-        // Обработчики кнопок
         btnMonitor.setOnClickListener(v -> startMonitoringPanel());
         btnStop.setOnClickListener(v -> stopMonitoring());
         btnSave.setOnClickListener(v -> saveData());
         btnExit.setOnClickListener(v -> finish());
 
-        // Проверка разрешений при запуске
         checkAndRequestPermissions();
     }
 
     private void checkAndRequestPermissions() {
         List<String> permissions = new ArrayList<>();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) { // Android 12+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
                 permissions.add(Manifest.permission.BLUETOOTH_SCAN);
             }
@@ -184,9 +178,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     @Override
     public void onDataReceived(byte[] data) {
-        onLog("RX [" + (data != null ? data.length : 0) + "]: " + O2Parser.bytesToHex(data));
-
         O2Parser.ParseResult result = O2Parser.parse(data);
+
         if (result != null && result.isValid) {
             if (sessionStartTime == 0) {
                 sessionStartTime = System.currentTimeMillis();
@@ -202,6 +195,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     chartView.addDataPoint(dp);
                 }
             });
+        } else {
+            onLog("Нераспознанный пакет: " + O2Parser.bytesToHex(data));
         }
     }
 
