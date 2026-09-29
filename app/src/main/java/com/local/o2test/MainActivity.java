@@ -109,6 +109,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         if (!bleManager.isConnected()) {
             bleManager.initAndStartScan();
+        } else {
+            // Пробуем запустить поток PPG волны
+            bleManager.sendPpgRequest();
         }
     }
 
