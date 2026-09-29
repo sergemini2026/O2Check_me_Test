@@ -438,14 +438,24 @@ public class MainActivity extends Activity {
             bluetoothGatt.writeCharacteristic(writeChar);
         } catch (SecurityException ignored) {}
     }
+// ---------------------------------------------------------------------------------------------------
 
+    // Отладка HEX
     private void parseData(byte[] data) {
         if (data == null || data.length < 11) return;
 
         if ((data[0] & 0xFF) == 0x55) {
+            // Вывод сырых байтов пакета в лог для поиска PI
+            StringBuilder sb = new StringBuilder("HEX [");
+            for (int i = 0; i < data.length; i++) {
+                sb.append(String.format("%02X ", data[i]));
+            }
+            sb.append("]");
+            log(sb.toString());
+
             int spo2 = data[7] & 0xFF;
             int hr = data[8] & 0xFF;
-            float pi = (data[10] & 0xFF) / 10.0f;
+            float pi = (data[10] & 0xFF) / 10.0f; // Текущий временно некорректный индекс
             int battery = (data.length > 14) ? (data[14] & 0xFF) : 0;
 
             if (spo2 > 0 && spo2 <= 100 && hr > 0 && hr < 250) {
@@ -462,6 +472,8 @@ public class MainActivity extends Activity {
             }
         }
     }
+    
+// ---------------------------------------------------------------------------------------------
 
     @Override
     protected void onDestroy() {
