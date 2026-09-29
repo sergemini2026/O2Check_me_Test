@@ -523,21 +523,19 @@ public class MainActivity extends Activity {
         }
     }
     
-    // =========================================================================
-    // ЧАСТЬ 2: Кастомное представление для отрисовки графиков (TrendChartView)
-    // =========================================================================
-
+        // Отрисовка графиков тренда
     public static class TrendChartView extends View {
-        private final List<DataPoint> dataPoints = new ArrayList<>();
-        private final Paint paintSpO2 = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint paintHR = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint paintPI = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint paintGrid = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint paintText = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final List<DataPoint> points = new ArrayList<>();
+        private final Paint paintGrid = new Paint();
+        private final Paint paintText = new Paint();
+        private final Paint paintSubText = new Paint();
+        private final Paint paintSpO2 = new Paint();
+        private final Paint paintHR = new Paint();
+        private final Paint paintPI = new Paint();
+        private final Paint paintCursor = new Paint();
+        private final Paint paintTooltipBg = new Paint();
 
-        private final Path pathSpO2 = new Path();
-        private final Path pathHR = new Path();
-        private final Path pathPI = new Path();
+        private Float touchX = null;
 
         public TrendChartView(Context context) {
             super(context);
@@ -545,122 +543,242 @@ public class MainActivity extends Activity {
         }
 
         private void initPaints() {
-            // Настройка линии SpO2 (Циан / Голубой)
+            paintGrid.setColor(Color.parseColor("#333333"));
+            paintGrid.setStrokeWidth(1.5f);
+
+            paintText.setTextSize(22f);
+            paintText.setAntiAlias(true);
+
+            paintSubText.setColor(Color.GRAY);
+            paintSubText.setTextSize(16f);
+            paintSubText.setAntiAlias(true);
+
+            // Кислород — Голубой
             paintSpO2.setColor(Color.CYAN);
             paintSpO2.setStrokeWidth(4f);
             paintSpO2.setStyle(Paint.Style.STROKE);
+            paintSpO2.setAntiAlias(true);
 
-            // Настройка линии HR (Зеленый)
+            // Пульс — Зеленый
             paintHR.setColor(Color.GREEN);
             paintHR.setStrokeWidth(4f);
             paintHR.setStyle(Paint.Style.STROKE);
+            paintHR.setAntiAlias(true);
 
-            // Настройка линии PI (Желтый)
+            // PI — Желтый
             paintPI.setColor(Color.YELLOW);
             paintPI.setStrokeWidth(4f);
             paintPI.setStyle(Paint.Style.STROKE);
+            paintPI.setAntiAlias(true);
 
-            // Настройка сетки и осей
-            paintGrid.setColor(Color.DKGRAY);
-            paintGrid.setStrokeWidth(1.5f);
-            paintGrid.setStyle(Paint.Style.STROKE);
+            // Прицел/Визир
+            paintCursor.setColor(Color.WHITE);
+            paintCursor.setStrokeWidth(2f);
+            paintCursor.setAntiAlias(true);
 
-            // Настройка подписей
-            paintText.setColor(Color.LTGRAY);
-            paintText.setTextSize(24f);
+            paintTooltipBg.setColor(Color.parseColor("#CC1E1E1E"));
+            paintTooltipBg.setStyle(Paint.Style.FILL);
         }
 
-        public synchronized void addDataPoint(DataPoint dp) {
-            dataPoints.add(dp);
-            invalidate(); // Перерисовка холста
-        }
-
-        public synchronized void clearData() {
-            dataPoints.clear();
+        public void addDataPoint(DataPoint dp) {
+            points.add(dp);
             invalidate();
+        }
+
+        public void clearData() {
+            points.clear();
+            touchX = null;
+            invalidate();
+        }
+
+        @Override
+        public boolean onTouchEvent(android.view.MotionEvent event) {
+            switch (event.getAction()) {
+                case android.view.MotionEvent.ACTION_DOWN:
+                case android.view.MotionEvent.ACTION_MOVE:
+                    touchX = event.getX();
+                    invalidate();
+                    return true;
+                case android.view.MotionEvent.ACTION_UP:
+                case android.view.MotionEvent.ACTION_CANCEL:
+                    touchX = null;
+                    invalidate();
+                    return true;
+            }
+            return super.onTouchEvent(event);
         }
 
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            canvas.drawColor(Color.BLACK); // Тёмный фон
+            canvas.drawColor(Color.parseColor("#121212"));
 
-            int width = getWidth();
-            int height = getHeight();
+            float w = getWidth();
+            float h = getHeight();
+            float leftPad = 80f;
+            float rightPad = 100f;
+            float topPad = 15f;
+            float bottomPad = 32f;
 
-            if (width == 0 || height == 0) return;
+            float availableH = h - topPad - bottomPad;
+            float zoneH = availableH / 3f;
+            float plotW = w - leftPad - rightPad;
 
-            // Разделяем холст на 3 равных сектора по высоте
-            float subHeight = height / 3.0f;
-            float paddingLeft = 90f;
-            float paddingRight = 30f;
-            float paddingTop = 30f;
-            float paddingBottom = 30f;
+            // 1. Сетка и метки оси Y по зонам
 
-            float chartWidth = width - paddingLeft - paddingRight;
+            // --- Зона O2 (80% - 100%, шаг 5%) ---
+            int[] o2Ticks = {100, 95, 90, 85, 80};
+            for (int val : o2Ticks) {
+                float ratio = (val - 80f) / (100f - 80f);
+                float y = (topPad + zoneH) - ratio * zoneH;
+                canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
+                canvas.drawText(val + "%", leftPad + 5f, y + 5f, paintSubText);
+            }
 
-            // Отрисовка разделителей и заголовков графиков
-            canvas.drawLine(0, subHeight, width, subHeight, paintGrid);
-            canvas.drawLine(0, subHeight * 2, width, subHeight * 2, paintGrid);
+            // --- Зона Pulse (40 - 200 bpm, шаг 40) ---
+            int[] hrTicks = {200, 160, 120, 80, 40};
+            for (int val : hrTicks) {
+                float ratio = (val - 40f) / (200f - 40f);
+                float y = (topPad + 2 * zoneH) - ratio * zoneH;
+                canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
+                canvas.drawText(String.valueOf(val), leftPad + 5f, y + 5f, paintSubText);
+            }
 
-            canvas.drawText("SpO2 (%)", 20f, paddingTop + 10f, paintText);
-            canvas.drawText("HR (bpm)", 20f, subHeight + paddingTop + 10f, paintText);
-            canvas.drawText("PI (%)", 20f, subHeight * 2 + paddingTop + 10f, paintText);
+            // --- Зона PI (0% - 10%, шаг 5%) ---
+            int[] piTicks = {10, 5, 0};
+            for (int val : piTicks) {
+                float ratio = (val - 0f) / (10f - 0f);
+                float y = (topPad + 3 * zoneH) - ratio * zoneH;
+                canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
+                canvas.drawText(val + "%", leftPad + 5f, y + 5f, paintSubText);
+            }
 
-            if (dataPoints.isEmpty()) return;
+            // 2. Временная шкала по оси X
+            int lastSec = points.isEmpty() ? 0 : points.get(points.size() - 1).elapsedSec;
+            float maxTime = Math.max(60, lastSec);
+            float timeStepSec = (maxTime > 1800) ? 900f : ((maxTime > 300) ? 300f : 60f);
 
-            synchronized (this) {
-                int count = dataPoints.size();
-                float xStep = chartWidth / Math.max(count - 1, 1);
+            for (float t = 0; t <= maxTime; t += timeStepSec) {
+                float x = leftPad + (t / maxTime) * plotW;
+                canvas.drawLine(x, topPad, x, topPad + 3 * zoneH, paintGrid);
 
-                pathSpO2.reset();
-                pathHR.reset();
-                pathPI.reset();
+                int mins = (int) (t / 60);
+                String label = mins + "m";
+                canvas.drawText(label, x - 10f, h - 6f, paintSubText);
+            }
 
-                // Динамический расчёт диапазонов для масштабирования HR и PI
-                float minHR = 40f, maxHR = 180f;
+            // Метки названий зон слева
+            paintText.setColor(Color.CYAN);
+            canvas.drawText("O2", 15f, topPad + zoneH * 0.55f, paintText);
+
+            paintText.setColor(Color.GREEN);
+            canvas.drawText("Pulse", 15f, topPad + zoneH * 1.55f, paintText);
+
+            paintText.setColor(Color.YELLOW);
+            canvas.drawText("PI", 15f, topPad + zoneH * 2.55f, paintText);
+
+            if (points.isEmpty()) return;
+
+            // Текущие цифровые значения справа
+            DataPoint last = points.get(points.size() - 1);
+            paintText.setColor(Color.CYAN);
+            canvas.drawText(last.spo2 + "%", w - rightPad + 15f, topPad + zoneH * 0.55f, paintText);
+
+            paintText.setColor(Color.GREEN);
+            canvas.drawText(last.hr + "", w - rightPad + 15f, topPad + zoneH * 1.55f, paintText);
+
+            paintText.setColor(Color.YELLOW);
+            canvas.drawText(String.format(Locale.US, "%.1f%%", last.pi), w - rightPad + 15f, topPad + zoneH * 2.55f, paintText);
+
+            if (points.size() < 2) return;
+
+            // Построение кривых
+            Path pathSpO2 = new Path();
+            Path pathHR = new Path();
+            Path pathPI = new Path();
+
+            float prevX = 0, prevYSpO2 = 0, prevYHR = 0, prevYPI = 0;
+
+            for (int i = 0; i < points.size(); i++) {
+                DataPoint dp = points.get(i);
+                float x = leftPad + (dp.elapsedSec / maxTime) * plotW;
+
+                // Нормализация O2 (80 - 100)
+                float minSpO2 = 80f, maxSpO2 = 100f;
+                float normSpO2 = (Math.max(minSpO2, Math.min(maxSpO2, (float) dp.spo2)) - minSpO2) / (maxSpO2 - minSpO2);
+                float ySpO2 = (topPad + zoneH) - (normSpO2 * zoneH);
+
+                // Нормализация Pulse (40 - 200)
+                float minHR = 40f, maxHR = 200f;
+                float normHR = (Math.max(minHR, Math.min(maxHR, (float) dp.hr)) - minHR) / (maxHR - minHR);
+                float yHR = (topPad + 2 * zoneH) - (normHR * zoneH);
+
+                // Нормализация PI (0 - 10)
                 float minPI = 0f, maxPI = 10f;
+                float normPI = (Math.max(minPI, Math.min(maxPI, dp.pi)) - minPI) / (maxPI - minPI);
+                float yPI = (topPad + 3 * zoneH) - (normPI * zoneH);
 
-                for (DataPoint dp : dataPoints) {
-                    if (dp.hr > maxHR) maxHR = dp.hr + 10;
-                    if (dp.hr < minHR && dp.hr > 0) minHR = Math.max(dp.hr - 10, 0);
-                    if (dp.pi > maxPI) maxPI = dp.pi + 2f;
+                if (i == 0) {
+                    pathSpO2.moveTo(x, ySpO2);
+                    pathHR.moveTo(x, yHR);
+                    pathPI.moveTo(x, yPI);
+                } else {
+                    float midX = (prevX + x) / 2f;
+                    float midYSpO2 = (prevYSpO2 + ySpO2) / 2f;
+                    float midYHR = (prevYHR + yHR) / 2f;
+                    float midYPI = (prevYPI + yPI) / 2f;
+
+                    pathSpO2.quadTo(prevX, prevYSpO2, midX, midYSpO2);
+                    pathHR.quadTo(prevX, prevYHR, midX, midYHR);
+                    pathPI.quadTo(prevX, prevYPI, midX, midYPI);
                 }
+                prevX = x;
+                prevYSpO2 = ySpO2;
+                prevYHR = yHR;
+                prevYPI = yPI;
+            }
+            pathSpO2.lineTo(prevX, prevYSpO2);
+            pathHR.lineTo(prevX, prevYHR);
+            pathPI.lineTo(prevX, prevYPI);
 
-                for (int i = 0; i < count; i++) {
-                    DataPoint dp = dataPoints.get(i);
-                    float x = paddingLeft + (i * xStep);
+            canvas.drawPath(pathSpO2, paintSpO2);
+            canvas.drawPath(pathHR, paintHR);
+            canvas.drawPath(pathPI, paintPI);
 
-                    // 1. График SpO2 (Фиксированная шкала 80% - 100%)
-                    float ySpO2 = (subHeight - paddingBottom) - 
-                            ((dp.spo2 - 80f) / 20f) * (subHeight - paddingTop - paddingBottom);
-                    ySpO2 = Math.max(paddingTop, Math.min(subHeight - paddingBottom, ySpO2));
+            // Интерактивный прицел при касании
+            if (touchX != null && touchX >= leftPad && touchX <= w - rightPad) {
+                canvas.drawLine(touchX, topPad, touchX, topPad + 3 * zoneH, paintCursor);
 
-                    // 2. График HR
-                    float yHR = (subHeight * 2 - paddingBottom) - 
-                            ((dp.hr - minHR) / (maxHR - minHR)) * (subHeight - paddingTop - paddingBottom);
-                    yHR = Math.max(subHeight + paddingTop, Math.min(subHeight * 2 - paddingBottom, yHR));
+                float touchRatio = (touchX - leftPad) / plotW;
+                float targetSec = touchRatio * maxTime;
 
-                    // 3. График PI
-                    float yPI = (height - paddingBottom) - 
-                            ((dp.pi - minPI) / (maxPI - minPI)) * (subHeight - paddingTop - paddingBottom);
-                    yPI = Math.max(subHeight * 2 + paddingTop, Math.min(height - paddingBottom, yPI));
-
-                    if (i == 0) {
-                        pathSpO2.moveTo(x, ySpO2);
-                        pathHR.moveTo(x, yHR);
-                        pathPI.moveTo(x, yPI);
-                    } else {
-                        pathSpO2.lineTo(x, ySpO2);
-                        pathHR.lineTo(x, yHR);
-                        pathPI.lineTo(x, yPI);
+                DataPoint closest = points.get(0);
+                float minDiff = Math.abs(closest.elapsedSec - targetSec);
+                for (DataPoint dp : points) {
+                    float diff = Math.abs(dp.elapsedSec - targetSec);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        closest = dp;
                     }
                 }
 
-                canvas.drawPath(pathSpO2, paintSpO2);
-                canvas.drawPath(pathHR, paintHR);
-                canvas.drawPath(pathPI, paintPI);
+                String info = String.format(Locale.US, "[%dm%ds] O2:%d%% | HR:%d | PI:%.1f%%",
+                        closest.elapsedSec / 60, closest.elapsedSec % 60,
+                        closest.spo2, closest.hr, closest.pi);
+
+                float boxW = 390f;
+                float boxH = 36f;
+                float boxX = Math.min(Math.max(touchX - boxW / 2f, leftPad), w - rightPad - boxW);
+                float boxY = topPad + 2f;
+
+                canvas.drawRect(boxX, boxY, boxX + boxW, boxY + boxH, paintTooltipBg);
+                paintText.setColor(Color.WHITE);
+                paintText.setTextSize(20f);
+                canvas.drawText(info, boxX + 10f, boxY + 25f, paintText);
             }
         }
     }
 }
+
+        
+    
