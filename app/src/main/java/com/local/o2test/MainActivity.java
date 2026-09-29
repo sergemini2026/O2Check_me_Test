@@ -35,7 +35,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
+        
+        txtPi = findViewById(R.id.txtPi); // или ваш ID для PI
+        txtBattery = findViewById(R.id.txtBattery); // или ваш ID для Заряда
+        
         bleManager = new O2BleManager(this, this);
 
         LinearLayout mainLayout = new LinearLayout(this);
