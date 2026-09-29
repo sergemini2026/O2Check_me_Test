@@ -784,52 +784,50 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void parseData(byte[] data) {
-        if (data == null || data.length < 8) return;
+ private void parseData(byte[] data) {
+    if (data == null || data.length < 14) return;
 
-        int header = data[0] & 0xFF;
+    int header = data[0] & 0xFF;
 
-        StringBuilder hex = new StringBuilder();
-        for (int i = 0; i < Math.min(data.length, 12); i++) {
-            hex.append(String.format("%02X ", data[i]));
-        }
+    if (header == 0x55) {
+        // Точные индексы со сдвигом по вашему HEX-дампу:
+        int spo2 = data[7] & 0xFF;
+        int hr = data[8] & 0xFF;
+        int battery = (data.length > 13) ? (data[13] & 0xFF) : 100;
 
-        if (header == 0x55 || header == 0xA5) {
-            int spo2 = data[6] & 0xFF;
-            int hr = data[7] & 0xFF;
+        // Валидация диапазонов
+        final int finalSpO2 = (spo2 >= 70 && spo2 <= 100) ? spo2 : 0;
+        final int finalHR = (hr >= 30 && hr <= 240) ? hr : 0;
+        final int finalBattery = (battery <= 100) ? battery : 100;
 
-            if (spo2 > 100 && data.length > 8) {
-                spo2 = data[7] & 0xFF;
-                hr = data[8] & 0xFF;
-            }
-
-            int battery = (data.length > 14) ? (data[14] & 0xFF) : 100;
-
-            float calculatedPI = 0.0f;
-            if (data.length >= 12) {
-                for (int i = 8; i < data.length - 1; i++) {
-                    int ppgSample = data[i] & 0xFF;
+        // Расчет PI программно по волне (если в конце пакета приходят PPG-данные)
+        float calculatedPI = 0.0f;
+        if (data.length >= 18) {
+            for (int i = 14; i < data.length; i++) {
+                int ppgSample = data[i] & 0xFF;
+                if (ppgSample > 0) {
                     calculatedPI = piCalculator.addSampleAndCalculatePI(ppgSample);
                 }
             }
+        }
+        final float currentPI = calculatedPI;
 
+        // Обновление плашки со статусом
+        runOnUiThread(() -> updateStatusHeader(finalSpO2, finalHR, currentPI, finalBattery));
+
+        // Запись и отрисовка на графике
+        if (isRecording && finalSpO2 > 0 && finalHR > 0) {
             long now = System.currentTimeMillis();
-            final float currentPI = calculatedPI;
-            final int finalSpO2 = (spo2 <= 100) ? spo2 : 0;
-            final int finalHR = (hr < 250) ? hr : 0;
-
-            runOnUiThread(() -> updateStatusHeader(finalSpO2, finalHR, currentPI, battery));
-
-            if (isRecording && finalSpO2 > 0 && finalHR > 0) {
-                int elapsedSec = (int) ((now - sessionStartTime) / 1000);
-                DataPoint dp = new DataPoint(now, elapsedSec, finalSpO2, finalHR, currentPI);
-                sessionData.add(dp);
-                runOnUiThread(() -> chartView.addDataPoint(dp));
-            }
-        } else {
-            log("RAW: " + hex.toString());
+            int elapsedSec = (int) ((now - sessionStartTime) / 1000);
+            DataPoint dp = new DataPoint(now, elapsedSec, finalSpO2, finalHR, currentPI);
+            
+            sessionData.add(dp);
+            runOnUiThread(() -> chartView.addDataPoint(dp));
         }
     }
+ }
+    
+    
 
     @Override
     protected void onDestroy() {
