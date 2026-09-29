@@ -558,7 +558,7 @@ public class MainActivity extends Activity {
             return super.onTouchEvent(event);
         }
 
-        @Override
+              @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
             canvas.drawColor(Color.parseColor("#121212"));
@@ -574,21 +574,34 @@ public class MainActivity extends Activity {
             float zoneH = availableH / 3f;
             float plotW = w - leftPad - rightPad;
 
-            // 1. Горизонтальные линии разграничения зон
-            for (int i = 0; i <= 3; i++) {
-                float y = topPad + i * zoneH;
+            // 1. Сетка и метки оси Y по зонам
+
+            // --- Зона O2 (80% - 100%, шаг 5%) ---
+            int[] o2Ticks = {100, 95, 90, 85, 80};
+            for (int val : o2Ticks) {
+                float ratio = (val - 80f) / (100f - 80f);
+                float y = (topPad + zoneH) - ratio * zoneH;
                 canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
+                canvas.drawText(val + "%", leftPad + 5f, y + 5f, paintSubText);
             }
 
-            // Метки диапазонов по оси Y
-            canvas.drawText("100%", leftPad + 5f, topPad + 18f, paintSubText);
-            canvas.drawText("88%", leftPad + 5f, topPad + zoneH - 6f, paintSubText);
+            // --- Зона Pulse (40 - 200 bpm, шаг 40) ---
+            int[] hrTicks = {200, 160, 120, 80, 40};
+            for (int val : hrTicks) {
+                float ratio = (val - 40f) / (200f - 40f);
+                float y = (topPad + 2 * zoneH) - ratio * zoneH;
+                canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
+                canvas.drawText(String.valueOf(val), leftPad + 5f, y + 5f, paintSubText);
+            }
 
-            canvas.drawText("180", leftPad + 5f, topPad + zoneH + 18f, paintSubText);
-            canvas.drawText("40", leftPad + 5f, topPad + 2 * zoneH - 6f, paintSubText);
-
-            canvas.drawText("10%", leftPad + 5f, topPad + 2 * zoneH + 18f, paintSubText);
-            canvas.drawText("0%", leftPad + 5f, topPad + 3 * zoneH - 6f, paintSubText);
+            // --- Зона PI (0% - 10%, шаг 5%) ---
+            int[] piTicks = {10, 5, 0};
+            for (int val : piTicks) {
+                float ratio = (val - 0f) / (10f - 0f);
+                float y = (topPad + 3 * zoneH) - ratio * zoneH;
+                canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
+                canvas.drawText(val + "%", leftPad + 5f, y + 5f, paintSubText);
+            }
 
             // 2. Временная шкала по оси X
             int lastSec = points.isEmpty() ? 0 : points.get(points.size() - 1).elapsedSec;
@@ -629,7 +642,7 @@ public class MainActivity extends Activity {
 
             if (points.size() < 2) return;
 
-            // Построение плавной кривой (Quad Bezier)
+            // Построение кривых
             Path pathSpO2 = new Path();
             Path pathHR = new Path();
             Path pathPI = new Path();
@@ -640,17 +653,20 @@ public class MainActivity extends Activity {
                 DataPoint dp = points.get(i);
                 float x = leftPad + (dp.elapsedSec / maxTime) * plotW;
 
-                float minSpO2 = 88f, maxSpO2 = 100f;
-                float normSpO2 = (Math.max(minSpO2, Math.min(maxSpO2, dp.spo2)) - minSpO2) / (maxSpO2 - minSpO2);
-                float ySpO2 = (topPad + zoneH) - (normSpO2 * (zoneH - 10f)) - 5f;
+                // Нормализация O2 (80 - 100)
+                float minSpO2 = 80f, maxSpO2 = 100f;
+                float normSpO2 = (Math.max(minSpO2, Math.min(maxSpO2, (float) dp.spo2)) - minSpO2) / (maxSpO2 - minSpO2);
+                float ySpO2 = (topPad + zoneH) - (normSpO2 * zoneH);
 
-                float minHR = 40f, maxHR = 180f;
-                float normHR = (Math.max(minHR, Math.min(maxHR, dp.hr)) - minHR) / (maxHR - minHR);
-                float yHR = (topPad + 2 * zoneH) - (normHR * (zoneH - 10f)) - 5f;
+                // Нормализация Pulse (40 - 200)
+                float minHR = 40f, maxHR = 200f;
+                float normHR = (Math.max(minHR, Math.min(maxHR, (float) dp.hr)) - minHR) / (maxHR - minHR);
+                float yHR = (topPad + 2 * zoneH) - (normHR * zoneH);
 
+                // Нормализация PI (0 - 10)
                 float minPI = 0f, maxPI = 10f;
                 float normPI = (Math.max(minPI, Math.min(maxPI, dp.pi)) - minPI) / (maxPI - minPI);
-                float yPI = (topPad + 3 * zoneH) - (normPI * (zoneH - 10f)) - 5f;
+                float yPI = (topPad + 3 * zoneH) - (normPI * zoneH);
 
                 if (i == 0) {
                     pathSpO2.moveTo(x, ySpO2);
@@ -679,7 +695,7 @@ public class MainActivity extends Activity {
             canvas.drawPath(pathHR, paintHR);
             canvas.drawPath(pathPI, paintPI);
 
-            // Интерактивный прицел при касании пальцем
+            // Интерактивный прицел при касании
             if (touchX != null && touchX >= leftPad && touchX <= w - rightPad) {
                 canvas.drawLine(touchX, topPad, touchX, topPad + 3 * zoneH, paintCursor);
 
@@ -710,6 +726,6 @@ public class MainActivity extends Activity {
                 paintText.setTextSize(20f);
                 canvas.drawText(info, boxX + 10f, boxY + 25f, paintText);
             }
-        }
+        }               
     }
 }
