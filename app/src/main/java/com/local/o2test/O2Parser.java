@@ -7,45 +7,38 @@ public class O2Parser {
         public int hr;
         public float pi;
         public int battery;
-        public boolean isValid;
 
-        public ParseResult(int spo2, int hr, float pi, int battery, boolean isValid) {
+        public ParseResult(int spo2, int hr, float pi, int battery) {
             this.spo2 = spo2;
             this.hr = hr;
             this.pi = pi;
             this.battery = battery;
-            this.isValid = isValid;
         }
-    }
-
-    public static String bytesToHex(byte[] data) {
-        if (data == null) return "null";
-        StringBuilder hex = new StringBuilder();
-        for (byte b : data) {
-            hex.append(String.format("%02X ", b));
-        }
-        return hex.toString().trim();
     }
 
     public static ParseResult parse(byte[] data) {
-        if (data == null || data.length < 16) {
-            return new ParseResult(0, 0, 0f, 0, false);
+        if (data == null || data.length < 14) {
+            return new ParseResult(0, 0, 0f, 0);
         }
 
-        if ((data[0] & 0xFF) == 0x55) {
-            int spo2 = data[7] & 0xFF;
-            int hr = data[8] & 0xFF;
-            
-            // Байт 15 хранит PI (умноженный на 10)
+        // Заголовок 0x55
+        if ((data[0] & 0xFF) != 0x55) {
+            return new ParseResult(0, 0, 0f, 0);
+        }
+
+        int spo2 = (data.length > 7) ? (data[7] & 0xFF) : 0;
+        int hr = (data.length > 8) ? (data[8] & 0xFF) : 0;
+        
+        // Заряд аккумулятора находится в data[13]
+        int battery = (data.length > 13) ? (data[13] & 0xFF) : 0;
+
+        // Расчёт PI, если байт перфузии передаётся в data[15]
+        float pi = 0f;
+        if (data.length > 15) {
             int rawPi = data[15] & 0xFF;
-            float pi = rawPi / 10.0f;
-
-            int battery = (data.length > 13) ? (data[13] & 0xFF) : 0;
-
-            boolean isValid = (spo2 > 0 && spo2 <= 100 && hr > 0 && hr < 250);
-            return new ParseResult(spo2, hr, pi, battery, isValid);
+            pi = rawPi / 10.0f;
         }
 
-        return new ParseResult(0, 0, 0f, 0, false);
+        return new ParseResult(spo2, hr, pi, battery);
     }
 }
