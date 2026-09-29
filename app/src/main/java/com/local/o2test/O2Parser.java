@@ -19,20 +19,31 @@ public class O2Parser {
     }
 
     public static ParseResult parse(byte[] data) {
-        // Минимальная длина пакета с зарядом и PI — 15 байт
-        if (data == null || data.length < 15 || (data[0] & 0xFF) != 0x55) {
+        if (data == null || data.length < 12) {
             return new ParseResult(0, 0, 0f, 0, false);
         }
 
-        int spo2 = data[6] & 0xFF;
-        int hr = data[7] & 0xFF;
-        int battery = data[12] & 0xFF;
-        float pi = (data[14] & 0xFF) / 10.0f;
+        // Скользим по массиву и ищем маркер полезных данных: 0x0D 0x00
+        for (int i = 0; i <= data.length - 11; i++) {
+            if (data[i] == 0x0D && data[i+1] == 0x00) {
+                
+                int spo2 = data[i+2] & 0xFF;
+                int hr = data[i+3] & 0xFF;
+                
+                // Заряд всегда идет через 8 байт от начала маркера
+                int battery = (i + 8 < data.length) ? (data[i+8] & 0xFF) : 0;
+                
+                // PI всегда идет через 10 байт от начала маркера
+                float pi = (i + 10 < data.length) ? ((data[i+10] & 0xFF) / 10.0f) : 0f;
 
-        // Если SpO2 и пульс адекватны — пакет валиден
-        boolean isValid = spo2 > 0 && spo2 <= 100 && hr > 0;
+                // Если SpO2 и пульс в норме — пакет успешный
+                if (spo2 > 0 && spo2 <= 100 && hr > 0) {
+                    return new ParseResult(spo2, hr, pi, battery, true);
+                }
+            }
+        }
 
-        return new ParseResult(spo2, hr, pi, battery, isValid);
+        return new ParseResult(0, 0, 0f, 0, false);
     }
 
     public static String bytesToHex(byte[] bytes) {
