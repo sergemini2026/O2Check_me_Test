@@ -8,6 +8,8 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Locale;
 
 public class MainActivity extends Activity implements O2BleManager.BleListener {
@@ -19,6 +21,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private ScrollView logScrollView;
 
     private long sessionStartTime = 0;
+    private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -139,12 +142,13 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 sessionStartTime = System.currentTimeMillis();
             }
             int elapsedSec = (int) ((System.currentTimeMillis() - sessionStartTime) / 1000);
+            String timestamp = timeFormat.format(new Date());
 
             runOnUiThread(() -> {
                 updateStatusHeader(result.spo2, result.hr, result.pi, result.battery);
 
                 if (chartView != null) {
-                    DataPoint dp = new DataPoint(elapsedSec, result.spo2, result.hr, result.pi);
+                    DataPoint dp = new DataPoint(timestamp, elapsedSec, result.spo2, result.hr, result.pi);
                     chartView.addDataPoint(dp);
                 }
             });
