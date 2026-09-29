@@ -107,13 +107,23 @@ public class O2BleManager {
                 @Override
                 public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
-                        listener.onLog("Соединение установлено. Поиск сервисов...");
-                        gatt.discoverServices();
+                        listener.onLog("Соединение установлено. Запрос расширения MTU...");
+                        try {
+                            gatt.requestMtu(512);
+                        } catch (SecurityException ignored) {}
                     } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                         listener.onLog("Соединение разорвано.");
                         isConnecting = false;
                         stopTimer();
                     }
+                }
+
+                @Override
+                public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
+                    listener.onLog("MTU изменен на: " + mtu + ". Поиск сервисов...");
+                    try {
+                        gatt.discoverServices();
+                    } catch (SecurityException ignored) {}
                 }
 
                 @Override
@@ -177,12 +187,24 @@ public class O2BleManager {
         }
     }
 
+    // Стандартный опрос статусных данных (команда 0x17)
     public void sendRtDataRequest() {
         if (bluetoothGatt == null || writeChar == null) return;
         try {
             byte[] cmd = new byte[]{(byte) 0xAA, 0x17, (byte) 0xE8, 0x00, 0x00, 0x00, 0x00, 0x1B};
             writeChar.setValue(cmd);
             bluetoothGatt.writeCharacteristic(writeChar);
+        } catch (SecurityException ignored) {}
+    }
+
+    // Тестовый запрос пульсовой волны / PPG (команда 0x14)
+    public void sendPpgRequest() {
+        if (bluetoothGatt == null || writeChar == null) return;
+        try {
+            byte[] cmd = new byte[]{(byte) 0xAA, 0x14, (byte) 0xEB, 0x00, 0x00, 0x00, 0x00, 0x18};
+            writeChar.setValue(cmd);
+            bluetoothGatt.writeCharacteristic(writeChar);
+            listener.onLog(">>> Отправлен запрос PPG (0x14) <<<");
         } catch (SecurityException ignored) {}
     }
 
