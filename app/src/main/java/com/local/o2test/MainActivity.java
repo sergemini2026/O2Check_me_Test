@@ -49,11 +49,11 @@ import java.util.UUID;
 public class MainActivity extends Activity {
     private TextView tvLiveMetrics;
     private TextView logView;
-    
+
     // Кольцевой буфер лога для предотвращения утечек памяти
     private static final int MAX_LOG_LINES = 150;
     private final LinkedList<String> logBuffer = new LinkedList<>();
-    
+
     private TrendChartView chartView;
 
     private BluetoothLeScanner scanner;
@@ -73,6 +73,43 @@ public class MainActivity extends Activity {
     private static final UUID WRITE_CHAR_UUID = UUID.fromString("8b00ace7-eb0b-49b0-bbe9-9aee0a26e1a3");
     private static final UUID NOTIFY_CHAR_UUID = UUID.fromString("0734594a-a8e7-4b1a-a6b1-cd5243059a57");
     private static final UUID CLIENT_CONFIG_DESCRIPTOR = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
+
+    // Калькулятор PI реального времени по PPG-волне
+    public static class RealtimePiCalculator {
+        private static final int BUFFER_SIZE = 150; // ~3 секунды данных при 50 Гц
+        private final LinkedList<Integer> ppgBuffer = new LinkedList<>();
+
+        public synchronized float addSampleAndCalculatePI(int ppgValue) {
+            ppgBuffer.add(ppgValue);
+            if (ppgBuffer.size() > BUFFER_SIZE) {
+                ppgBuffer.removeFirst();
+            }
+
+            if (ppgBuffer.size() < 30) return 0.0f; // Ждем накопления минимального окна (~0.6 сек)
+
+            int min = Integer.MAX_VALUE;
+            int max = Integer.MIN_VALUE;
+            long sum = 0;
+
+            for (int val : ppgBuffer) {
+                if (val < min) min = val;
+                if (val > max) max = val;
+                sum += val;
+            }
+
+            float ac = max - min;
+            float dc = sum / (float) ppgBuffer.size();
+
+            if (dc == 0) return 0.0f;
+
+            float rawPi = (ac / dc) * 100.0f;
+
+            // Ограничиваем разумными физиологическими пределами 0.1% - 20%
+            return Math.min(Math.max(rawPi, 0.0f), 20.0f);
+        }
+    }
+
+    private final RealtimePiCalculator piCalculator = new RealtimePiCalculator();
 
     public static class DataPoint {
         public long timestamp;
@@ -433,30 +470,41 @@ public class MainActivity extends Activity {
     private void sendRtDataRequest() {
         if (bluetoothGatt == null || writeChar == null) return;
         try {
-            byte[] cmd = new byte[]{(byte) 0xAA, 0x17, (byte) 0xE8, 0x00, 0x00, 0x00, 0x00, 0x1B};
+            // Команда запроса пакета с непрерывными точками Waveform (PPG)
+            byte[] cmd = new byte[]{(byte) 0xAA, 0x14, (byte) 0xEB, 0x00, 0x00, 0x00, 0x00, 0x1F};
             writeChar.setValue(cmd);
             bluetoothGatt.writeCharacteristic(writeChar);
         } catch (SecurityException ignored) {}
     }
 
-
     private void parseData(byte[] data) {
         if (data == null || data.length < 11) return;
 
-        if ((data[0] & 0xFF) == 0x55) {
+        int header = data[0] & 0xFF;
+
+        if (header == 0x55 || header == 0xA5) {
             int spo2 = data[7] & 0xFF;
             int hr = data[8] & 0xFF;
-            float pi = (data[10] & 0xFF) / 10.0f;
-            int battery = (data.length > 14) ? (data[14] & 0xFF) : 0;
+            int battery = (data.length > 14) ? (data[14] & 0xFF) : 100;
+
+            // Извлекаем точки PPG-волны из хвоста пакета и пересчитываем PI
+            float calculatedPI = 0.0f;
+            if (data.length >= 15) {
+                for (int i = 11; i < data.length - 1; i++) {
+                    int ppgSample = data[i] & 0xFF;
+                    calculatedPI = piCalculator.addSampleAndCalculatePI(ppgSample);
+                }
+            }
 
             if (spo2 > 0 && spo2 <= 100 && hr > 0 && hr < 250) {
                 long now = System.currentTimeMillis();
+                final float currentPI = calculatedPI;
 
-                runOnUiThread(() -> updateStatusHeader(spo2, hr, pi, battery));
+                runOnUiThread(() -> updateStatusHeader(spo2, hr, currentPI, battery));
 
                 if (isRecording) {
                     int elapsedSec = (int) ((now - sessionStartTime) / 1000);
-                    DataPoint dp = new DataPoint(now, elapsedSec, spo2, hr, pi);
+                    DataPoint dp = new DataPoint(now, elapsedSec, spo2, hr, currentPI);
                     sessionData.add(dp);
                     runOnUiThread(() -> chartView.addDataPoint(dp));
                 }
@@ -474,19 +522,22 @@ public class MainActivity extends Activity {
             } catch (SecurityException ignored) {}
         }
     }
-        // Отрисовка графиков тренда
-    public static class TrendChartView extends View {
-        private final List<DataPoint> points = new ArrayList<>();
-        private final Paint paintGrid = new Paint();
-        private final Paint paintText = new Paint();
-        private final Paint paintSubText = new Paint();
-        private final Paint paintSpO2 = new Paint();
-        private final Paint paintHR = new Paint();
-        private final Paint paintPI = new Paint();
-        private final Paint paintCursor = new Paint();
-        private final Paint paintTooltipBg = new Paint();
+    
+    // =========================================================================
+    // ЧАСТЬ 2: Кастомное представление для отрисовки графиков (TrendChartView)
+    // =========================================================================
 
-        private Float touchX = null;
+    public static class TrendChartView extends View {
+        private final List<DataPoint> dataPoints = new ArrayList<>();
+        private final Paint paintSpO2 = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint paintHR = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint paintPI = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint paintGrid = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint paintText = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        private final Path pathSpO2 = new Path();
+        private final Path pathHR = new Path();
+        private final Path pathPI = new Path();
 
         public TrendChartView(Context context) {
             super(context);
@@ -494,239 +545,122 @@ public class MainActivity extends Activity {
         }
 
         private void initPaints() {
-            paintGrid.setColor(Color.parseColor("#333333"));
-            paintGrid.setStrokeWidth(1.5f);
-
-            paintText.setTextSize(22f);
-            paintText.setAntiAlias(true);
-
-            paintSubText.setColor(Color.GRAY);
-            paintSubText.setTextSize(16f);
-            paintSubText.setAntiAlias(true);
-
-            // Кислород — Голубой
+            // Настройка линии SpO2 (Циан / Голубой)
             paintSpO2.setColor(Color.CYAN);
             paintSpO2.setStrokeWidth(4f);
             paintSpO2.setStyle(Paint.Style.STROKE);
-            paintSpO2.setAntiAlias(true);
 
-            // Пульс — Зеленый
+            // Настройка линии HR (Зеленый)
             paintHR.setColor(Color.GREEN);
             paintHR.setStrokeWidth(4f);
             paintHR.setStyle(Paint.Style.STROKE);
-            paintHR.setAntiAlias(true);
 
-            // PI — Желтый
+            // Настройка линии PI (Желтый)
             paintPI.setColor(Color.YELLOW);
             paintPI.setStrokeWidth(4f);
             paintPI.setStyle(Paint.Style.STROKE);
-            paintPI.setAntiAlias(true);
 
-            // Прицел/Визир
-            paintCursor.setColor(Color.WHITE);
-            paintCursor.setStrokeWidth(2f);
-            paintCursor.setAntiAlias(true);
+            // Настройка сетки и осей
+            paintGrid.setColor(Color.DKGRAY);
+            paintGrid.setStrokeWidth(1.5f);
+            paintGrid.setStyle(Paint.Style.STROKE);
 
-            paintTooltipBg.setColor(Color.parseColor("#CC1E1E1E"));
-            paintTooltipBg.setStyle(Paint.Style.FILL);
+            // Настройка подписей
+            paintText.setColor(Color.LTGRAY);
+            paintText.setTextSize(24f);
         }
 
-        public void addDataPoint(DataPoint dp) {
-            points.add(dp);
-            invalidate();
+        public synchronized void addDataPoint(DataPoint dp) {
+            dataPoints.add(dp);
+            invalidate(); // Перерисовка холста
         }
 
-        public void clearData() {
-            points.clear();
-            touchX = null;
+        public synchronized void clearData() {
+            dataPoints.clear();
             invalidate();
         }
 
         @Override
-        public boolean onTouchEvent(android.view.MotionEvent event) {
-            switch (event.getAction()) {
-                case android.view.MotionEvent.ACTION_DOWN:
-                case android.view.MotionEvent.ACTION_MOVE:
-                    touchX = event.getX();
-                    invalidate();
-                    return true;
-                case android.view.MotionEvent.ACTION_UP:
-                case android.view.MotionEvent.ACTION_CANCEL:
-                    touchX = null;
-                    invalidate();
-                    return true;
-            }
-            return super.onTouchEvent(event);
-        }
-
-              @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            canvas.drawColor(Color.parseColor("#121212"));
+            canvas.drawColor(Color.BLACK); // Тёмный фон
 
-            float w = getWidth();
-            float h = getHeight();
-            float leftPad = 80f;
-            float rightPad = 100f;
-            float topPad = 15f;
-            float bottomPad = 32f;
+            int width = getWidth();
+            int height = getHeight();
 
-            float availableH = h - topPad - bottomPad;
-            float zoneH = availableH / 3f;
-            float plotW = w - leftPad - rightPad;
+            if (width == 0 || height == 0) return;
 
-            // 1. Сетка и метки оси Y по зонам
+            // Разделяем холст на 3 равных сектора по высоте
+            float subHeight = height / 3.0f;
+            float paddingLeft = 90f;
+            float paddingRight = 30f;
+            float paddingTop = 30f;
+            float paddingBottom = 30f;
 
-            // --- Зона O2 (80% - 100%, шаг 5%) ---
-            int[] o2Ticks = {100, 95, 90, 85, 80};
-            for (int val : o2Ticks) {
-                float ratio = (val - 80f) / (100f - 80f);
-                float y = (topPad + zoneH) - ratio * zoneH;
-                canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
-                canvas.drawText(val + "%", leftPad + 5f, y + 5f, paintSubText);
-            }
+            float chartWidth = width - paddingLeft - paddingRight;
 
-            // --- Зона Pulse (40 - 200 bpm, шаг 40) ---
-            int[] hrTicks = {200, 160, 120, 80, 40};
-            for (int val : hrTicks) {
-                float ratio = (val - 40f) / (200f - 40f);
-                float y = (topPad + 2 * zoneH) - ratio * zoneH;
-                canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
-                canvas.drawText(String.valueOf(val), leftPad + 5f, y + 5f, paintSubText);
-            }
+            // Отрисовка разделителей и заголовков графиков
+            canvas.drawLine(0, subHeight, width, subHeight, paintGrid);
+            canvas.drawLine(0, subHeight * 2, width, subHeight * 2, paintGrid);
 
-            // --- Зона PI (0% - 10%, шаг 5%) ---
-            int[] piTicks = {10, 5, 0};
-            for (int val : piTicks) {
-                float ratio = (val - 0f) / (10f - 0f);
-                float y = (topPad + 3 * zoneH) - ratio * zoneH;
-                canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
-                canvas.drawText(val + "%", leftPad + 5f, y + 5f, paintSubText);
-            }
+            canvas.drawText("SpO2 (%)", 20f, paddingTop + 10f, paintText);
+            canvas.drawText("HR (bpm)", 20f, subHeight + paddingTop + 10f, paintText);
+            canvas.drawText("PI (%)", 20f, subHeight * 2 + paddingTop + 10f, paintText);
 
-            // 2. Временная шкала по оси X
-            int lastSec = points.isEmpty() ? 0 : points.get(points.size() - 1).elapsedSec;
-            float maxTime = Math.max(60, lastSec);
-            float timeStepSec = (maxTime > 1800) ? 900f : ((maxTime > 300) ? 300f : 60f);
+            if (dataPoints.isEmpty()) return;
 
-            for (float t = 0; t <= maxTime; t += timeStepSec) {
-                float x = leftPad + (t / maxTime) * plotW;
-                canvas.drawLine(x, topPad, x, topPad + 3 * zoneH, paintGrid);
+            synchronized (this) {
+                int count = dataPoints.size();
+                float xStep = chartWidth / Math.max(count - 1, 1);
 
-                int mins = (int) (t / 60);
-                String label = mins + "m";
-                canvas.drawText(label, x - 10f, h - 6f, paintSubText);
-            }
+                pathSpO2.reset();
+                pathHR.reset();
+                pathPI.reset();
 
-            // Метки названий зон слева
-            paintText.setColor(Color.CYAN);
-            canvas.drawText("O2", 15f, topPad + zoneH * 0.55f, paintText);
-
-            paintText.setColor(Color.GREEN);
-            canvas.drawText("Pulse", 15f, topPad + zoneH * 1.55f, paintText);
-
-            paintText.setColor(Color.YELLOW);
-            canvas.drawText("PI", 15f, topPad + zoneH * 2.55f, paintText);
-
-            if (points.isEmpty()) return;
-
-            // Текущие цифровые значения справа
-            DataPoint last = points.get(points.size() - 1);
-            paintText.setColor(Color.CYAN);
-            canvas.drawText(last.spo2 + "%", w - rightPad + 15f, topPad + zoneH * 0.55f, paintText);
-
-            paintText.setColor(Color.GREEN);
-            canvas.drawText(last.hr + "", w - rightPad + 15f, topPad + zoneH * 1.55f, paintText);
-
-            paintText.setColor(Color.YELLOW);
-            canvas.drawText(String.format(Locale.US, "%.1f%%", last.pi), w - rightPad + 15f, topPad + zoneH * 2.55f, paintText);
-
-            if (points.size() < 2) return;
-
-            // Построение кривых
-            Path pathSpO2 = new Path();
-            Path pathHR = new Path();
-            Path pathPI = new Path();
-
-            float prevX = 0, prevYSpO2 = 0, prevYHR = 0, prevYPI = 0;
-
-            for (int i = 0; i < points.size(); i++) {
-                DataPoint dp = points.get(i);
-                float x = leftPad + (dp.elapsedSec / maxTime) * plotW;
-
-                // Нормализация O2 (80 - 100)
-                float minSpO2 = 80f, maxSpO2 = 100f;
-                float normSpO2 = (Math.max(minSpO2, Math.min(maxSpO2, (float) dp.spo2)) - minSpO2) / (maxSpO2 - minSpO2);
-                float ySpO2 = (topPad + zoneH) - (normSpO2 * zoneH);
-
-                // Нормализация Pulse (40 - 200)
-                float minHR = 40f, maxHR = 200f;
-                float normHR = (Math.max(minHR, Math.min(maxHR, (float) dp.hr)) - minHR) / (maxHR - minHR);
-                float yHR = (topPad + 2 * zoneH) - (normHR * zoneH);
-
-                // Нормализация PI (0 - 10)
+                // Динамический расчёт диапазонов для масштабирования HR и PI
+                float minHR = 40f, maxHR = 180f;
                 float minPI = 0f, maxPI = 10f;
-                float normPI = (Math.max(minPI, Math.min(maxPI, dp.pi)) - minPI) / (maxPI - minPI);
-                float yPI = (topPad + 3 * zoneH) - (normPI * zoneH);
 
-                if (i == 0) {
-                    pathSpO2.moveTo(x, ySpO2);
-                    pathHR.moveTo(x, yHR);
-                    pathPI.moveTo(x, yPI);
-                } else {
-                    float midX = (prevX + x) / 2f;
-                    float midYSpO2 = (prevYSpO2 + ySpO2) / 2f;
-                    float midYHR = (prevYHR + yHR) / 2f;
-                    float midYPI = (prevYPI + yPI) / 2f;
-
-                    pathSpO2.quadTo(prevX, prevYSpO2, midX, midYSpO2);
-                    pathHR.quadTo(prevX, prevYHR, midX, midYHR);
-                    pathPI.quadTo(prevX, prevYPI, midX, midYPI);
+                for (DataPoint dp : dataPoints) {
+                    if (dp.hr > maxHR) maxHR = dp.hr + 10;
+                    if (dp.hr < minHR && dp.hr > 0) minHR = Math.max(dp.hr - 10, 0);
+                    if (dp.pi > maxPI) maxPI = dp.pi + 2f;
                 }
-                prevX = x;
-                prevYSpO2 = ySpO2;
-                prevYHR = yHR;
-                prevYPI = yPI;
-            }
-            pathSpO2.lineTo(prevX, prevYSpO2);
-            pathHR.lineTo(prevX, prevYHR);
-            pathPI.lineTo(prevX, prevYPI);
 
-            canvas.drawPath(pathSpO2, paintSpO2);
-            canvas.drawPath(pathHR, paintHR);
-            canvas.drawPath(pathPI, paintPI);
+                for (int i = 0; i < count; i++) {
+                    DataPoint dp = dataPoints.get(i);
+                    float x = paddingLeft + (i * xStep);
 
-            // Интерактивный прицел при касании
-            if (touchX != null && touchX >= leftPad && touchX <= w - rightPad) {
-                canvas.drawLine(touchX, topPad, touchX, topPad + 3 * zoneH, paintCursor);
+                    // 1. График SpO2 (Фиксированная шкала 80% - 100%)
+                    float ySpO2 = (subHeight - paddingBottom) - 
+                            ((dp.spo2 - 80f) / 20f) * (subHeight - paddingTop - paddingBottom);
+                    ySpO2 = Math.max(paddingTop, Math.min(subHeight - paddingBottom, ySpO2));
 
-                float touchRatio = (touchX - leftPad) / plotW;
-                float targetSec = touchRatio * maxTime;
+                    // 2. График HR
+                    float yHR = (subHeight * 2 - paddingBottom) - 
+                            ((dp.hr - minHR) / (maxHR - minHR)) * (subHeight - paddingTop - paddingBottom);
+                    yHR = Math.max(subHeight + paddingTop, Math.min(subHeight * 2 - paddingBottom, yHR));
 
-                DataPoint closest = points.get(0);
-                float minDiff = Math.abs(closest.elapsedSec - targetSec);
-                for (DataPoint dp : points) {
-                    float diff = Math.abs(dp.elapsedSec - targetSec);
-                    if (diff < minDiff) {
-                        minDiff = diff;
-                        closest = dp;
+                    // 3. График PI
+                    float yPI = (height - paddingBottom) - 
+                            ((dp.pi - minPI) / (maxPI - minPI)) * (subHeight - paddingTop - paddingBottom);
+                    yPI = Math.max(subHeight * 2 + paddingTop, Math.min(height - paddingBottom, yPI));
+
+                    if (i == 0) {
+                        pathSpO2.moveTo(x, ySpO2);
+                        pathHR.moveTo(x, yHR);
+                        pathPI.moveTo(x, yPI);
+                    } else {
+                        pathSpO2.lineTo(x, ySpO2);
+                        pathHR.lineTo(x, yHR);
+                        pathPI.lineTo(x, yPI);
                     }
                 }
 
-                String info = String.format(Locale.US, "[%dm%ds] O2:%d%% | HR:%d | PI:%.1f%%",
-                        closest.elapsedSec / 60, closest.elapsedSec % 60,
-                        closest.spo2, closest.hr, closest.pi);
-
-                float boxW = 390f;
-                float boxH = 36f;
-                float boxX = Math.min(Math.max(touchX - boxW / 2f, leftPad), w - rightPad - boxW);
-                float boxY = topPad + 2f;
-
-                canvas.drawRect(boxX, boxY, boxX + boxW, boxY + boxH, paintTooltipBg);
-                paintText.setColor(Color.WHITE);
-                paintText.setTextSize(20f);
-                canvas.drawText(info, boxX + 10f, boxY + 25f, paintText);
+                canvas.drawPath(pathSpO2, paintSpO2);
+                canvas.drawPath(pathHR, paintHR);
+                canvas.drawPath(pathPI, paintPI);
             }
-        }               
+        }
     }
 }
