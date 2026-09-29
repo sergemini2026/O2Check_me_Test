@@ -454,7 +454,7 @@ public class MainActivity extends Activity {
         params.setMargins(4, 0, 4, 0);
         btn.setLayoutParams(params);
         return btn;
-        }
+    }
         // 1. Панель монитора (Запуск считывания и записи сеанса)
     private void startMonitoringPanel() {
         isRecording = true;
@@ -465,6 +465,9 @@ public class MainActivity extends Activity {
 
         if (bluetoothGatt == null) {
             initBLE();
+        } else {
+            // Если соединение уже есть, перезапускаем опрос
+            startPeriodicRequest();
         }
     }
 
@@ -676,6 +679,10 @@ public class MainActivity extends Activity {
                             writeChar = service.getCharacteristic(WRITE_CHAR_UUID);
                             BluetoothGattCharacteristic notifyChar = service.getCharacteristic(NOTIFY_CHAR_UUID);
 
+                            if (writeChar == null) {
+                                log("ОШИБКА: Записывающая характеристика не найдена!");
+                            }
+
                             if (notifyChar != null) {
                                 log("Подписка на поток данных...");
                                 gatt.setCharacteristicNotification(notifyChar, true);
@@ -683,8 +690,14 @@ public class MainActivity extends Activity {
                                 if (descriptor != null) {
                                     descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
                                     gatt.writeDescriptor(descriptor);
+                                } else {
+                                    log("ОШИБКА: Дескриптор уведомлений не найден!");
                                 }
+                            } else {
+                                log("ОШИБКА: Характеристика уведомлений не найдена!");
                             }
+                        } else {
+                            log("ОШИБКА: Сервис Viatom не найден в устройстве!");
                         }
                     }
                 }
@@ -694,6 +707,8 @@ public class MainActivity extends Activity {
                     if (status == BluetoothGatt.GATT_SUCCESS) {
                         log("Канал готов. Запуск интервала опроса...");
                         startPeriodicRequest();
+                    } else {
+                        log("Ошибка записи дескриптора: status " + status);
                     }
                 }
 
@@ -713,14 +728,16 @@ public class MainActivity extends Activity {
     }
 
     private void startPeriodicRequest() {
+        stopTimer();
         timerRunnable = new Runnable() {
             @Override
             public void run() {
                 sendRtDataRequest();
-                timerHandler.postDelayed(this, 3000);
+                timerHandler.postDelayed(this, 2000);
             }
         };
-        timerHandler.post(timerRunnable);
+        // Небольшая задержка (500 мс) перед первой отправкой, чтобы BLE-стек завершил handshake
+        timerHandler.postDelayed(timerRunnable, 500);
     }
 
     private void stopTimer() {
@@ -730,22 +747,35 @@ public class MainActivity extends Activity {
     }
 
     private void sendRtDataRequest() {
-        if (bluetoothGatt == null || writeChar == null) return;
+        if (bluetoothGatt == null) {
+            log("Ошибка: bluetoothGatt == null");
+            return;
+        }
+        if (writeChar == null) {
+            log("Ошибка: writeChar == null (не найден)");
+            return;
+        }
+
         try {
+            // Команда запроса RT-пакета (Ping/Realtime)
             byte[] cmd = new byte[]{(byte) 0xAA, 0x14, (byte) 0xEB, 0x00, 0x00, 0x00, 0x00, 0x1F};
-            
-            // Явно задаем тип записи для гарантии отправки в Android 12+
-            writeChar.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
-            
+
+            // Viatom O2 кольца работают в режиме WRITE_TYPE_NO_RESPONSE (без подтверждения)
+            writeChar.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE);
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                int result = bluetoothGatt.writeCharacteristic(writeChar, cmd, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
-                if (result != BluetoothGatt.GATT_SUCCESS) {
-                    log("Ошибка отправки команды: code " + result);
+                int result = bluetoothGatt.writeCharacteristic(writeChar, cmd, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE);
+                if (result == BluetoothGatt.GATT_SUCCESS) {
+                    log(">>> Запрос данных отправлен");
+                } else {
+                    log("Ошибка отправки: code " + result);
                 }
             } else {
                 writeChar.setValue(cmd);
                 boolean success = bluetoothGatt.writeCharacteristic(writeChar);
-                if (!success) {
+                if (success) {
+                    log(">>> Запрос данных отправлен");
+                } else {
                     log("Ошибка: writeCharacteristic вернул false");
                 }
             }
@@ -759,18 +789,15 @@ public class MainActivity extends Activity {
 
         int header = data[0] & 0xFF;
 
-        // Вывод сырых байт для отладки структуры пакета
         StringBuilder hex = new StringBuilder();
         for (int i = 0; i < Math.min(data.length, 12); i++) {
             hex.append(String.format("%02X ", data[i]));
         }
-        
+
         if (header == 0x55 || header == 0xA5) {
-            // Базовые смещения Viatom RT-пакета
             int spo2 = data[6] & 0xFF;
             int hr = data[7] & 0xFF;
-            
-            // Если SpO2 вне диапазона (например, 255 при снятом кольце), пробуем соседнее смещение
+
             if (spo2 > 100 && data.length > 8) {
                 spo2 = data[7] & 0xFF;
                 hr = data[8] & 0xFF;
@@ -778,7 +805,6 @@ public class MainActivity extends Activity {
 
             int battery = (data.length > 14) ? (data[14] & 0xFF) : 100;
 
-            // Расчет PI по PPG
             float calculatedPI = 0.0f;
             if (data.length >= 12) {
                 for (int i = 8; i < data.length - 1; i++) {
@@ -792,10 +818,8 @@ public class MainActivity extends Activity {
             final int finalSpO2 = (spo2 <= 100) ? spo2 : 0;
             final int finalHR = (hr < 250) ? hr : 0;
 
-            // Всегда обновляем заголовок, чтобы видеть текущий статус связи
             runOnUiThread(() -> updateStatusHeader(finalSpO2, finalHR, currentPI, battery));
 
-            // Добавляем точку на график и в сессию при наличии валидного пульса/кислорода
             if (isRecording && finalSpO2 > 0 && finalHR > 0) {
                 int elapsedSec = (int) ((now - sessionStartTime) / 1000);
                 DataPoint dp = new DataPoint(now, elapsedSec, finalSpO2, finalHR, currentPI);
@@ -818,3 +842,19 @@ public class MainActivity extends Activity {
         }
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
