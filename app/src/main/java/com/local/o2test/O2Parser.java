@@ -28,15 +28,19 @@ public class O2Parser {
     }
 
     public static ParseResult parse(byte[] data) {
-        if (data == null || data.length < 11) {
+        if (data == null || data.length < 16) {
             return new ParseResult(0, 0, 0f, 0, false);
         }
 
         if ((data[0] & 0xFF) == 0x55) {
             int spo2 = data[7] & 0xFF;
             int hr = data[8] & 0xFF;
-            float pi = (data[10] & 0xFF) / 10.0f;
-            int battery = (data.length > 14) ? (data[14] & 0xFF) : 0;
+            
+            // Байт 15 хранит PI (умноженный на 10)
+            int rawPi = data[15] & 0xFF;
+            float pi = rawPi / 10.0f;
+
+            int battery = (data.length > 13) ? (data[13] & 0xFF) : 0;
 
             boolean isValid = (spo2 > 0 && spo2 <= 100 && hr > 0 && hr < 250);
             return new ParseResult(spo2, hr, pi, battery, isValid);
