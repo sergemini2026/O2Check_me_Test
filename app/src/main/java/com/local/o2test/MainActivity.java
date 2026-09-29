@@ -470,45 +470,78 @@ public class MainActivity extends Activity {
     private void sendRtDataRequest() {
         if (bluetoothGatt == null || writeChar == null) return;
         try {
-            // Команда запроса пакета с непрерывными точками Waveform (PPG)
             byte[] cmd = new byte[]{(byte) 0xAA, 0x14, (byte) 0xEB, 0x00, 0x00, 0x00, 0x00, 0x1F};
-            writeChar.setValue(cmd);
-            bluetoothGatt.writeCharacteristic(writeChar);
-        } catch (SecurityException ignored) {}
+            
+            // Явно задаем тип записи для гарантии отправки в Android 12+
+            writeChar.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                int result = bluetoothGatt.writeCharacteristic(writeChar, cmd, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT);
+                if (result != BluetoothGatt.GATT_SUCCESS) {
+                    log("Ошибка отправки команды: code " + result);
+                }
+            } else {
+                writeChar.setValue(cmd);
+                boolean success = bluetoothGatt.writeCharacteristic(writeChar);
+                if (!success) {
+                    log("Ошибка: writeCharacteristic вернул false");
+                }
+            }
+        } catch (SecurityException e) {
+            log("Ошибка прав при отправке: " + e.getMessage());
+        }
     }
 
     private void parseData(byte[] data) {
-        if (data == null || data.length < 11) return;
+        if (data == null || data.length < 8) return;
 
         int header = data[0] & 0xFF;
 
+        // Вывод сырых байт для отладки структуры пакета
+        StringBuilder hex = new StringBuilder();
+        for (int i = 0; i < Math.min(data.length, 12); i++) {
+            hex.append(String.format("%02X ", data[i]));
+        }
+        
         if (header == 0x55 || header == 0xA5) {
-            int spo2 = data[7] & 0xFF;
-            int hr = data[8] & 0xFF;
+            // Базовые смещения Viatom RT-пакета
+            int spo2 = data[6] & 0xFF;
+            int hr = data[7] & 0xFF;
+            
+            // Если SpO2 вне диапазона (например, 255 при снятом кольце), пробуем соседнее смещение
+            if (spo2 > 100 && data.length > 8) {
+                spo2 = data[7] & 0xFF;
+                hr = data[8] & 0xFF;
+            }
+
             int battery = (data.length > 14) ? (data[14] & 0xFF) : 100;
 
-            // Извлекаем точки PPG-волны из хвоста пакета и пересчитываем PI
+            // Расчет PI по PPG
             float calculatedPI = 0.0f;
-            if (data.length >= 15) {
-                for (int i = 11; i < data.length - 1; i++) {
+            if (data.length >= 12) {
+                for (int i = 8; i < data.length - 1; i++) {
                     int ppgSample = data[i] & 0xFF;
                     calculatedPI = piCalculator.addSampleAndCalculatePI(ppgSample);
                 }
             }
 
-            if (spo2 > 0 && spo2 <= 100 && hr > 0 && hr < 250) {
-                long now = System.currentTimeMillis();
-                final float currentPI = calculatedPI;
+            long now = System.currentTimeMillis();
+            final float currentPI = calculatedPI;
+            final int finalSpO2 = (spo2 <= 100) ? spo2 : 0;
+            final int finalHR = (hr < 250) ? hr : 0;
 
-                runOnUiThread(() -> updateStatusHeader(spo2, hr, currentPI, battery));
+      // Всегда обновляем заголовок, чтобы видеть текущий статус связи
+            runOnUiThread(() -> updateStatusHeader(finalSpO2, finalHR, currentPI, battery));
 
-                if (isRecording) {
-                    int elapsedSec = (int) ((now - sessionStartTime) / 1000);
-                    DataPoint dp = new DataPoint(now, elapsedSec, spo2, hr, currentPI);
-                    sessionData.add(dp);
-                    runOnUiThread(() -> chartView.addDataPoint(dp));
-                }
+            // Добавляем точку на график и в сессию при наличии валидного пульса/кислорода
+            if (isRecording && finalSpO2 > 0 && finalHR > 0) {
+                int elapsedSec = (int) ((now - sessionStartTime) / 1000);
+                DataPoint dp = new DataPoint(now, elapsedSec, finalSpO2, finalHR, currentPI);
+                sessionData.add(dp);
+                runOnUiThread(() -> chartView.addDataPoint(dp));
             }
+        } else {
+            log("RAW: " + hex.toString());
         }
     }
 
@@ -522,8 +555,8 @@ public class MainActivity extends Activity {
             } catch (SecurityException ignored) {}
         }
     }
-    
-        // Отрисовка графиков тренда
+}
+    // Отрисовка графиков тренда
     public static class TrendChartView extends View {
         private final List<DataPoint> points = new ArrayList<>();
         private final Paint paintGrid = new Paint();
@@ -779,6 +812,3 @@ public class MainActivity extends Activity {
         }
     }
 }
-
-        
-    
