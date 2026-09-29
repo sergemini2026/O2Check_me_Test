@@ -1,6 +1,9 @@
 package com.local.o2test;
 
+import android.Manifest;
 import android.app.Activity;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.widget.Button;
@@ -9,10 +12,14 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 
 public class MainActivity extends Activity implements O2BleManager.BleListener {
+
+    private static final int PERMISSION_REQUEST_CODE = 101;
 
     private O2BleManager bleManager;
     private TextView tvLiveMetrics;
@@ -82,8 +89,51 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         btnSave.setOnClickListener(v -> saveData());
         btnExit.setOnClickListener(v -> finish());
 
-        // Запуск BLE сканера
-        bleManager.initAndStartScan();
+        // Проверка разрешений при запуске
+        checkAndRequestPermissions();
+    }
+
+    private void checkAndRequestPermissions() {
+        List<String> permissions = new ArrayList<>();
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) { // Android 12+
+            if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.BLUETOOTH_SCAN);
+            }
+            if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.BLUETOOTH_CONNECT);
+            }
+        }
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+
+        if (!permissions.isEmpty()) {
+            onLog("Запрос разрешений BLE...");
+            requestPermissions(permissions.toArray(new String[0]), PERMISSION_REQUEST_CODE);
+        } else {
+            bleManager.initAndStartScan();
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            boolean allGranted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
+                    break;
+                }
+            }
+            if (allGranted) {
+                onLog("Разрешения получены, запуск сканирования...");
+                bleManager.initAndStartScan();
+            } else {
+                onLog("Ошибка: разрешения Bluetooth не предоставлены!");
+            }
+        }
     }
 
     private Button createButton(String text) {
