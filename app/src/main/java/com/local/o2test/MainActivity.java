@@ -27,7 +27,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private TextView tvLog;
     private ScrollView logScrollView;
 
-    // Переменные, из-за которых падала сборка:
     private boolean isRecording = false;
     private long sessionStartTime = 0;
     private final List<DataPoint> sessionData = new ArrayList<>();
@@ -184,27 +183,19 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     @Override
     public void onDataReceived(byte[] data) {
-        O2Parser.ParseResult result = O2Parser.parse(data);
+        O2Parser.ParseResult res = O2Parser.parse(data);
 
-        if (result != null && result.isValid) {
-            long now = System.currentTimeMillis();
-            if (sessionStartTime == 0) {
-                sessionStartTime = now;
-            }
+        long now = System.currentTimeMillis();
 
-            runOnUiThread(() -> {
-                updateStatusHeader(result.spo2, result.hr, result.pi, result.battery);
+        runOnUiThread(() -> updateStatusHeader(res.spo2, res.hr, res.pi, res.battery));
 
-                if (isRecording && chartView != null) {
-                    int elapsedSec = (int) ((now - sessionStartTime) / 1000);
-                    String timestamp = timeFormat.format(new Date(now));
-                    DataPoint dp = new DataPoint(timestamp, elapsedSec, result.spo2, result.hr, result.pi);
-                    sessionData.add(dp);
-                    chartView.addDataPoint(dp);
-                }
-            });
-        } else {
-            onLog("Нераспознанный пакет: " + O2Parser.bytesToHex(data));
+        if (res.isFingerOn && isRecording) {
+            if (sessionStartTime == 0) sessionStartTime = now;
+            int elapsedSec = (int) ((now - sessionStartTime) / 1000);
+
+            DataPoint dp = new DataPoint(now, elapsedSec, res.spo2, res.hr, res.pi);
+            sessionData.add(dp);
+            runOnUiThread(() -> chartView.addDataPoint(dp));
         }
     }
 
