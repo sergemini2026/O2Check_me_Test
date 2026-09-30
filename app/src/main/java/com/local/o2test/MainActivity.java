@@ -333,4 +333,4 @@ public class MainActivity extends Activity implements O2BleManager.BleListener, 
         if (o2BleManager != null) o2BleManager.close();
         if (polarH10Manager != null) polarH10Manager.disconnect();
     }
-}
+                                }
