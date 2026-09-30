@@ -181,23 +181,26 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         });
     }
 
-    @Override
-    public void onDataReceived(byte[] data) {
-        O2Parser.ParseResult res = O2Parser.parse(data);
+@Override
+public void onDataReceived(byte[] data) {
+    O2Parser.ParseResult res = O2Parser.parse(data);
 
-        long now = System.currentTimeMillis();
+    long now = System.currentTimeMillis();
 
-        runOnUiThread(() -> updateStatusHeader(res.spo2, res.hr, res.pi, res.battery));
+    runOnUiThread(() -> updateStatusHeader(res.spo2, res.hr, res.pi, res.battery));
 
-        if (res.isFingerOn && isRecording) {
-            if (sessionStartTime == 0) sessionStartTime = now;
-            int elapsedSec = (int) ((now - sessionStartTime) / 1000);
+    if (res.isFingerOn && isRecording) {
+        if (sessionStartTime == 0) sessionStartTime = now;
+        int elapsedSec = (int) ((now - sessionStartTime) / 1000);
 
-            DataPoint dp = new DataPoint(now, elapsedSec, res.spo2, res.hr, res.pi);
-            sessionData.add(dp);
-            runOnUiThread(() -> chartView.addDataPoint(dp));
-        }
+        String timestamp = timeFormat.format(new Date(now));
+        DataPoint dp = new DataPoint(timestamp, elapsedSec, res.spo2, res.hr, res.pi);
+        
+        sessionData.add(dp);
+        runOnUiThread(() -> chartView.addDataPoint(dp));
     }
+}
+
 
     @Override
     protected void onDestroy() {
