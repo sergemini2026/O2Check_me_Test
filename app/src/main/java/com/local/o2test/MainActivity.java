@@ -39,7 +39,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener, 
 
     private O2BleManager o2BleManager;
     private PolarH10Manager polarH10Manager;
-    private BluetoothLeScanner bleScanner;
+    private BluetoothLeScanner polarScanner;
 
     private TextView tvLiveMetrics;
     private TrendChartView chartView;
@@ -47,7 +47,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener, 
     private ScrollView logScrollView;
 
     private boolean isRecording = false;
-    private boolean o2Connected = false;
     private boolean polarConnected = false;
     private long sessionStartTime = 0;
 
@@ -59,11 +58,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener, 
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Инициализация менеджеров
         o2BleManager = new O2BleManager(this, this);
         polarH10Manager = new PolarH10Manager(this, this);
 
-        // UI Разметка
         LinearLayout mainLayout = new LinearLayout(this);
         mainLayout.setOrientation(LinearLayout.VERTICAL);
         mainLayout.setPadding(20, 20, 20, 20);
@@ -89,14 +86,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener, 
         btnBar.addView(btnExit);
         mainLayout.addView(btnBar);
 
-        // График (2/3 экрана)
         chartView = new TrendChartView(this);
         LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 2.0f);
         chartView.setLayoutParams(chartParams);
         mainLayout.addView(chartView);
 
-        // Логгер (1/3 экрана)
         tvLog = new TextView(this);
         tvLog.setTextSize(11);
 
@@ -137,7 +132,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener, 
             onLog("Запрос разрешений BLE...");
             requestPermissions(permissions.toArray(new String[0]), PERMISSION_REQUEST_CODE);
         } else {
-            startBleDiscovery();
+            startDevices();
         }
     }
 
@@ -153,60 +148,52 @@ public class MainActivity extends Activity implements O2BleManager.BleListener, 
                 }
             }
             if (allGranted) {
-                onLog("Разрешения получены, запуск поиска...");
-                startBleDiscovery();
+                onLog("Разрешения получены, запуск устройств...");
+                startDevices();
             } else {
                 onLog("Ошибка: разрешения Bluetooth не предоставлены!");
             }
         }
     }
 
-    private void startBleDiscovery() {
+    private void startDevices() {
+        // 1. Запуск родного сканера O2
+        if (o2BleManager != null) {
+            o2BleManager.initAndStartScan();
+        }
+
+        // 2. Параллельный поиск Polar H10
         BluetoothManager bm = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
         BluetoothAdapter adapter = bm != null ? bm.getAdapter() : null;
 
-        if (adapter == null || !adapter.isEnabled()) {
-            onLog("Ошибка: Bluetooth выключен!");
-            return;
-        }
-
-        bleScanner = adapter.getBluetoothLeScanner();
-        if (bleScanner != null) {
-            onLog("Поиск устройств BLE (O2 и Polar H10)...");
-            bleScanner.startScan(scanCallback);
+        if (adapter != null && adapter.isEnabled()) {
+            polarScanner = adapter.getBluetoothLeScanner();
+            if (polarScanner != null) {
+                onLog("Поиск Polar H10...");
+                polarScanner.startScan(polarScanCallback);
+            }
         }
     }
 
-    private final ScanCallback scanCallback = new ScanCallback() {
+    private final ScanCallback polarScanCallback = new ScanCallback() {
         @Override
         public void onScanResult(int callbackType, ScanResult result) {
             BluetoothDevice device = result.getDevice();
             String name = device.getName();
 
-            if (name == null) return;
+            if (name == null || polarConnected) return;
 
-            // Поиск пульсоксиметра
-            if (!o2Connected && (name.contains("O2") || name.contains("Viatom") || name.contains("POD"))) {
-                o2Connected = true;
-                onLog("Найден O2 датчик: " + name + " [" + device.getAddress() + "]");
-                o2BleManager.connectDevice(device);
-            }
-
-            // Поиск Polar H10
-            if (!polarConnected && (name.contains("Polar") || name.contains("H10"))) {
+            if (name.contains("Polar") || name.contains("H10")) {
                 polarConnected = true;
                 onLog("Найден Polar H10: " + name + " [" + device.getAddress() + "]");
+                if (polarScanner != null) {
+                    polarScanner.stopScan(this);
+                }
                 polarH10Manager.connect(device);
-            }
-
-            if (o2Connected && polarConnected && bleScanner != null) {
-                onLog("Все устройства найдены, остановка сканирования.");
-                bleScanner.stopScan(scanCallback);
             }
         }
     };
 
-    // Callback для сырых байтов Polar H10
     @Override
     public void onPolarRawData(byte[] data) {
         String hexString = bytesToHex(data);
@@ -218,7 +205,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener, 
         onLog(message);
     }
 
-    // Callback для данных O2
     @Override
     public void onDataReceived(byte[] data) {
         O2Parser.ParseResult res = O2Parser.parse(data);
@@ -278,6 +264,79 @@ public class MainActivity extends Activity implements O2BleManager.BleListener, 
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
         params.setMargins(4, 0, 4, 0);
+        btn.setLayoutParams(params);
+        return btn;
+    }
+
+    private void updateStatusHeader(int spo2, int hr, float pi, int battery) {
+        if (tvLiveMetrics == null) return;
+
+        String partO2 = String.format(Locale.US, "SpO2: %d%%", spo2);
+        String partHR = String.format(Locale.US, "  |  HR: %d bpm", hr);
+        String partPI = String.format(Locale.US, "  |  PI: %.1f%%", pi);
+        String partPower = String.format(Locale.US, "  |  Power: %d%%", battery);
+
+        SpannableStringBuilder builder = new SpannableStringBuilder();
+
+        int start = 0;
+        builder.append(partO2);
+        builder.setSpan(new ForegroundColorSpan(Color.CYAN), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        start = builder.length();
+        builder.append(partHR);
+        builder.setSpan(new ForegroundColorSpan(Color.GREEN), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        start = builder.length();
+        builder.append(partPI);
+        builder.setSpan(new ForegroundColorSpan(Color.YELLOW), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        start = builder.length();
+        builder.append(partPower);
+        builder.setSpan(new ForegroundColorSpan(Color.RED), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        tvLiveMetrics.setText(builder);
+    }
+
+    private void startMonitoringPanel() {
+        isRecording = true;
+        sessionStartTime = System.currentTimeMillis();
+        sessionData.clear();
+        piWindow.clear();
+        if (chartView != null) {
+            chartView.clearData();
+        }
+        onLog("Панель монитора активна");
+    }
+
+    private void stopMonitoring() {
+        isRecording = false;
+        piWindow.clear();
+        onLog("Мониторинг остановлен");
+    }
+
+    private void saveData() {
+        onLog("Сохранение данных...");
+        CsvExporter.saveSessionToCsv(this, sessionData, new CsvExporter.ExportCallback() {
+            @Override
+            public void onSuccess(String filePath, String fileName) {
+                onLog("Успешно сохранено: " + fileName);
+            }
+
+            @Override
+            public void onError(String errorMessage) {
+                onLog("Ошибка: " + errorMessage);
+            }
+        });
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (o2BleManager != null) o2BleManager.close();
+        if (polarH10Manager != null) polarH10Manager.disconnect();
+    }
+}
+argins(4, 0, 4, 0);
         btn.setLayoutParams(params);
         return btn;
     }
