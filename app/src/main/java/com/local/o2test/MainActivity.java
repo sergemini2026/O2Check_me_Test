@@ -197,11 +197,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener, 
         onLog(message);
     }
 
-    @Override
-    public void onPolarData(byte[] data) {
-        String hexString = bytesToHex(data);
-        onLog("Polar RAW: [" + hexString + "]");
+        @Override
+    public void onPolarHrReceived(int hr) {
+        onLog("Polar H10 Пульс: " + hr + " bpm");
     }
+
 
     private String bytesToHex(byte[] bytes) {
         if (bytes == null) return "";
