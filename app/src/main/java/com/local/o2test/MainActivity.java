@@ -3,8 +3,12 @@ package com.local.o2test;
 import android.Manifest;
 import android.app.Activity;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -63,7 +67,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         btnBar.addView(btnExit);
         mainLayout.addView(btnBar);
 
-        // График занимает 2/3 свободного места (weight = 2.0f)
+        // График занимает 2/3 экрана (weight = 2.0f)
         chartView = new TrendChartView(this);
         LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 2.0f);
@@ -73,10 +77,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         tvLog = new TextView(this);
         tvLog.setTextSize(11);
 
-        // Лог занимает 1/3 свободного места (weight = 1.0f)
+        // Лог занимает 1/3 экрана (weight = 1.0f) с отступом сверху в одну строку (~24dp)
         logScrollView = new ScrollView(this);
         LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
+        logParams.topMargin = 24; 
         logScrollView.setLayoutParams(logParams);
         logScrollView.addView(tvLog);
         mainLayout.addView(logScrollView);
@@ -145,11 +150,32 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     private void updateStatusHeader(int spo2, int hr, float pi, int battery) {
-        if (tvLiveMetrics != null) {
-            tvLiveMetrics.setText(String.format(Locale.US,
-                    "SpO2: %d%%  |  HR: %d bpm  |  PI: %.1f%%  |  Заряд: %d%%",
-                    spo2, hr, pi, battery));
-        }
+        if (tvLiveMetrics == null) return;
+
+        String partO2 = String.format(Locale.US, "SpO2: %d%%", spo2);
+        String partHR = String.format(Locale.US, "  |  HR: %d bpm", hr);
+        String partPI = String.format(Locale.US, "  |  PI: %.1f%%", pi);
+        String partPower = String.format(Locale.US, "  |  Power: %d%%", battery);
+
+        SpannableStringBuilder builder = new SpannableStringBuilder();
+
+        int start = 0;
+        builder.append(partO2);
+        builder.setSpan(new ForegroundColorSpan(Color.CYAN), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        start = builder.length();
+        builder.append(partHR);
+        builder.setSpan(new ForegroundColorSpan(Color.GREEN), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        start = builder.length();
+        builder.append(partPI);
+        builder.setSpan(new ForegroundColorSpan(Color.YELLOW), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        start = builder.length();
+        builder.append(partPower);
+        builder.setSpan(new ForegroundColorSpan(Color.RED), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        tvLiveMetrics.setText(builder);
     }
 
     private void startMonitoringPanel() {
