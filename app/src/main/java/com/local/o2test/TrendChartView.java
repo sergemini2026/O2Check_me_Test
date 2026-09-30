@@ -131,9 +131,10 @@ public class TrendChartView extends View {
             canvas.drawText(String.valueOf(val), leftPad + 5f, y + 5f, paintSubText);
         }
 
-        int[] piTicks = {10, 5, 0};
+        // Шкала PI теперь 0 - 2% с промежуточным 1%
+        int[] piTicks = {2, 1, 0};
         for (int val : piTicks) {
-            float ratio = (val - 0f) / (10f - 0f);
+            float ratio = (val - 0f) / (2f - 0f);
             float y = (topPad + 3 * zoneH) - ratio * zoneH;
             canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
             canvas.drawText(val + "%", leftPad + 5f, y + 5f, paintSubText);
@@ -194,7 +195,8 @@ public class TrendChartView extends View {
             float normHR = (Math.max(minHR, Math.min(maxHR, (float) dp.hr)) - minHR) / (maxHR - minHR);
             float yHR = (topPad + 2 * zoneH) - (normHR * zoneH);
 
-            float minPI = 0f, maxPI = 10f;
+            // Диапазон нормирования PI равен [0f .. 2f]
+            float minPI = 0f, maxPI = 2f;
             float normPI = (Math.max(minPI, Math.min(maxPI, dp.pi)) - minPI) / (maxPI - minPI);
             float yPI = (topPad + 3 * zoneH) - (normPI * zoneH);
 
@@ -256,4 +258,4 @@ public class TrendChartView extends View {
             canvas.drawText(info, boxX + 10f, boxY + 25f, paintText);
         }
     }
-    }
+}
