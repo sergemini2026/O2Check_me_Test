@@ -23,7 +23,7 @@ public class PolarH10Manager {
 
     public interface PolarCallback {
         void onPolarLog(String message);
-        void onPolarData(byte[] data);
+        void onPolarHrReceived(int hr);
     }
 
     private final Context context;
@@ -75,13 +75,26 @@ public class PolarH10Manager {
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
             if (HR_CHAR_UUID.equals(characteristic.getUuid())) {
-                byte[] val = characteristic.getValue();
-                if (callback != null && val != null) {
-                    callback.onPolarData(val);
+                byte[] data = characteristic.getValue();
+                if (data != null && data.length > 1) {
+                    int hr = parseHeartRate(data);
+                    if (callback != null) {
+                        callback.onPolarHrReceived(hr);
+                    }
                 }
             }
         }
     };
+
+    private int parseHeartRate(byte[] data) {
+        byte flags = data[0];
+        boolean is16Bit = (flags & 0x01) != 0;
+        if (is16Bit && data.length >= 3) {
+            return ((data[2] & 0xFF) << 8) | (data[1] & 0xFF);
+        } else {
+            return data[1] & 0xFF;
+        }
+    }
 
     private void log(String msg) {
         new Handler(Looper.getMainLooper()).post(() -> {
