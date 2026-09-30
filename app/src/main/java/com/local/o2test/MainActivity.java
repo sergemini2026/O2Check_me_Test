@@ -18,12 +18,15 @@ import android.widget.TextView;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Queue;
 
 public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private static final int PERMISSION_REQUEST_CODE = 101;
+    private static final int PI_SMOOTHING_WINDOW = 5; // Окно сглаживания PI (5 точек)
 
     private O2BleManager bleManager;
     private TextView tvLiveMetrics;
@@ -34,6 +37,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private boolean isRecording = false;
     private long sessionStartTime = 0;
     private final List<DataPoint> sessionData = new ArrayList<>();
+    private final Queue<Float> piWindow = new LinkedList<>(); // Очередь для скользящего среднего
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
 
     @Override
@@ -77,11 +81,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         tvLog = new TextView(this);
         tvLog.setTextSize(11);
 
-        // Лог занимает 1/3 экрана (weight = 1.0f) с отступом сверху в одну строку (~24dp)
+        // Лог занимает 1/3 экрана (weight = 1.0f) с отступом сверху (~24dp)
         logScrollView = new ScrollView(this);
         LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        logParams.topMargin = 24; 
+        logParams.topMargin = 24;
         logScrollView.setLayoutParams(logParams);
         logScrollView.addView(tvLog);
         mainLayout.addView(logScrollView);
@@ -182,6 +186,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = true;
         sessionStartTime = System.currentTimeMillis();
         sessionData.clear();
+        piWindow.clear();
         if (chartView != null) {
             chartView.clearData();
         }
@@ -190,6 +195,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private void stopMonitoring() {
         isRecording = false;
+        piWindow.clear();
         onLog("Мониторинг остановлен");
     }
 
@@ -206,6 +212,19 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 onLog("Ошибка: " + errorMessage);
             }
         });
+    }
+
+    // Вспомогательный метод расчёта скользящего среднего
+    private float getSmoothedPi(float rawPi) {
+        piWindow.add(rawPi);
+        if (piWindow.size() > PI_SMOOTHING_WINDOW) {
+            piWindow.poll();
+        }
+        float sum = 0f;
+        for (float val : piWindow) {
+            sum += val;
+        }
+        return sum / piWindow.size();
     }
 
     @Override
@@ -226,14 +245,17 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         long now = System.currentTimeMillis();
 
-        runOnUiThread(() -> updateStatusHeader(res.spo2, res.hr, res.pi, res.battery));
+        // Применяем сглаживание к PI
+        float smoothedPi = getSmoothedPi(res.pi);
+
+        runOnUiThread(() -> updateStatusHeader(res.spo2, res.hr, smoothedPi, res.battery));
 
         if (res.isFingerOn && isRecording) {
             if (sessionStartTime == 0) sessionStartTime = now;
             int elapsedSec = (int) ((now - sessionStartTime) / 1000);
 
             String timestamp = timeFormat.format(new Date(now));
-            DataPoint dp = new DataPoint(timestamp, elapsedSec, res.spo2, res.hr, res.pi);
+            DataPoint dp = new DataPoint(timestamp, elapsedSec, res.spo2, res.hr, smoothedPi);
 
             sessionData.add(dp);
             runOnUiThread(() -> chartView.addDataPoint(dp));
