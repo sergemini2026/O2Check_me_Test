@@ -157,12 +157,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener, 
     }
 
     private void startDevices() {
-        // 1. Запуск родного сканера O2
         if (o2BleManager != null) {
             o2BleManager.initAndStartScan();
         }
 
-        // 2. Параллельный поиск Polar H10
         BluetoothManager bm = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
         BluetoothAdapter adapter = bm != null ? bm.getAdapter() : null;
 
@@ -264,79 +262,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener, 
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
         params.setMargins(4, 0, 4, 0);
-        btn.setLayoutParams(params);
-        return btn;
-    }
-
-    private void updateStatusHeader(int spo2, int hr, float pi, int battery) {
-        if (tvLiveMetrics == null) return;
-
-        String partO2 = String.format(Locale.US, "SpO2: %d%%", spo2);
-        String partHR = String.format(Locale.US, "  |  HR: %d bpm", hr);
-        String partPI = String.format(Locale.US, "  |  PI: %.1f%%", pi);
-        String partPower = String.format(Locale.US, "  |  Power: %d%%", battery);
-
-        SpannableStringBuilder builder = new SpannableStringBuilder();
-
-        int start = 0;
-        builder.append(partO2);
-        builder.setSpan(new ForegroundColorSpan(Color.CYAN), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-
-        start = builder.length();
-        builder.append(partHR);
-        builder.setSpan(new ForegroundColorSpan(Color.GREEN), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-
-        start = builder.length();
-        builder.append(partPI);
-        builder.setSpan(new ForegroundColorSpan(Color.YELLOW), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-
-        start = builder.length();
-        builder.append(partPower);
-        builder.setSpan(new ForegroundColorSpan(Color.RED), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-
-        tvLiveMetrics.setText(builder);
-    }
-
-    private void startMonitoringPanel() {
-        isRecording = true;
-        sessionStartTime = System.currentTimeMillis();
-        sessionData.clear();
-        piWindow.clear();
-        if (chartView != null) {
-            chartView.clearData();
-        }
-        onLog("Панель монитора активна");
-    }
-
-    private void stopMonitoring() {
-        isRecording = false;
-        piWindow.clear();
-        onLog("Мониторинг остановлен");
-    }
-
-    private void saveData() {
-        onLog("Сохранение данных...");
-        CsvExporter.saveSessionToCsv(this, sessionData, new CsvExporter.ExportCallback() {
-            @Override
-            public void onSuccess(String filePath, String fileName) {
-                onLog("Успешно сохранено: " + fileName);
-            }
-
-            @Override
-            public void onError(String errorMessage) {
-                onLog("Ошибка: " + errorMessage);
-            }
-        });
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (o2BleManager != null) o2BleManager.close();
-        if (polarH10Manager != null) polarH10Manager.disconnect();
-    }
-}
-argins(4, 0, 4, 0);
         btn.setLayoutParams(params);
         return btn;
     }
