@@ -63,15 +63,17 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         btnBar.addView(btnExit);
         mainLayout.addView(btnBar);
 
+        // График занимает 2/3 свободного места (weight = 2.0f)
         chartView = new TrendChartView(this);
         LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 2.0f);
         chartView.setLayoutParams(chartParams);
         mainLayout.addView(chartView);
 
         tvLog = new TextView(this);
         tvLog.setTextSize(11);
 
+        // Лог занимает 1/3 свободного места (weight = 1.0f)
         logScrollView = new ScrollView(this);
         LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
@@ -167,6 +169,17 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private void saveData() {
         onLog("Сохранение данных...");
+        CsvExporter.saveSessionToCsv(this, sessionData, new CsvExporter.ExportCallback() {
+            @Override
+            public void onSuccess(String filePath, String fileName) {
+                onLog("Успешно сохранено: " + fileName);
+            }
+
+            @Override
+            public void onError(String errorMessage) {
+                onLog("Ошибка: " + errorMessage);
+            }
+        });
     }
 
     @Override
@@ -181,26 +194,25 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         });
     }
 
-@Override
-public void onDataReceived(byte[] data) {
-    O2Parser.ParseResult res = O2Parser.parse(data);
+    @Override
+    public void onDataReceived(byte[] data) {
+        O2Parser.ParseResult res = O2Parser.parse(data);
 
-    long now = System.currentTimeMillis();
+        long now = System.currentTimeMillis();
 
-    runOnUiThread(() -> updateStatusHeader(res.spo2, res.hr, res.pi, res.battery));
+        runOnUiThread(() -> updateStatusHeader(res.spo2, res.hr, res.pi, res.battery));
 
-    if (res.isFingerOn && isRecording) {
-        if (sessionStartTime == 0) sessionStartTime = now;
-        int elapsedSec = (int) ((now - sessionStartTime) / 1000);
+        if (res.isFingerOn && isRecording) {
+            if (sessionStartTime == 0) sessionStartTime = now;
+            int elapsedSec = (int) ((now - sessionStartTime) / 1000);
 
-        String timestamp = timeFormat.format(new Date(now));
-        DataPoint dp = new DataPoint(timestamp, elapsedSec, res.spo2, res.hr, res.pi);
-        
-        sessionData.add(dp);
-        runOnUiThread(() -> chartView.addDataPoint(dp));
+            String timestamp = timeFormat.format(new Date(now));
+            DataPoint dp = new DataPoint(timestamp, elapsedSec, res.spo2, res.hr, res.pi);
+
+            sessionData.add(dp);
+            runOnUiThread(() -> chartView.addDataPoint(dp));
+        }
     }
-}
-
 
     @Override
     protected void onDestroy() {
