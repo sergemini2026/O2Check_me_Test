@@ -176,29 +176,31 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         });
     }
 
-    @Override
-    public void onDataReceived(byte[] data) {
-        O2Parser.ParseResult result = O2Parser.parse(data);
+@Override
+public void onDataReceived(byte[] data) {
+    O2Parser.ParseResult result = O2Parser.parse(data);
 
-        if (result != null && result.isValid) {
-            if (sessionStartTime == 0) {
-                sessionStartTime = System.currentTimeMillis();
-            }
-            int elapsedSec = (int) ((System.currentTimeMillis() - sessionStartTime) / 1000);
-            String timestamp = timeFormat.format(new Date());
-
-            runOnUiThread(() -> {
-                updateStatusHeader(result.spo2, result.hr, result.pi, result.battery);
-
-                if (chartView != null) {
-                    DataPoint dp = new DataPoint(timestamp, elapsedSec, result.spo2, result.hr, result.pi);
-                    chartView.addDataPoint(dp);
-                }
-            });
-        } else {
-            onLog("Нераспознанный пакет: " + O2Parser.bytesToHex(data));
+    if (result != null && result.isValid) {
+        long now = System.currentTimeMillis();
+        if (sessionStartTime == 0) {
+            sessionStartTime = now;
         }
+
+        runOnUiThread(() -> {
+            updateStatusHeader(result.spo2, result.hr, result.pi, result.battery);
+
+            if (isRecording && chartView != null) {
+                int elapsedSec = (int) ((now - sessionStartTime) / 1000);
+                String timestamp = timeFormat.format(new Date(now));
+                DataPoint dp = new DataPoint(timestamp, elapsedSec, result.spo2, result.hr, result.pi);
+                sessionData.add(dp);
+                chartView.addDataPoint(dp);
+            }
+        });
+    } else {
+        onLog("Нераспознанный пакет: " + O2Parser.bytesToHex(data));
     }
+}
 
     @Override
     protected void onDestroy() {
