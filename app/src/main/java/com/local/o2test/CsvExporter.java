@@ -36,8 +36,9 @@ public class CsvExporter {
         try (FileWriter writer = new FileWriter(file)) {
             writer.append("Timestamp,Elapsed_Sec,SpO2,HR,PI\n");
             for (DataPoint dp : sessionData) {
-                writer.append(String.format(Locale.US, "%d,%d,%d,%d,%.2f\n",
-                        dp.timestamp, dp.elapsedSec, dp.spo2, dp.hr, dp.pi));
+                writer.append(String.format(Locale.US, "%s,%d,%d,%d,%.2f\n",
+        dp.timestamp, dp.elapsedSec, dp.spo2, dp.hr, dp.pi));
+
             }
             callback.onSuccess(file.getAbsolutePath(), fileName);
         } catch (IOException e) {
