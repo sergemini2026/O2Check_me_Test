@@ -1,7 +1,15 @@
 package com.local.o2test;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothManager;
+import android.bluetooth.le.BluetoothLeScanner;
+import android.bluetooth.le.ScanCallback;
+import android.bluetooth.le.ScanResult;
+import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
@@ -23,29 +31,39 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Queue;
 
-public class MainActivity extends Activity implements O2BleManager.BleListener {
+@SuppressLint("MissingPermission")
+public class MainActivity extends Activity implements O2BleManager.BleListener, PolarH10Manager.PolarRawCallback {
 
     private static final int PERMISSION_REQUEST_CODE = 101;
-    private static final int PI_SMOOTHING_WINDOW = 5; // Окно сглаживания PI (5 точек)
+    private static final int PI_SMOOTHING_WINDOW = 5;
 
-    private O2BleManager bleManager;
+    private O2BleManager o2BleManager;
+    private PolarH10Manager polarH10Manager;
+    private BluetoothLeScanner bleScanner;
+
     private TextView tvLiveMetrics;
     private TrendChartView chartView;
     private TextView tvLog;
     private ScrollView logScrollView;
 
     private boolean isRecording = false;
+    private boolean o2Connected = false;
+    private boolean polarConnected = false;
     private long sessionStartTime = 0;
+
     private final List<DataPoint> sessionData = new ArrayList<>();
-    private final Queue<Float> piWindow = new LinkedList<>(); // Очередь для скользящего среднего
+    private final Queue<Float> piWindow = new LinkedList<>();
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        bleManager = new O2BleManager(this, this);
+        // Инициализация менеджеров
+        o2BleManager = new O2BleManager(this, this);
+        polarH10Manager = new PolarH10Manager(this, this);
 
+        // UI Разметка
         LinearLayout mainLayout = new LinearLayout(this);
         mainLayout.setOrientation(LinearLayout.VERTICAL);
         mainLayout.setPadding(20, 20, 20, 20);
@@ -71,17 +89,17 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         btnBar.addView(btnExit);
         mainLayout.addView(btnBar);
 
-        // График занимает 2/3 экрана (weight = 2.0f)
+        // График (2/3 экрана)
         chartView = new TrendChartView(this);
         LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 2.0f);
         chartView.setLayoutParams(chartParams);
         mainLayout.addView(chartView);
 
+        // Логгер (1/3 экрана)
         tvLog = new TextView(this);
         tvLog.setTextSize(11);
 
-        // Лог занимает 1/3 экрана (weight = 1.0f) с отступом сверху (~24dp)
         logScrollView = new ScrollView(this);
         LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
@@ -119,7 +137,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             onLog("Запрос разрешений BLE...");
             requestPermissions(permissions.toArray(new String[0]), PERMISSION_REQUEST_CODE);
         } else {
-            bleManager.initAndStartScan();
+            startBleDiscovery();
         }
     }
 
@@ -135,12 +153,123 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 }
             }
             if (allGranted) {
-                onLog("Разрешения получены, запуск сканирования...");
-                bleManager.initAndStartScan();
+                onLog("Разрешения получены, запуск поиска...");
+                startBleDiscovery();
             } else {
                 onLog("Ошибка: разрешения Bluetooth не предоставлены!");
             }
         }
+    }
+
+    private void startBleDiscovery() {
+        BluetoothManager bm = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
+        BluetoothAdapter adapter = bm != null ? bm.getAdapter() : null;
+
+        if (adapter == null || !adapter.isEnabled()) {
+            onLog("Ошибка: Bluetooth выключен!");
+            return;
+        }
+
+        bleScanner = adapter.getBluetoothLeScanner();
+        if (bleScanner != null) {
+            onLog("Поиск устройств BLE (O2 и Polar H10)...");
+            bleScanner.startScan(scanCallback);
+        }
+    }
+
+    private final ScanCallback scanCallback = new ScanCallback() {
+        @Override
+        public void onScanResult(int callbackType, ScanResult result) {
+            BluetoothDevice device = result.getDevice();
+            String name = device.getName();
+
+            if (name == null) return;
+
+            // Поиск пульсоксиметра
+            if (!o2Connected && (name.contains("O2") || name.contains("Viatom") || name.contains("POD"))) {
+                o2Connected = true;
+                onLog("Найден O2 датчик: " + name + " [" + device.getAddress() + "]");
+                o2BleManager.connectDevice(device);
+            }
+
+            // Поиск Polar H10
+            if (!polarConnected && (name.contains("Polar") || name.contains("H10"))) {
+                polarConnected = true;
+                onLog("Найден Polar H10: " + name + " [" + device.getAddress() + "]");
+                polarH10Manager.connect(device);
+            }
+
+            if (o2Connected && polarConnected && bleScanner != null) {
+                onLog("Все устройства найдены, остановка сканирования.");
+                bleScanner.stopScan(scanCallback);
+            }
+        }
+    };
+
+    // Callback для сырых байтов Polar H10
+    @Override
+    public void onPolarRawData(byte[] data) {
+        String hexString = bytesToHex(data);
+        onLog("Polar RAW: [" + hexString + "]");
+    }
+
+    @Override
+    public void onPolarLog(String message) {
+        onLog(message);
+    }
+
+    // Callback для данных O2
+    @Override
+    public void onDataReceived(byte[] data) {
+        O2Parser.ParseResult res = O2Parser.parse(data);
+        long now = System.currentTimeMillis();
+        float smoothedPi = getSmoothedPi(res.pi);
+
+        runOnUiThread(() -> updateStatusHeader(res.spo2, res.hr, smoothedPi, res.battery));
+
+        if (res.isFingerOn && isRecording) {
+            if (sessionStartTime == 0) sessionStartTime = now;
+            int elapsedSec = (int) ((now - sessionStartTime) / 1000);
+
+            String timestamp = timeFormat.format(new Date(now));
+            DataPoint dp = new DataPoint(timestamp, elapsedSec, res.spo2, res.hr, smoothedPi);
+
+            sessionData.add(dp);
+            runOnUiThread(() -> chartView.addDataPoint(dp));
+        }
+    }
+
+    @Override
+    public void onLog(String message) {
+        runOnUiThread(() -> {
+            if (tvLog != null) {
+                tvLog.append(message + "\n");
+                if (logScrollView != null) {
+                    logScrollView.post(() -> logScrollView.fullScroll(ScrollView.FOCUS_DOWN));
+                }
+            }
+        });
+    }
+
+    private String bytesToHex(byte[] bytes) {
+        if (bytes == null) return "";
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString().trim();
+    }
+
+    private float getSmoothedPi(float rawPi) {
+        piWindow.add(rawPi);
+        if (piWindow.size() > PI_SMOOTHING_WINDOW) {
+            piWindow.poll();
+        }
+        float sum = 0f;
+        for (float val : piWindow) {
+            sum += val;
+        }
+        return sum / piWindow.size();
     }
 
     private Button createButton(String text) {
@@ -214,59 +343,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         });
     }
 
-    // Вспомогательный метод расчёта скользящего среднего
-    private float getSmoothedPi(float rawPi) {
-        piWindow.add(rawPi);
-        if (piWindow.size() > PI_SMOOTHING_WINDOW) {
-            piWindow.poll();
-        }
-        float sum = 0f;
-        for (float val : piWindow) {
-            sum += val;
-        }
-        return sum / piWindow.size();
-    }
-
-    @Override
-    public void onLog(String message) {
-        runOnUiThread(() -> {
-            if (tvLog != null) {
-                tvLog.append(message + "\n");
-                if (logScrollView != null) {
-                    logScrollView.post(() -> logScrollView.fullScroll(ScrollView.FOCUS_DOWN));
-                }
-            }
-        });
-    }
-
-    @Override
-    public void onDataReceived(byte[] data) {
-        O2Parser.ParseResult res = O2Parser.parse(data);
-
-        long now = System.currentTimeMillis();
-
-        // Применяем сглаживание к PI
-        float smoothedPi = getSmoothedPi(res.pi);
-
-        runOnUiThread(() -> updateStatusHeader(res.spo2, res.hr, smoothedPi, res.battery));
-
-        if (res.isFingerOn && isRecording) {
-            if (sessionStartTime == 0) sessionStartTime = now;
-            int elapsedSec = (int) ((now - sessionStartTime) / 1000);
-
-            String timestamp = timeFormat.format(new Date(now));
-            DataPoint dp = new DataPoint(timestamp, elapsedSec, res.spo2, res.hr, smoothedPi);
-
-            sessionData.add(dp);
-            runOnUiThread(() -> chartView.addDataPoint(dp));
-        }
-    }
-
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (bleManager != null) {
-            bleManager.close();
-        }
+        if (o2BleManager != null) o2BleManager.close();
+        if (polarH10Manager != null) polarH10Manager.disconnect();
     }
 }
