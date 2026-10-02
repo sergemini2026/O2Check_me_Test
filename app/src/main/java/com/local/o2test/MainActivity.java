@@ -198,9 +198,17 @@ public class MainActivity extends Activity implements O2BleManager.BleListener, 
     }
 
         @Override
-    public void onPolarHrReceived(int hr) {
-        onLog("Polar H10 Пульс: " + hr + " bpm");
+public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
+    if (rrCount < 30) {
+        onLog(String.format(Locale.US,
+                "Polar HR: %d bpm | Накопление буфера ВСР (%d/30 RR)...",
+                hr, rrCount));
+    } else {
+        onLog(String.format(Locale.US,
+                "Polar HR: %d bpm | RMSSD: %.1f мс | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms²",
+                hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower));
     }
+}
 
 
     private String bytesToHex(byte[] bytes) {
