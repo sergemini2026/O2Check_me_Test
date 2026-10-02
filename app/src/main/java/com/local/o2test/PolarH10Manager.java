@@ -12,6 +12,10 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 
+import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Queue;
 import java.util.UUID;
 
 @SuppressLint("MissingPermission")
@@ -21,14 +25,17 @@ public class PolarH10Manager {
     private static final UUID HR_CHAR_UUID    = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb");
     private static final UUID CCCD_UUID       = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
 
+    private static final int RR_BUFFER_CAPACITY = 300;
+
     public interface PolarCallback {
         void onPolarLog(String message);
-        void onPolarHrReceived(int hr);
+        void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount);
     }
 
     private final Context context;
     private final PolarCallback callback;
     private BluetoothGatt gatt;
+    private final Queue<Integer> rrBuffer = new LinkedList<>();
 
     public PolarH10Manager(Context context, PolarCallback callback) {
         this.context = context;
@@ -66,8 +73,6 @@ public class PolarH10Manager {
                             log("Polar H10: Подписка на поток данных выполнена");
                         }
                     }
-                } else {
-                    log("Polar H10: Ошибка — Heart Rate Service не найден");
                 }
             }
         }
@@ -78,8 +83,25 @@ public class PolarH10Manager {
                 byte[] data = characteristic.getValue();
                 if (data != null && data.length > 1) {
                     int hr = parseHeartRate(data);
-                    if (callback != null) {
-                        callback.onPolarHrReceived(hr);
+                    List<Integer> newRrList = HrvCalculator.parseRrIntervals(data);
+
+                    synchronized (rrBuffer) {
+                        for (int rr : newRrList) {
+                            rrBuffer.add(rr);
+                            if (rrBuffer.size() > RR_BUFFER_CAPACITY) {
+                                rrBuffer.poll();
+                            }
+                        }
+
+                        List<Integer> snapshot = new ArrayList<>(rrBuffer);
+                        HrvCalculator.Metrics hrv = HrvCalculator.calculate(snapshot);
+                        int count = snapshot.size();
+
+                        new Handler(Looper.getMainLooper()).post(() -> {
+                            if (callback != null) {
+                                callback.onPolarHrReceived(hr, hrv, count);
+                            }
+                        });
                     }
                 }
             }
