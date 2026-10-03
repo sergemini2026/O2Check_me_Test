@@ -1,5 +1,6 @@
 package com.local.o2test;
 
+import android.annotation.SuppressLint;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
@@ -21,12 +22,13 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 
+@SuppressLint("MissingPermission")
 public class O2BleManager {
 
     public interface BleListener {
         void onLog(String message);
         void onDataReceived(byte[] data);
-        void onPolarDeviceFound(BluetoothDevice device); // Добавлено для передачи Polar H10
+        void onPolarDeviceFound(BluetoothDevice device);
     }
 
     private static final UUID SERVICE_UUID = UUID.fromString("14839ac4-7d7e-415c-9a42-167340cf2339");
@@ -40,7 +42,9 @@ public class O2BleManager {
     private BluetoothLeScanner scanner;
     private BluetoothGatt bluetoothGatt;
     private BluetoothGattCharacteristic writeChar;
+    
     private final Set<String> discoveredDevices = new HashSet<>();
+    private final Set<String> discoveredPolarDevices = new HashSet<>();
     private boolean isConnecting = false;
 
     private final ByteArrayOutputStream packetBuffer = new ByteArrayOutputStream();
@@ -77,6 +81,7 @@ public class O2BleManager {
 
     private void startScanning() {
         discoveredDevices.clear();
+        discoveredPolarDevices.clear();
         try {
             scanner.startScan(new ScanCallback() {
                 @Override
@@ -86,20 +91,33 @@ public class O2BleManager {
 
                     String address = device.getAddress();
                     String name = device.getName();
-                    if (name == null) return;
+                    if (name == null || name.trim().isEmpty()) return;
 
-                    if (discoveredDevices.add(address)) {
-                        listener.onLog("Найдено: " + name + " [" + address + "]");
+                    boolean isO2 = name.contains("O2") || name.contains("Viatom") || name.contains("Checkme");
+                    boolean isPolar = name.contains("Polar") || name.contains("H10");
+
+                    // 1. Игнорируем сторонние устройства (Xiaomi, SmartTV и т.д.)
+                    if (!isO2 && !isPolar) {
+                        return;
                     }
 
-                    if (!isConnecting && (name.contains("O2") || name.contains("Viatom") || name.contains("Checkme"))) {
+                    // 2. Логируем только наши целевые устройства при первичном обнаружении
+                    if (discoveredDevices.add(address)) {
+                        listener.onLog("Найдено целевое устройство: " + name + " [" + address + "]");
+                    }
+
+                    // 3. Подключение к датчику O2
+                    if (isO2 && !isConnecting) {
                         isConnecting = true;
-                        listener.onLog(">>> ДАТЧИК ОБНАРУЖЕН: " + name + " <<<");
-                        //scanner.stopScan(this);
+                        listener.onLog(">>> ДАТЧИК O2 ОБНАРУЖЕН: " + name + " <<<");
                         connectToDevice(device);
-                    } else if (name.contains("Polar") || name.contains("H10")) {
-                        listener.onLog("Найден Polar H10 [" + address + "]. Подключение...");
-                        listener.onPolarDeviceFound(device);
+                    } 
+                    // 4. Передача Polar H10 (СТРОГО ОДИН РАЗ на каждый MAC-адрес)
+                    else if (isPolar) {
+                        if (discoveredPolarDevices.add(address)) {
+                            listener.onLog("Найден Polar H10 [" + address + "]. Инициализация подключения...");
+                            listener.onPolarDeviceFound(device);
+                        }
                     }
                 }
             });
@@ -114,12 +132,12 @@ public class O2BleManager {
                 @Override
                 public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
-                        listener.onLog("Соединение установлено. Поиск сервисов...");
+                        listener.onLog("O2: Соединение установлено. Поиск сервисов...");
                         try {
                             gatt.discoverServices();
                         } catch (SecurityException ignored) {}
                     } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                        listener.onLog("Соединение разорвано.");
+                        listener.onLog("O2: Соединение разорвано.");
                         isConnecting = false;
                         stopTimer();
                     }
@@ -134,7 +152,7 @@ public class O2BleManager {
                             BluetoothGattCharacteristic notifyChar = service.getCharacteristic(NOTIFY_CHAR_UUID);
 
                             if (notifyChar != null) {
-                                listener.onLog("Подписка на поток данных...");
+                                listener.onLog("O2: Подписка на поток данных...");
                                 gatt.setCharacteristicNotification(notifyChar, true);
                                 BluetoothGattDescriptor descriptor = notifyChar.getDescriptor(CLIENT_CONFIG_DESCRIPTOR);
                                 if (descriptor != null) {
@@ -149,7 +167,7 @@ public class O2BleManager {
                 @Override
                 public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
                     if (status == BluetoothGatt.GATT_SUCCESS) {
-                        listener.onLog("Канал готов. Запуск интервала опроса...");
+                        listener.onLog("O2: Канал готов. Запуск интервала опроса...");
                         startPeriodicRequest();
                     }
                 }
@@ -165,7 +183,7 @@ public class O2BleManager {
                 }
             });
         } catch (SecurityException e) {
-            listener.onLog("Ошибка подключения: " + e.getMessage());
+            listener.onLog("Ошибка подключения O2: " + e.getMessage());
         }
     }
 
