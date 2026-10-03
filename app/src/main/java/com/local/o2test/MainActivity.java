@@ -28,6 +28,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private static final int PERMISSION_REQUEST_CODE = 101;
     private static final int PI_SMOOTHING_WINDOW = 5;
+    private static final int HR_SMOOTHING_WINDOW = 5; // Параметр сглаживания ЧСС как у EliteHRV
 
     private O2BleManager bleManager;
     private PolarH10Manager polarManager;
@@ -39,12 +40,16 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private boolean isRecording = false;
     private long sessionStartTime = 0;
     private final List<DataPoint> sessionData = new ArrayList<>();
+    
     private final Queue<Float> piWindow = new LinkedList<>();
+    private final Queue<Integer> hrWindow = new LinkedList<>();
+    
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
 
     private int currentSpo2 = 95;
     private float currentPi = 0.3f;
     private int currentBattery = 100;
+    private int currentSmoothedHr = 0; // Глобальная сглаженная ЧСС от H10
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -192,6 +197,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         sessionStartTime = System.currentTimeMillis();
         sessionData.clear();
         piWindow.clear();
+        hrWindow.clear();
         if (chartView != null) {
             chartView.clearData();
         }
@@ -201,6 +207,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private void stopMonitoring() {
         isRecording = false;
         piWindow.clear();
+        hrWindow.clear();
         onLog("Мониторинг остановлен");
     }
 
@@ -231,6 +238,18 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         return sum / piWindow.size();
     }
 
+    private int getSmoothedHr(int rawHr) {
+        hrWindow.add(rawHr);
+        if (hrWindow.size() > HR_SMOOTHING_WINDOW) {
+            hrWindow.poll();
+        }
+        int sum = 0;
+        for (int val : hrWindow) {
+            sum += val;
+        }
+        return Math.round((float) sum / hrWindow.size());
+    }
+
     @Override
     public void onLog(String message) {
         runOnUiThread(() -> {
@@ -254,14 +273,16 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         currentPi = smoothedPi;
         currentBattery = res.battery;
 
-        runOnUiThread(() -> updateStatusHeader(currentSpo2, res.hr, currentPi, currentBattery));
+        // Игнорируем res.hr от O2 (так как он медленный и с задержкой)
+        // Вместо него подставляем currentSmoothedHr от датчика H10
+        runOnUiThread(() -> updateStatusHeader(currentSpo2, currentSmoothedHr, currentPi, currentBattery));
 
         if (res.isFingerOn && isRecording) {
             if (sessionStartTime == 0) sessionStartTime = now;
             int elapsedSec = (int) ((now - sessionStartTime) / 1000);
 
             String timestamp = timeFormat.format(new Date(now));
-            DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, res.hr, currentPi);
+            DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, currentSmoothedHr, currentPi);
 
             sessionData.add(dp);
             runOnUiThread(() -> chartView.addDataPoint(dp));
@@ -282,22 +303,45 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         @Override
-        public void onRrReceived(int rrMs) {
-            // Больше не генерируем ложный "скачущий" HR из одного RR для графика.
-            // График рисуется по данным оксиметра, а RR уходит в фоновые расчеты HRV.
+        public void onRrReceived(int rrMs, float instantHr) {
+            // Применяем сглаживание EliteHRV к ЧСС датчика Polar
+            int smoothedHr = getSmoothedHr(Math.round(instantHr));
+            currentSmoothedHr = smoothedHr; // Сохраняем глобально
+
+            if (isRecording) {
+                long now = System.currentTimeMillis();
+                if (sessionStartTime == 0) sessionStartTime = now;
+                int elapsedSec = (int) ((now - sessionStartTime) / 1000);
+
+                String timestamp = timeFormat.format(new Date(now));
+                
+                DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, currentSmoothedHr, currentPi);
+                sessionData.add(dp);
+
+                runOnUiThread(() -> {
+                    updateStatusHeader(currentSpo2, currentSmoothedHr, currentPi, currentBattery);
+                    chartView.addDataPoint(dp);
+                });
+            }
         }
 
         @Override
         public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
             if (hrv == null) return;
 
-            String logMsg = String.format(Locale.US,
-                    "[Polar H10] HR: %d | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms² | Artifacts: %d (%.1f%%) (RR: %d)",
-                    hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower, hrv.artifactsDetected, hrv.artifactPct, rrCount);
-            onLog(logMsg);
+            if (rrCount < 60) {
+                String logMsg = String.format(Locale.US,
+                        "[Polar H10] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | (Накопление: %d/300)",
+                        hr, hrv.rmssd, hrv.pnn50, rrCount);
+                onLog(logMsg);
+            } else {
+                String logMsg = String.format(Locale.US,
+                        "[Polar H10] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms² (RR: %d/300)",
+                        hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower, rrCount);
+                onLog(logMsg);
+            }
         }
     };
-
 
     @Override
     protected void onDestroy() {
@@ -309,4 +353,4 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             polarManager.disconnect();
         }
     }
-}
+                                              }
