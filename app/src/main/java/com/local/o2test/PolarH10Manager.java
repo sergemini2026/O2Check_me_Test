@@ -27,12 +27,13 @@ public class PolarH10Manager {
 
     private static final int RR_BUFFER_CAPACITY = 300;
     
-    // Интервал задержки вывода данных (30 секунд)
-    private static final long UPDATE_INTERVAL_MS = 30000;
+    // Интервал скользящего окна расчета БПФ (60 секунд для полного покрытия LF-диапазона)
+    private static final long UPDATE_INTERVAL_MS = 60000;
 
     public interface PolarCallback {
         void onPolarLog(String message);
         void onPolarHrReceived(int avgHr, HrvCalculator.Metrics hrv, int rrCount);
+        void onRrReceived(int rrMs, float instantHr); // Вывод мгновенной ЧСС для каждого удара
     }
 
     private final Context context;
@@ -81,7 +82,7 @@ public class PolarH10Manager {
                         if (descriptor != null) {
                             descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
                             gatt.writeDescriptor(descriptor);
-                            log("Polar H10: Старт накопления буфера (вывод каждые 30 сек)...");
+                            log("Polar H10: Старт накопления буфера (расчет каждые 60 сек)...");
                         }
                     }
                 }
@@ -99,27 +100,32 @@ public class PolarH10Manager {
                     long now = System.currentTimeMillis();
 
                     synchronized (rrBuffer) {
-                        // Сохраняем текущий пульс для усреднения
                         hrWindow.add(currentHr);
 
-                        // Наполняем буфер RR-интервалов
                         for (int rr : newRrList) {
                             rrBuffer.add(rr);
                             if (rrBuffer.size() > RR_BUFFER_CAPACITY) {
                                 rrBuffer.poll();
                             }
+
+                            // Мгновенная ЧСС для отрисовки волны на графике
+                            final float instantHr = 60000.0f / rr;
+                            final int rrMs = rr;
+                            new Handler(Looper.getMainLooper()).post(() -> {
+                                if (callback != null) {
+                                    callback.onRrReceived(rrMs, instantHr);
+                                }
+                            });
                         }
 
-                        // Инициализируем метку времени при получении первых данных
                         if (lastReportTime == 0) {
                             lastReportTime = now;
                         }
 
-                        // Проверяем, прошло ли 30 секунд
+                        // Расчет ВСР каждые 60 секунд
                         if (now - lastReportTime >= UPDATE_INTERVAL_MS) {
                             lastReportTime = now;
 
-                            // 1. Расчет усредненного ЧСС за 30 секунд
                             int avgHr = currentHr;
                             if (!hrWindow.isEmpty()) {
                                 int sumHr = 0;
@@ -128,12 +134,10 @@ public class PolarH10Manager {
                                 hrWindow.clear();
                             }
 
-                            // 2. Расчет показателей ВСР по накопленному буферу
                             List<Integer> snapshot = new ArrayList<>(rrBuffer);
                             HrvCalculator.Metrics hrv = HrvCalculator.calculate(snapshot);
                             int count = snapshot.size();
 
-                            // 3. Отправка устойчивых результатов в UI
                             final int finalAvgHr = avgHr;
                             new Handler(Looper.getMainLooper()).post(() -> {
                                 if (callback != null) {
