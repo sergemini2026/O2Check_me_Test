@@ -2,6 +2,7 @@ package com.local.o2test;
 
 import android.Manifest;
 import android.app.Activity;
+import android.bluetooth.BluetoothDevice;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
@@ -26,9 +27,10 @@ import java.util.Queue;
 public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private static final int PERMISSION_REQUEST_CODE = 101;
-    private static final int PI_SMOOTHING_WINDOW = 5; // Окно сглаживания PI (5 точек)
+    private static final int PI_SMOOTHING_WINDOW = 5;
 
     private O2BleManager bleManager;
+    private PolarH10Manager polarManager; // Менеджер для Polar H10
     private TextView tvLiveMetrics;
     private TrendChartView chartView;
     private TextView tvLog;
@@ -37,7 +39,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private boolean isRecording = false;
     private long sessionStartTime = 0;
     private final List<DataPoint> sessionData = new ArrayList<>();
-    private final Queue<Float> piWindow = new LinkedList<>(); // Очередь для скользящего среднего
+    private final Queue<Float> piWindow = new LinkedList<>();
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
 
     @Override
@@ -45,6 +47,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         super.onCreate(savedInstanceState);
 
         bleManager = new O2BleManager(this, this);
+        polarManager = new PolarH10Manager(this, polarCallback); // Инициализация Polar H10 менеджера
 
         LinearLayout mainLayout = new LinearLayout(this);
         mainLayout.setOrientation(LinearLayout.VERTICAL);
@@ -71,7 +74,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         btnBar.addView(btnExit);
         mainLayout.addView(btnBar);
 
-        // График занимает 2/3 экрана (weight = 2.0f)
         chartView = new TrendChartView(this);
         LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 2.0f);
@@ -81,7 +83,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         tvLog = new TextView(this);
         tvLog.setTextSize(11);
 
-        // Лог занимает 1/3 экрана (weight = 1.0f) с отступом сверху (~24dp)
         logScrollView = new ScrollView(this);
         LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
@@ -214,7 +215,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         });
     }
 
-    // Вспомогательный метод расчёта скользящего среднего
     private float getSmoothedPi(float rawPi) {
         piWindow.add(rawPi);
         if (piWindow.size() > PI_SMOOTHING_WINDOW) {
@@ -244,8 +244,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         O2Parser.ParseResult res = O2Parser.parse(data);
 
         long now = System.currentTimeMillis();
-
-        // Применяем сглаживание к PI
         float smoothedPi = getSmoothedPi(res.pi);
 
         runOnUiThread(() -> updateStatusHeader(res.spo2, res.hr, smoothedPi, res.battery));
@@ -262,11 +260,36 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     }
 
+    // Обработка обнаружения Polar H10 от сканера
+    @Override
+    public void onPolarDeviceFound(BluetoothDevice device) {
+        if (polarManager != null) {
+            polarManager.connect(device);
+        }
+    }
+
+    // Коллбек от PolarH10Manager — вывод данных ВСР/RMSSD исключительно в текстовый лог
+    private final PolarH10Manager.PolarCallback polarCallback = new PolarH10Manager.PolarCallback() {
+        @Override
+        public void onPolarLog(String message) {
+            onLog(message);
+        }
+
+        @Override
+        public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
+            float rmssd = (hrv != null) ? hrv.rmssd : 0f;
+            onLog(String.format(Locale.US, "[Polar H10] HR: %d bpm | RMSSD: %.1f ms (RR: %d)", hr, rmssd, rrCount));
+        }
+    };
+
     @Override
     protected void onDestroy() {
         super.onDestroy();
         if (bleManager != null) {
             bleManager.close();
+        }
+        if (polarManager != null) {
+            polarManager.disconnect();
         }
     }
 }
