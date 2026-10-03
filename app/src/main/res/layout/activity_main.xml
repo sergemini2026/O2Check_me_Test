@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#121212"
+    android:padding="8dp">
+
+    <!-- Верхняя статусная панель -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingBottom="6dp">
+
+        <TextView
+            android:id="@+id/tvSpo2"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:textColor="#00E676"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:text="SpO2: --%" />
+
+        <TextView
+            android:id="@+id/tvHr"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:textColor="#FF5252"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:text="HR: -- bpm" />
+
+        <TextView
+            android:id="@+id/tvRmssd"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:textColor="#448AFF"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:text="RMSSD: -- ms" />
+
+        <TextView
+            android:id="@+id/tvPi"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:textColor="#FFD700"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:text="PI: --%" />
+    </LinearLayout>
+
+    <!-- Блок с 4 графиками -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <com.github.mikephil.charting.charts.LineChart
+            android:id="@+id/chartSpo2"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <com.github.mikephil.charting.charts.LineChart
+            android:id="@+id/chartHr"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <com.github.mikephil.charting.charts.LineChart
+            android:id="@+id/chartRmssd"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <com.github.mikephil.charting.charts.LineChart
+            android:id="@+id/chartPi"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+    </LinearLayout>
+
+    <!-- Индикатор заполнении буфера ВСР (0 .. 30 RR) -->
+    <ProgressBar
+        android:id="@+id/hrvProgressBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="6dp"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="4dp"
+        android:max="30"
+        android:progress="0"
+        android:progressBackgroundTint="#333333"
+        android:progressTint="#FF9800" />
+
+    <!-- Нижняя зона: Лог слева + Эмблема сердца справа -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="100dp"
+        android:orientation="horizontal"
+        android:background="#1E1E1E"
+        android:padding="6dp">
+
+        <ScrollView
+            android:id="@+id/logScrollView"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1">
+
+            <TextView
+                android:id="@+id/tvLog"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#AAAAAA"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:text="Ожидание подключений..." />
+        </ScrollView>
+
+        <ImageView
+            android:id="@+id/heartPulseView"
+            android:layout_width="88dp"
+            android:layout_height="88dp"
+            android:layout_gravity="center_vertical"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_heart_pulse"
+            android:contentDescription="Индикатор пульса" />
+    </LinearLayout>
+
+</LinearLayout>
