@@ -5,6 +5,14 @@ import java.util.List;
 
 public class HrvCalculator {
 
+    // Коэффициент экспоненциального сглаживания (0.15 — плавный отклик без шума)
+    private static final float EMA_ALPHA = 0.15f;
+
+    private static float smoothedLf = 0f;
+    private static float smoothedHf = 0f;
+    private static float smoothedTp = 0f;
+    private static float smoothedRatio = 0f;
+
     public static class Metrics {
         public final float rmssd;
         public final float pnn50;
@@ -23,7 +31,13 @@ public class HrvCalculator {
         }
     }
 
-    // Извлечение RR-интервалов из BLE GATT пакета (в миллисекундах)
+    public static void resetSmoothing() {
+        smoothedLf = 0f;
+        smoothedHf = 0f;
+        smoothedTp = 0f;
+        smoothedRatio = 0f;
+    }
+
     public static List<Integer> parseRrIntervals(byte[] data) {
         List<Integer> rrList = new ArrayList<>();
         if (data == null || data.length < 2) return rrList;
@@ -52,6 +66,7 @@ public class HrvCalculator {
 
     public static Metrics calculate(List<Integer> rrBuffer) {
         if (rrBuffer == null || rrBuffer.size() < 10) {
+            resetSmoothing();
             return new Metrics(0, 0, 0, 0, 0, 0);
         }
 
@@ -72,42 +87,51 @@ public class HrvCalculator {
         float rmssd = (float) Math.sqrt(sumSqDiff / (n - 1));
         float pnn50 = ((float) nn50Count / (n - 1)) * 100f;
 
-        // Для спектрального анализа требуется не менее 30 RR-интервалов
         if (n < 30) {
             return new Metrics(rmssd, pnn50, 0, 0, 0, 0);
         }
 
-        // 2. Интерполяция RR-ряда на равномерную сетку 4 Гц (0.25 сек)
+        // 2. Выделение фиксированного окна БПФ: 256 точек (4 Гц, последние 64 секунды)
+        int fftSize = 256;
         double fs = 4.0;
+        double windowDurationSec = fftSize / fs;
+
         List<Double> timeStamps = new ArrayList<>();
+        List<Integer> recentRr = new ArrayList<>();
+        double totalTime = 0;
+
+        for (int rr : rrBuffer) {
+            totalTime += rr / 1000.0;
+        }
+
+        double startTimeThreshold = Math.max(0, totalTime - windowDurationSec);
         double currentTime = 0;
+
         for (int rr : rrBuffer) {
             currentTime += rr / 1000.0;
-            timeStamps.add(currentTime);
+            if (currentTime >= startTimeThreshold) {
+                timeStamps.add(currentTime - startTimeThreshold);
+                recentRr.add(rr);
+            }
         }
 
-        double totalDuration = currentTime;
-        int numSamples = (int) Math.floor(totalDuration * fs);
-
-        if (numSamples < 16) {
-            return new Metrics(rmssd, pnn50, 0, 0, 0, 0);
+        if (recentRr.size() < 10) {
+            return new Metrics(rmssd, pnn50, smoothedLf, smoothedHf, smoothedTp, smoothedRatio);
         }
 
-        int fftSize = 16;
-        while (fftSize < numSamples) fftSize *= 2;
-
+        // Равномерная интерполяция
         double[] resampled = new double[fftSize];
         int rrIndex = 0;
 
-        for (int i = 0; i < numSamples; i++) {
+        for (int i = 0; i < fftSize; i++) {
             double t = i / fs;
             while (rrIndex < timeStamps.size() - 2 && timeStamps.get(rrIndex + 1) < t) {
                 rrIndex++;
             }
             double t0 = timeStamps.get(rrIndex);
             double t1 = timeStamps.get(rrIndex + 1);
-            double y0 = rrBuffer.get(rrIndex);
-            double y1 = rrBuffer.get(rrIndex + 1);
+            double y0 = recentRr.get(rrIndex);
+            double y1 = recentRr.get(rrIndex + 1);
 
             if (t1 != t0) {
                 resampled[i] = y0 + (y1 - y0) * (t - t0) / (t1 - t0);
@@ -116,33 +140,32 @@ public class HrvCalculator {
             }
         }
 
-        // Удаление постоянной составляющей (DC offset)
+        // Центрирование (удаление постоянной составляющей)
         double mean = 0;
-        for (int i = 0; i < numSamples; i++) mean += resampled[i];
-        mean /= numSamples;
-        for (int i = 0; i < numSamples; i++) resampled[i] -= mean;
+        for (int i = 0; i < fftSize; i++) mean += resampled[i];
+        mean /= fftSize;
+        for (int i = 0; i < fftSize; i++) resampled[i] -= mean;
 
-        // Окно Ханна и расчет энергии окна
+        // Окно Ханна по всей фиксированной длине 256 точек
         double[] windowedReal = new double[fftSize];
         double[] windowedImag = new double[fftSize];
         double windowSumSq = 0;
 
-        for (int i = 0; i < numSamples; i++) {
-            double hanning = 0.5 * (1 - Math.cos(2 * Math.PI * i / (numSamples - 1)));
+        for (int i = 0; i < fftSize; i++) {
+            double hanning = 0.5 * (1 - Math.cos(2 * Math.PI * i / (fftSize - 1)));
             windowedReal[i] = resampled[i] * hanning;
             windowSumSq += hanning * hanning;
         }
 
-        // БПФ (Fast Fourier Transform)
+        // БПФ
         fft(windowedReal, windowedImag);
 
-        // 3. Расчет мощностей частотных спектров с нормировкой по Теореме Парсеваля
+        // 3. Расчет спектральных мощностей
         double df = fs / fftSize;
-        float lfPower = 0;
-        float hfPower = 0;
-        float vlfPower = 0;
+        float rawLf = 0;
+        float rawHf = 0;
+        float rawVlf = 0;
 
-        // Коэффициент нормировки мощности спектра в ms²
         double normFactor = (windowSumSq > 0) ? (2.0 / (fftSize * windowSumSq)) : 0;
 
         for (int i = 1; i < fftSize / 2; i++) {
@@ -150,18 +173,31 @@ public class HrvCalculator {
             double powerBin = (windowedReal[i] * windowedReal[i] + windowedImag[i] * windowedImag[i]) * normFactor;
 
             if (freq >= 0.0033 && freq < 0.04) {
-                vlfPower += powerBin;
+                rawVlf += powerBin;
             } else if (freq >= 0.04 && freq < 0.15) {
-                lfPower += powerBin;
+                rawLf += powerBin;
             } else if (freq >= 0.15 && freq <= 0.40) {
-                hfPower += powerBin;
+                rawHf += powerBin;
             }
         }
 
-        float totalPower = vlfPower + lfPower + hfPower;
-        float lfHfRatio = (hfPower > 0) ? (lfPower / hfPower) : 0f;
+        float rawTp = rawVlf + rawLf + rawHf;
+        float rawRatio = (rawHf > 0) ? (rawLf / rawHf) : 0f;
 
-        return new Metrics(rmssd, pnn50, lfPower, hfPower, totalPower, lfHfRatio);
+        // 4. Экспоненциальное сглаживание (EMA)
+        if (smoothedTp == 0f) {
+            smoothedLf = rawLf;
+            smoothedHf = rawHf;
+            smoothedTp = rawTp;
+            smoothedRatio = rawRatio;
+        } else {
+            smoothedLf = smoothedLf + EMA_ALPHA * (rawLf - smoothedLf);
+            smoothedHf = smoothedHf + EMA_ALPHA * (rawHf - smoothedHf);
+            smoothedTp = smoothedTp + EMA_ALPHA * (rawTp - smoothedTp);
+            smoothedRatio = smoothedRatio + EMA_ALPHA * (rawRatio - smoothedRatio);
+        }
+
+        return new Metrics(rmssd, pnn50, smoothedLf, smoothedHf, smoothedTp, smoothedRatio);
     }
 
     private static void fft(double[] real, double[] imag) {
@@ -209,4 +245,4 @@ public class HrvCalculator {
             }
         }
     }
-}
+                        }
