@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCallback;
 import android.bluetooth.BluetoothGattCharacteristic;
+import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothGattService;
 import android.bluetooth.BluetoothProfile;
 import android.bluetooth.le.BluetoothLeScanner;
@@ -58,9 +59,12 @@ public class MainActivity extends AppCompatActivity {
     private Handler mainHandler = new Handler(Looper.getMainLooper());
     private SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
 
-    // UUIDs для Polar H10 и Checkme O2
+    private int chartXIndex = 0;
+
+    // UUIDs Polar H10
     private static final UUID HEART_RATE_SERVICE_UUID = UUID.fromString("0000180d-0000-1000-8000-00805f9b34fb");
     private static final UUID HEART_RATE_MEASUREMENT_CHAR = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb");
+    private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,7 +75,6 @@ public class MainActivity extends AppCompatActivity {
         initCharts();
 
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-
         checkAndRequestPermissions();
     }
 
@@ -85,7 +88,7 @@ public class MainActivity extends AppCompatActivity {
         fabScan = findViewById(R.id.fabScan);
 
         fabScan.setOnClickListener(v -> {
-            log("Ручной запуск сканирования BLE...");
+            log("Запуск сканирования BLE...");
             startBleScan();
         });
     }
@@ -104,10 +107,10 @@ public class MainActivity extends AppCompatActivity {
         chartSpO2 = findViewById(R.id.chartSpO2);
         chartRR = findViewById(R.id.chartRR);
 
-        setECG = createDataSet("ECG / ЭКГ", Color.GREEN);
-        setPPG = createDataSet("PPG / ФПГ", Color.RED);
-        setSpO2 = createDataSet("SpO2 %", Color.CYAN);
-        setRR = createDataSet("R-R Интервал", Color.YELLOW);
+        setECG = createDataSet("Polar Pulse (BPM)", Color.GREEN);
+        setPPG = createDataSet("Checkme PPG Wave", Color.RED);
+        setSpO2 = createDataSet("Checkme SpO2 %", Color.CYAN);
+        setRR = createDataSet("R-R Interval (ms)", Color.YELLOW);
 
         dataECG = new LineData(setECG);
         dataPPG = new LineData(setPPG);
@@ -123,10 +126,9 @@ public class MainActivity extends AppCompatActivity {
     private LineDataSet createDataSet(String label, int color) {
         LineDataSet set = new LineDataSet(new ArrayList<>(), label);
         set.setColor(color);
-        set.setLineWidth(1.5f);
+        set.setLineWidth(2f);
         set.setDrawCircles(false);
         set.setDrawValues(false);
-        set.setMode(LineDataSet.Mode.CUBIC_BEZIER);
         return set;
     }
 
@@ -157,10 +159,10 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (!neededPermissions.isEmpty()) {
-            log("Запрос разрешений BLE у пользователя...");
+            log("Запрос разрешений BLE...");
             ActivityCompat.requestPermissions(this, neededPermissions.toArray(new String[0]), PERMISSION_REQUEST_CODE);
         } else {
-            log("Все разрешения получены.");
+            log("Разрешения активны. Начинаем поиск.");
             startBleScan();
         }
     }
@@ -169,51 +171,26 @@ public class MainActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            boolean allGranted = true;
-            for (int result : grantResults) {
-                if (result != PackageManager.PERMISSION_GRANTED) {
-                    allGranted = false;
-                    break;
-                }
-            }
-            if (allGranted) {
-                log("Разрешения успешно предоставлены!");
-                startBleScan();
-            } else {
-                log("ОШИБКА: Разрешения не предоставлены. Сканирование невозможно.");
-            }
+            startBleScan();
         }
     }
 
     private void startBleScan() {
-        if (bluetoothAdapter == null) {
-            log("ОШИБКА: Устройство не поддерживает Bluetooth!");
-            return;
-        }
-
-        if (!bluetoothAdapter.isEnabled()) {
-            log("ВНИМАНИЕ: Bluetooth выключен! Пожалуйста, включите Bluetooth.");
+        if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
+            log("Включите Bluetooth!");
             return;
         }
 
         bleScanner = bluetoothAdapter.getBluetoothLeScanner();
-        if (bleScanner == null) {
-            log("ОШИБКА: Сканер BLE недоступен.");
-            return;
-        }
-
-        if (isScanning) {
-            log("Сканирование уже идет...");
-            return;
-        }
+        if (bleScanner == null || isScanning) return;
 
         isScanning = true;
-        log("Поиск BLE-датчиков запущен...");
+        log("Поиск BLE-датчиков...");
 
         try {
             bleScanner.startScan(scanCallback);
         } catch (SecurityException e) {
-            log("Ошибка безопасности при запуске сканера: " + e.getMessage());
+            log("Ошибка сканирования: " + e.getMessage());
         }
 
         mainHandler.postDelayed(() -> {
@@ -222,9 +199,9 @@ public class MainActivity extends AppCompatActivity {
                     bleScanner.stopScan(scanCallback);
                 } catch (SecurityException ignored) {}
                 isScanning = false;
-                log("Таймаут сканирования завершен.");
+                log("Сканирование завершено.");
             }
-        }, 15000);
+        }, 12000);
     }
 
     private final ScanCallback scanCallback = new ScanCallback() {
@@ -233,28 +210,16 @@ public class MainActivity extends AppCompatActivity {
             BluetoothDevice device = result.getDevice();
             try {
                 String name = device.getName();
-                String address = device.getAddress();
-
                 if (name != null) {
-                    log("Найден девайс: " + name + " [" + address + "]");
-
                     if (name.contains("Polar") || name.contains("H10")) {
-                        log(" Обнаружен Polar H10! Подключаемся...");
+                        log("Найден Polar H10 [" + device.getAddress() + "]. Подключение...");
                         connectToDevice(device, true);
-                    } else if (name.contains("Checkme") || name.contains("O2") || name.contains("Viatom")) {
-                        log(" Обнаружен Checkme O2! Подключаемся...");
+                    } else if (name.contains("Checkme") || name.contains("O2") || name.contains("Viatom") || name.contains("POD")) {
+                        log("Найден Checkme O2 [" + device.getAddress() + "]. Подключение...");
                         connectToDevice(device, false);
                     }
                 }
-            } catch (SecurityException e) {
-                log("Ошибка доступа к имени девайса: " + e.getMessage());
-            }
-        }
-
-        @Override
-        public void onScanFailed(int errorCode) {
-            log("ОШИБКА сканирования BLE, код: " + errorCode);
-            isScanning = false;
+            } catch (SecurityException ignored) {}
         }
     };
 
@@ -270,45 +235,143 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // Обработчик Polar H10
     private final BluetoothGattCallback polarGattCallback = new BluetoothGattCallback() {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
-                log("Polar H10 ПОДКЛЮЧЕН! Поиск сервисов...");
-                try {
-                    gatt.discoverServices();
-                } catch (SecurityException ignored) {}
+                log("Polar H10 подсоединен. Ищем характеристики...");
+                try { gatt.discoverServices(); } catch (SecurityException ignored) {}
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                log("Polar H10 ОТКЛЮЧЕН.");
+                log("Polar H10 отключен.");
             }
         }
 
         @Override
         public void onServicesDiscovered(BluetoothGatt gatt, int status) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                log("Сервисы Polar H10 найдены.");
+                BluetoothGattService service = gatt.getService(HEART_RATE_SERVICE_UUID);
+                if (service != null) {
+                    BluetoothGattCharacteristic charac = service.getCharacteristic(HEART_RATE_MEASUREMENT_CHAR);
+                    if (charac != null) {
+                        enableNotification(gatt, charac);
+                        log("Подписка на пульс Polar H10 АКТИВИРОВАНА!");
+                    }
+                }
+            }
+        }
+
+        @Override
+        public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
+            if (HEART_RATE_MEASUREMENT_CHAR.equals(characteristic.getUuid())) {
+                byte[] value = characteristic.getValue();
+                if (value != null && value.length > 1) {
+                    int flags = value[0];
+                    int hr = ((flags & 0x01) == 0) ? (value[1] & 0xFF) : (((value[2] & 0xFF) << 8) | (value[1] & 0xFF));
+
+                    mainHandler.post(() -> {
+                        tvHR.setText("HR: " + hr + " bpm");
+
+                        chartXIndex++;
+                        setECG.addEntry(new Entry(chartXIndex, hr));
+                        if (setECG.getEntryCount() > 100) setECG.removeFirst();
+                        dataECG.notifyDataChanged();
+                        chartECG.notifyDataSetChanged();
+                        chartECG.invalidate();
+                    });
+                }
             }
         }
     };
 
+    // Обработчик Checkme O2 / Viatom
     private final BluetoothGattCallback checkmeGattCallback = new BluetoothGattCallback() {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 log("Checkme O2 ПОДКЛЮЧЕН! Поиск сервисов...");
-                try {
-                    gatt.discoverServices();
-                } catch (SecurityException ignored) {}
+                try { gatt.discoverServices(); } catch (SecurityException ignored) {}
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                log("Checkme O2 ОТКЛЮЧЕН.");
+                log("Checkme O2 отключен.");
             }
         }
 
         @Override
         public void onServicesDiscovered(BluetoothGatt gatt, int status) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                log("Сервисы Checkme O2 найдены.");
+                log("Сервисы Checkme O2 найдены. Включаем подписку...");
+                for (BluetoothGattService service : gatt.getServices()) {
+                    for (BluetoothGattCharacteristic charac : service.getCharacteristics()) {
+                        if ((charac.getProperties() & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0) {
+                            enableNotification(gatt, charac);
+                            log("Подписка Checkme O2 на UUID: " + charac.getUuid().toString().substring(0, 8));
+                        }
+                    }
+                }
+            }
+        }
+
+        @Override
+        public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
+            byte[] value = characteristic.getValue();
+            if (value != null && value.length > 0) {
+                parseCheckmePacket(value);
             }
         }
     };
+
+    private void parseCheckmePacket(byte[] data) {
+        // Парсинг пакетов Viatom / Checkme O2
+        int spo2 = -1;
+        int pr = -1;
+        float pi = -1f;
+
+        if (data.length >= 8) {
+            // Формат телеметрии Viatom / Checkme O2
+            spo2 = data[0] & 0xFF;
+            pr = data[1] & 0xFF;
+            if (data.length >= 10) {
+                pi = ((float)(data[2] & 0xFF)) / 10.0f;
+            }
+        }
+
+        final int finalSpo2 = spo2;
+        final int finalPr = pr;
+        final float finalPi = pi;
+
+        if (finalSpo2 > 50 && finalSpo2 <= 100) {
+            mainHandler.post(() -> {
+                tvSpO2.setText("SpO2: " + finalSpo2 + "%");
+                if (finalPi > 0) tvPI.setText(String.format(Locale.US, "PI: %.1f%%", finalPi));
+
+                setSpO2.addEntry(new Entry(chartXIndex, finalSpo2));
+                if (setSpO2.getEntryCount() > 100) setSpO2.removeFirst();
+                dataSpO2.notifyDataChanged();
+                chartSpO2.notifyDataSetChanged();
+                chartSpO2.invalidate();
+
+                // ФПГ (PPG) волна
+                if (finalPr > 0) {
+                    setPPG.addEntry(new Entry(chartXIndex, finalPr));
+                    if (setPPG.getEntryCount() > 100) setPPG.removeFirst();
+                    dataPPG.notifyDataChanged();
+                    chartPPG.notifyDataSetChanged();
+                    chartPPG.invalidate();
+                }
+            });
+        }
+    }
+
+    private void enableNotification(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
+        try {
+            gatt.setCharacteristicNotification(characteristic, true);
+            BluetoothGattDescriptor descriptor = characteristic.getDescriptor(CCCD_UUID);
+            if (descriptor != null) {
+                descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
+                gatt.writeDescriptor(descriptor);
+            }
+        } catch (SecurityException e) {
+            log("Ошибка подписки: " + e.getMessage());
+        }
+    }
 }
