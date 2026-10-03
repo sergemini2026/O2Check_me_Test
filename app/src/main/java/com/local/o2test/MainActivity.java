@@ -305,17 +305,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
             if (hrv == null) return;
 
-            if (rrCount < 60) {
-                String logMsg = String.format(Locale.US,
-                        "[Polar H10] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | (Буфер БПФ: %d/60)",
-                        hr, hrv.rmssd, hrv.pnn50, rrCount);
-                onLog(logMsg);
-            } else {
-                String logMsg = String.format(Locale.US,
-                        "[Polar H10] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms² (RR: %d)",
-                        hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower, rrCount);
-                onLog(logMsg);
-            }
+            String logMsg = String.format(Locale.US,
+                    "[Polar H10] HR: %d | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms² | Artifacts: %d (%.1f%%) (RR: %d)",
+                    hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower, hrv.artifactsDetected, hrv.artifactPct, rrCount);
+            onLog(logMsg);
         }
     };
 
