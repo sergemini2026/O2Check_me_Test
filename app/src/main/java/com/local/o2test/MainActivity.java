@@ -1,377 +1,283 @@
 package com.local.o2test;
 
 import android.Manifest;
-import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothGatt;
-import android.bluetooth.BluetoothGattCallback;
-import android.bluetooth.BluetoothGattCharacteristic;
-import android.bluetooth.BluetoothGattDescriptor;
-import android.bluetooth.BluetoothGattService;
-import android.bluetooth.BluetoothProfile;
-import android.bluetooth.le.BluetoothLeScanner;
-import android.bluetooth.le.ScanCallback;
-import android.bluetooth.le.ScanResult;
+import android.app.Activity;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.view.View;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
+import android.view.Gravity;
+import android.widget.Button;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
-import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
-
-import com.github.mikephil.charting.charts.LineChart;
-import com.github.mikephil.charting.data.Entry;
-import com.github.mikephil.charting.data.LineData;
-import com.github.mikephil.charting.data.LineDataSet;
-import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
-import java.util.UUID;
+import java.util.Queue;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends Activity implements MultiBleManager.BleListener {
 
     private static final int PERMISSION_REQUEST_CODE = 101;
+    private static final int PI_SMOOTHING_WINDOW = 5;
 
-    private TextView tvSpO2, tvHR, tvRMSSD, tvPI, tvLogConsole;
-    private ScrollView scrollLog;
-    private FloatingActionButton fabScan;
+    private MultiBleManager bleManager;
+    private TextView tvLiveMetrics;
+    private TrendChartView chartView;
+    private TextView tvLog;
+    private ScrollView logScrollView;
 
-    private LineChart chartECG, chartPPG, chartSpO2, chartRR;
-    private LineData dataECG, dataPPG, dataSpO2, dataRR;
-    private LineDataSet setECG, setPPG, setSpO2, setRR;
+    private boolean isRecording = false;
+    private long sessionStartTime = 0;
+    private final List<DataPoint> sessionData = new ArrayList<>();
+    private final Queue<Float> piWindow = new LinkedList<>();
+    private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
 
-    private BluetoothAdapter bluetoothAdapter;
-    private BluetoothLeScanner bleScanner;
-    private BluetoothGatt polarGatt, checkmeGatt;
-
-    private boolean isScanning = false;
-    private Handler mainHandler = new Handler(Looper.getMainLooper());
-    private SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
-
-    private int chartXIndex = 0;
-
-    // UUIDs Polar H10
-    private static final UUID HEART_RATE_SERVICE_UUID = UUID.fromString("0000180d-0000-1000-8000-00805f9b34fb");
-    private static final UUID HEART_RATE_MEASUREMENT_CHAR = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb");
-    private static final UUID CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
+    private int currentPolarHR = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
 
-        initUI();
-        initCharts();
+        bleManager = new MultiBleManager(this, this);
 
-        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        LinearLayout mainLayout = new LinearLayout(this);
+        mainLayout.setOrientation(LinearLayout.VERTICAL);
+        mainLayout.setPadding(20, 20, 20, 20);
+
+        tvLiveMetrics = new TextView(this);
+        tvLiveMetrics.setTextSize(18);
+        tvLiveMetrics.setGravity(Gravity.CENTER);
+        updateStatusHeader(0, 0, 0f, 0, 0);
+        mainLayout.addView(tvLiveMetrics);
+
+        LinearLayout btnBar = new LinearLayout(this);
+        btnBar.setOrientation(LinearLayout.HORIZONTAL);
+        btnBar.setPadding(0, 10, 0, 10);
+
+        Button btnMonitor = createButton("Панель монитора");
+        Button btnStop = createButton("Стоп");
+        Button btnSave = createButton("Сохранение данных");
+        Button btnExit = createButton("Выход");
+
+        btnBar.addView(btnMonitor);
+        btnBar.addView(btnStop);
+        btnBar.addView(btnSave);
+        btnBar.addView(btnExit);
+        mainLayout.addView(btnBar);
+
+        chartView = new TrendChartView(this);
+        LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 2.0f);
+        chartView.setLayoutParams(chartParams);
+        mainLayout.addView(chartView);
+
+        tvLog = new TextView(this);
+        tvLog.setTextSize(11);
+
+        logScrollView = new ScrollView(this);
+        LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
+        logParams.topMargin = 24;
+        logScrollView.setLayoutParams(logParams);
+        logScrollView.addView(tvLog);
+        mainLayout.addView(logScrollView);
+
+        setContentView(mainLayout);
+
+        btnMonitor.setOnClickListener(v -> startMonitoringPanel());
+        btnStop.setOnClickListener(v -> stopMonitoring());
+        btnSave.setOnClickListener(v -> saveData());
+        btnExit.setOnClickListener(v -> finish());
+
         checkAndRequestPermissions();
-    }
-
-    private void initUI() {
-        tvSpO2 = findViewById(R.id.tvSpO2);
-        tvHR = findViewById(R.id.tvHR);
-        tvRMSSD = findViewById(R.id.tvRMSSD);
-        tvPI = findViewById(R.id.tvPI);
-        tvLogConsole = findViewById(R.id.tvLogConsole);
-        scrollLog = findViewById(R.id.scrollLog);
-        fabScan = findViewById(R.id.fabScan);
-
-        fabScan.setOnClickListener(v -> {
-            log("Запуск сканирования BLE...");
-            startBleScan();
-        });
-    }
-
-    private void log(String message) {
-        mainHandler.post(() -> {
-            String time = timeFormat.format(new Date());
-            tvLogConsole.append("[" + time + "] " + message + "\n");
-            scrollLog.fullScroll(View.FOCUS_DOWN);
-        });
-    }
-
-    private void initCharts() {
-        chartECG = findViewById(R.id.chartECG);
-        chartPPG = findViewById(R.id.chartPPG);
-        chartSpO2 = findViewById(R.id.chartSpO2);
-        chartRR = findViewById(R.id.chartRR);
-
-        setECG = createDataSet("Polar Pulse (BPM)", Color.GREEN);
-        setPPG = createDataSet("Checkme PPG Wave", Color.RED);
-        setSpO2 = createDataSet("Checkme SpO2 %", Color.CYAN);
-        setRR = createDataSet("R-R Interval (ms)", Color.YELLOW);
-
-        dataECG = new LineData(setECG);
-        dataPPG = new LineData(setPPG);
-        dataSpO2 = new LineData(setSpO2);
-        dataRR = new LineData(setRR);
-
-        setupChart(chartECG, dataECG);
-        setupChart(chartPPG, dataPPG);
-        setupChart(chartSpO2, dataSpO2);
-        setupChart(chartRR, dataRR);
-    }
-
-    private LineDataSet createDataSet(String label, int color) {
-        LineDataSet set = new LineDataSet(new ArrayList<>(), label);
-        set.setColor(color);
-        set.setLineWidth(2f);
-        set.setDrawCircles(false);
-        set.setDrawValues(false);
-        return set;
-    }
-
-    private void setupChart(LineChart chart, LineData data) {
-        chart.setData(data);
-        chart.getDescription().setEnabled(false);
-        chart.getLegend().setTextColor(Color.WHITE);
-        chart.getAxisLeft().setTextColor(Color.WHITE);
-        chart.getAxisRight().setEnabled(false);
-        chart.getXAxis().setTextColor(Color.WHITE);
-        chart.invalidate();
     }
 
     private void checkAndRequestPermissions() {
         List<String> permissions = new ArrayList<>();
-        permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            permissions.add(Manifest.permission.BLUETOOTH_SCAN);
-            permissions.add(Manifest.permission.BLUETOOTH_CONNECT);
-        }
-
-        List<String> neededPermissions = new ArrayList<>();
-        for (String perm : permissions) {
-            if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
-                neededPermissions.add(perm);
+            if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.BLUETOOTH_SCAN);
+            }
+            if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.BLUETOOTH_CONNECT);
             }
         }
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
 
-        if (!neededPermissions.isEmpty()) {
-            log("Запрос разрешений BLE...");
-            ActivityCompat.requestPermissions(this, neededPermissions.toArray(new String[0]), PERMISSION_REQUEST_CODE);
+        if (!permissions.isEmpty()) {
+            onLog("Запрос разрешений BLE...");
+            requestPermissions(permissions.toArray(new String[0]), PERMISSION_REQUEST_CODE);
         } else {
-            log("Разрешения активны. Начинаем поиск.");
-            startBleScan();
+            bleManager.initAndStartScan();
         }
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            startBleScan();
-        }
-    }
-
-    private void startBleScan() {
-        if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
-            log("Включите Bluetooth!");
-            return;
-        }
-
-        bleScanner = bluetoothAdapter.getBluetoothLeScanner();
-        if (bleScanner == null || isScanning) return;
-
-        isScanning = true;
-        log("Поиск BLE-датчиков...");
-
-        try {
-            bleScanner.startScan(scanCallback);
-        } catch (SecurityException e) {
-            log("Ошибка сканирования: " + e.getMessage());
-        }
-
-        mainHandler.postDelayed(() -> {
-            if (isScanning) {
-                try {
-                    bleScanner.stopScan(scanCallback);
-                } catch (SecurityException ignored) {}
-                isScanning = false;
-                log("Сканирование завершено.");
-            }
-        }, 12000);
-    }
-
-    private final ScanCallback scanCallback = new ScanCallback() {
-        @Override
-        public void onScanResult(int callbackType, ScanResult result) {
-            BluetoothDevice device = result.getDevice();
-            try {
-                String name = device.getName();
-                if (name != null) {
-                    if (name.contains("Polar") || name.contains("H10")) {
-                        log("Найден Polar H10 [" + device.getAddress() + "]. Подключение...");
-                        connectToDevice(device, true);
-                    } else if (name.contains("Checkme") || name.contains("O2") || name.contains("Viatom") || name.contains("POD")) {
-                        log("Найден Checkme O2 [" + device.getAddress() + "]. Подключение...");
-                        connectToDevice(device, false);
-                    }
+            boolean allGranted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
+                    break;
                 }
-            } catch (SecurityException ignored) {}
-        }
-    };
-
-    private void connectToDevice(BluetoothDevice device, boolean isPolar) {
-        try {
-            if (isPolar) {
-                polarGatt = device.connectGatt(this, false, polarGattCallback);
+            }
+            if (allGranted) {
+                onLog("Разрешения получены, запуск сканирования...");
+                bleManager.initAndStartScan();
             } else {
-                checkmeGatt = device.connectGatt(this, false, checkmeGattCallback);
+                onLog("Ошибка: разрешения Bluetooth не предоставлены!");
             }
-        } catch (SecurityException e) {
-            log("Ошибка подключения: " + e.getMessage());
         }
     }
 
-    // Обработчик Polar H10
-    private final BluetoothGattCallback polarGattCallback = new BluetoothGattCallback() {
-        @Override
-        public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
-            if (newState == BluetoothProfile.STATE_CONNECTED) {
-                log("Polar H10 подсоединен. Ищем характеристики...");
-                try { gatt.discoverServices(); } catch (SecurityException ignored) {}
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                log("Polar H10 отключен.");
-            }
-        }
+    private Button createButton(String text) {
+        Button btn = new Button(this);
+        btn.setText(text);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+        params.setMargins(4, 0, 4, 0);
+        btn.setLayoutParams(params);
+        return btn;
+    }
 
-        @Override
-        public void onServicesDiscovered(BluetoothGatt gatt, int status) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                BluetoothGattService service = gatt.getService(HEART_RATE_SERVICE_UUID);
-                if (service != null) {
-                    BluetoothGattCharacteristic charac = service.getCharacteristic(HEART_RATE_MEASUREMENT_CHAR);
-                    if (charac != null) {
-                        enableNotification(gatt, charac);
-                        log("Подписка на пульс Polar H10 АКТИВИРОВАНА!");
-                    }
+    private void updateStatusHeader(int spo2, int o2Hr, float pi, int battery, int polarHr) {
+        if (tvLiveMetrics == null) return;
+
+        String partO2 = String.format(Locale.US, "SpO2: %d%%", spo2);
+        String partHR = String.format(Locale.US, "  |  O2 HR: %d", o2Hr);
+        String partPolar = String.format(Locale.US, "  |  Polar HR: %d", polarHr);
+        String partPI = String.format(Locale.US, "  |  PI: %.1f%%", pi);
+        String partPower = String.format(Locale.US, "  |  Pwr: %d%%", battery);
+
+        SpannableStringBuilder builder = new SpannableStringBuilder();
+
+        int start = 0;
+        builder.append(partO2);
+        builder.setSpan(new ForegroundColorSpan(Color.CYAN), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        start = builder.length();
+        builder.append(partHR);
+        builder.setSpan(new ForegroundColorSpan(Color.GREEN), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        start = builder.length();
+        builder.append(partPolar);
+        builder.setSpan(new ForegroundColorSpan(Color.MAGENTA), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        start = builder.length();
+        builder.append(partPI);
+        builder.setSpan(new ForegroundColorSpan(Color.YELLOW), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        start = builder.length();
+        builder.append(partPower);
+        builder.setSpan(new ForegroundColorSpan(Color.RED), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        tvLiveMetrics.setText(builder);
+    }
+
+    private void startMonitoringPanel() {
+        isRecording = true;
+        sessionStartTime = System.currentTimeMillis();
+        sessionData.clear();
+        piWindow.clear();
+        if (chartView != null) {
+            chartView.clearData();
+        }
+        onLog("Панель монитора активна");
+    }
+
+    private void stopMonitoring() {
+        isRecording = false;
+        piWindow.clear();
+        onLog("Мониторинг остановлен");
+    }
+
+    private void saveData() {
+        onLog("Сохранение данных...");
+        CsvExporter.saveSessionToCsv(this, sessionData, new CsvExporter.ExportCallback() {
+            @Override
+            public void onSuccess(String filePath, String fileName) {
+                onLog("Успешно сохранено: " + fileName);
+            }
+
+            @Override
+            public void onError(String errorMessage) {
+                onLog("Ошибка: " + errorMessage);
+            }
+        });
+    }
+
+    private float getSmoothedPi(float rawPi) {
+        piWindow.add(rawPi);
+        if (piWindow.size() > PI_SMOOTHING_WINDOW) {
+            piWindow.poll();
+        }
+        float sum = 0f;
+        for (float val : piWindow) {
+            sum += val;
+        }
+        return sum / piWindow.size();
+    }
+
+    @Override
+    public void onLog(String message) {
+        runOnUiThread(() -> {
+            if (tvLog != null) {
+                tvLog.append(message + "\n");
+                if (logScrollView != null) {
+                    logScrollView.post(() -> logScrollView.fullScroll(ScrollView.FOCUS_DOWN));
                 }
             }
-        }
+        });
+    }
 
-        @Override
-        public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-            if (HEART_RATE_MEASUREMENT_CHAR.equals(characteristic.getUuid())) {
-                byte[] value = characteristic.getValue();
-                if (value != null && value.length > 1) {
-                    int flags = value[0];
-                    int hr = ((flags & 0x01) == 0) ? (value[1] & 0xFF) : (((value[2] & 0xFF) << 8) | (value[1] & 0xFF));
+    @Override
+    public void onO2DataReceived(byte[] data) {
+        O2Parser.ParseResult res = O2Parser.parse(data);
+        long now = System.currentTimeMillis();
+        float smoothedPi = getSmoothedPi(res.pi);
 
-                    mainHandler.post(() -> {
-                        tvHR.setText("HR: " + hr + " bpm");
+        runOnUiThread(() -> updateStatusHeader(res.spo2, res.hr, smoothedPi, res.battery, currentPolarHR));
 
-                        chartXIndex++;
-                        setECG.addEntry(new Entry(chartXIndex, hr));
-                        if (setECG.getEntryCount() > 100) setECG.removeFirst();
-                        dataECG.notifyDataChanged();
-                        chartECG.notifyDataSetChanged();
-                        chartECG.invalidate();
-                    });
-                }
-            }
-        }
-    };
+        if (res.isFingerOn && isRecording) {
+            if (sessionStartTime == 0) sessionStartTime = now;
+            int elapsedSec = (int) ((now - sessionStartTime) / 1000);
 
-    // Обработчик Checkme O2 / Viatom
-    private final BluetoothGattCallback checkmeGattCallback = new BluetoothGattCallback() {
-        @Override
-        public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
-            if (newState == BluetoothProfile.STATE_CONNECTED) {
-                log("Checkme O2 ПОДКЛЮЧЕН! Поиск сервисов...");
-                try { gatt.discoverServices(); } catch (SecurityException ignored) {}
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                log("Checkme O2 отключен.");
-            }
-        }
+            String timestamp = timeFormat.format(new Date(now));
+            DataPoint dp = new DataPoint(timestamp, elapsedSec, res.spo2, res.hr, smoothedPi);
 
-        @Override
-        public void onServicesDiscovered(BluetoothGatt gatt, int status) {
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                log("Сервисы Checkme O2 найдены. Включаем подписку...");
-                for (BluetoothGattService service : gatt.getServices()) {
-                    for (BluetoothGattCharacteristic charac : service.getCharacteristics()) {
-                        if ((charac.getProperties() & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0) {
-                            enableNotification(gatt, charac);
-                            log("Подписка Checkme O2 на UUID: " + charac.getUuid().toString().substring(0, 8));
-                        }
-                    }
-                }
-            }
-        }
-
-        @Override
-        public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-            byte[] value = characteristic.getValue();
-            if (value != null && value.length > 0) {
-                parseCheckmePacket(value);
-            }
-        }
-    };
-
-    private void parseCheckmePacket(byte[] data) {
-        // Парсинг пакетов Viatom / Checkme O2
-        int spo2 = -1;
-        int pr = -1;
-        float pi = -1f;
-
-        if (data.length >= 8) {
-            // Формат телеметрии Viatom / Checkme O2
-            spo2 = data[0] & 0xFF;
-            pr = data[1] & 0xFF;
-            if (data.length >= 10) {
-                pi = ((float)(data[2] & 0xFF)) / 10.0f;
-            }
-        }
-
-        final int finalSpo2 = spo2;
-        final int finalPr = pr;
-        final float finalPi = pi;
-
-        if (finalSpo2 > 50 && finalSpo2 <= 100) {
-            mainHandler.post(() -> {
-                tvSpO2.setText("SpO2: " + finalSpo2 + "%");
-                if (finalPi > 0) tvPI.setText(String.format(Locale.US, "PI: %.1f%%", finalPi));
-
-                setSpO2.addEntry(new Entry(chartXIndex, finalSpo2));
-                if (setSpO2.getEntryCount() > 100) setSpO2.removeFirst();
-                dataSpO2.notifyDataChanged();
-                chartSpO2.notifyDataSetChanged();
-                chartSpO2.invalidate();
-
-                // ФПГ (PPG) волна
-                if (finalPr > 0) {
-                    setPPG.addEntry(new Entry(chartXIndex, finalPr));
-                    if (setPPG.getEntryCount() > 100) setPPG.removeFirst();
-                    dataPPG.notifyDataChanged();
-                    chartPPG.notifyDataSetChanged();
-                    chartPPG.invalidate();
-                }
-            });
+            sessionData.add(dp);
+            runOnUiThread(() -> chartView.addDataPoint(dp));
         }
     }
 
-    private void enableNotification(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-        try {
-            gatt.setCharacteristicNotification(characteristic, true);
-            BluetoothGattDescriptor descriptor = characteristic.getDescriptor(CCCD_UUID);
-            if (descriptor != null) {
-                descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
-                gatt.writeDescriptor(descriptor);
+    @Override
+    public void onPolarDataReceived(int hr, float rrMs) {
+        this.currentPolarHR = hr;
+        runOnUiThread(() -> {
+            if (chartView != null && isRecording) {
+                chartView.addPolarPoint(hr, rrMs);
             }
-        } catch (SecurityException e) {
-            log("Ошибка подписки: " + e.getMessage());
+        });
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (bleManager != null) {
+            bleManager.close();
         }
     }
 }
