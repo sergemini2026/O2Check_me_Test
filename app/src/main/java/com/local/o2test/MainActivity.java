@@ -23,12 +23,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Queue;
 
-public class MainActivity extends Activity implements MultiBleManager.BleListener {
+public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private static final int PERMISSION_REQUEST_CODE = 101;
-    private static final int PI_SMOOTHING_WINDOW = 5;
+    private static final int PI_SMOOTHING_WINDOW = 5; // Окно сглаживания PI (5 точек)
 
-    private MultiBleManager bleManager;
+    private O2BleManager bleManager;
     private TextView tvLiveMetrics;
     private TrendChartView chartView;
     private TextView tvLog;
@@ -37,16 +37,14 @@ public class MainActivity extends Activity implements MultiBleManager.BleListene
     private boolean isRecording = false;
     private long sessionStartTime = 0;
     private final List<DataPoint> sessionData = new ArrayList<>();
-    private final Queue<Float> piWindow = new LinkedList<>();
+    private final Queue<Float> piWindow = new LinkedList<>(); // Очередь для скользящего среднего
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
-
-    private int currentPolarHR = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        bleManager = new MultiBleManager(this, this);
+        bleManager = new O2BleManager(this, this);
 
         LinearLayout mainLayout = new LinearLayout(this);
         mainLayout.setOrientation(LinearLayout.VERTICAL);
@@ -55,7 +53,7 @@ public class MainActivity extends Activity implements MultiBleManager.BleListene
         tvLiveMetrics = new TextView(this);
         tvLiveMetrics.setTextSize(18);
         tvLiveMetrics.setGravity(Gravity.CENTER);
-        updateStatusHeader(0, 0, 0f, 0, 0);
+        updateStatusHeader(0, 0, 0f, 0);
         mainLayout.addView(tvLiveMetrics);
 
         LinearLayout btnBar = new LinearLayout(this);
@@ -73,6 +71,7 @@ public class MainActivity extends Activity implements MultiBleManager.BleListene
         btnBar.addView(btnExit);
         mainLayout.addView(btnBar);
 
+        // График занимает 2/3 экрана (weight = 2.0f)
         chartView = new TrendChartView(this);
         LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 2.0f);
@@ -82,6 +81,7 @@ public class MainActivity extends Activity implements MultiBleManager.BleListene
         tvLog = new TextView(this);
         tvLog.setTextSize(11);
 
+        // Лог занимает 1/3 экрана (weight = 1.0f) с отступом сверху (~24dp)
         logScrollView = new ScrollView(this);
         LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
@@ -153,14 +153,13 @@ public class MainActivity extends Activity implements MultiBleManager.BleListene
         return btn;
     }
 
-    private void updateStatusHeader(int spo2, int o2Hr, float pi, int battery, int polarHr) {
+    private void updateStatusHeader(int spo2, int hr, float pi, int battery) {
         if (tvLiveMetrics == null) return;
 
         String partO2 = String.format(Locale.US, "SpO2: %d%%", spo2);
-        String partHR = String.format(Locale.US, "  |  O2 HR: %d", o2Hr);
-        String partPolar = String.format(Locale.US, "  |  Polar HR: %d", polarHr);
+        String partHR = String.format(Locale.US, "  |  HR: %d bpm", hr);
         String partPI = String.format(Locale.US, "  |  PI: %.1f%%", pi);
-        String partPower = String.format(Locale.US, "  |  Pwr: %d%%", battery);
+        String partPower = String.format(Locale.US, "  |  Power: %d%%", battery);
 
         SpannableStringBuilder builder = new SpannableStringBuilder();
 
@@ -171,10 +170,6 @@ public class MainActivity extends Activity implements MultiBleManager.BleListene
         start = builder.length();
         builder.append(partHR);
         builder.setSpan(new ForegroundColorSpan(Color.GREEN), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-
-        start = builder.length();
-        builder.append(partPolar);
-        builder.setSpan(new ForegroundColorSpan(Color.MAGENTA), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
 
         start = builder.length();
         builder.append(partPI);
@@ -219,6 +214,7 @@ public class MainActivity extends Activity implements MultiBleManager.BleListene
         });
     }
 
+    // Вспомогательный метод расчёта скользящего среднего
     private float getSmoothedPi(float rawPi) {
         piWindow.add(rawPi);
         if (piWindow.size() > PI_SMOOTHING_WINDOW) {
@@ -244,12 +240,15 @@ public class MainActivity extends Activity implements MultiBleManager.BleListene
     }
 
     @Override
-    public void onO2DataReceived(byte[] data) {
+    public void onDataReceived(byte[] data) {
         O2Parser.ParseResult res = O2Parser.parse(data);
+
         long now = System.currentTimeMillis();
+
+        // Применяем сглаживание к PI
         float smoothedPi = getSmoothedPi(res.pi);
 
-        runOnUiThread(() -> updateStatusHeader(res.spo2, res.hr, smoothedPi, res.battery, currentPolarHR));
+        runOnUiThread(() -> updateStatusHeader(res.spo2, res.hr, smoothedPi, res.battery));
 
         if (res.isFingerOn && isRecording) {
             if (sessionStartTime == 0) sessionStartTime = now;
@@ -261,16 +260,6 @@ public class MainActivity extends Activity implements MultiBleManager.BleListene
             sessionData.add(dp);
             runOnUiThread(() -> chartView.addDataPoint(dp));
         }
-    }
-
-    @Override
-    public void onPolarDataReceived(int hr, float rrMs) {
-        this.currentPolarHR = hr;
-        runOnUiThread(() -> {
-            if (chartView != null && isRecording) {
-                chartView.addPolarPoint(hr, rrMs);
-            }
-        });
     }
 
     @Override
