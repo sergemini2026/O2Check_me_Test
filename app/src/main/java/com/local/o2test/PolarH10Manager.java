@@ -25,8 +25,8 @@ public class PolarH10Manager {
     private static final UUID HR_CHAR_UUID    = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb");
     private static final UUID CCCD_UUID       = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
 
-    private static final long UPDATE_INTERVAL_MS = 30000; // Задержка вывода метрик 30 сек
-    private static final int MAX_RR_COUNT = 300; // Расчет по последним 300 интервалам
+    private static final long UPDATE_INTERVAL_MS = 30000; // Промежуточные отчеты раз в 30 сек
+    private static final int MAX_RR_COUNT = 300; // Эпоха для расчета HRV
 
     public interface PolarCallback {
         void onPolarLog(String message);
@@ -92,7 +92,7 @@ public class PolarH10Manager {
                         if (descriptor != null) {
                             descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
                             gatt.writeDescriptor(descriptor);
-                            log("Polar H10: Старт накопления буфера (300 стабильных RR-интервалов)...");
+                            log("Polar H10: Старт записи эпохи (300 стабильных RR-интервалов)...");
                         }
                     }
                 }
@@ -108,6 +108,7 @@ public class PolarH10Manager {
                     List<Integer> newRrList = HrvCalculator.parseRrIntervals(data);
 
                     long now = System.currentTimeMillis();
+                    if (lastReportTime == 0) lastReportTime = now;
 
                     synchronized (rrBuffer) {
                         hrWindow.add(currentHr);
@@ -115,25 +116,45 @@ public class PolarH10Manager {
                         for (int rr : newRrList) {
                             rrBuffer.add(rr);
 
-                            // Поддерживаем ровно 300 последних валидных интервалов
-                            while (rrBuffer.size() > MAX_RR_COUNT) {
-                                rrBuffer.poll();
-                            }
-
                             final int rrMs = rr;
-                            final float fHr = currentHr;
+                            // Мгновенная ЧСС: 60 секунд / RR (в миллисекундах)
+                            final float instantHr = rrMs > 0 ? (60000.0f / rrMs) : currentHr;
+
                             new Handler(Looper.getMainLooper()).post(() -> {
                                 if (callback != null) {
-                                    callback.onRrReceived(rrMs, fHr);
+                                    callback.onRrReceived(rrMs, instantHr);
                                 }
                             });
+
+                            // При достижении 300 интервалов — финальный расчет эпохи и жесткий сброс
+                            if (rrBuffer.size() == MAX_RR_COUNT) {
+                                List<Integer> snapshot = new ArrayList<>(rrBuffer);
+                                HrvCalculator.Metrics hrv = HrvCalculator.calculate(snapshot);
+                                
+                                int avgHr = currentHr;
+                                if (!hrWindow.isEmpty()) {
+                                    int sumHr = 0;
+                                    for (int hr : hrWindow) sumHr += hr;
+                                    avgHr = Math.round((float) sumHr / hrWindow.size());
+                                    hrWindow.clear();
+                                }
+
+                                final int finalAvgHr = avgHr;
+                                new Handler(Looper.getMainLooper()).post(() -> {
+                                    if (callback != null) {
+                                        callback.onPolarHrReceived(finalAvgHr, hrv, MAX_RR_COUNT);
+                                    }
+                                });
+
+                                // Обнуляем буфер для следующей итерации
+                                rrBuffer.clear();
+                                // Сбрасываем таймер, чтобы 30-секундный промежуточный отчет не сработал сразу после сброса
+                                lastReportTime = now; 
+                            }
                         }
 
-                        if (lastReportTime == 0) {
-                            lastReportTime = now;
-                        }
-
-                        if (now - lastReportTime >= UPDATE_INTERVAL_MS) {
+                        // Промежуточные отчеты каждые 30 секунд (пока буфер не достиг 300)
+                        if (now - lastReportTime >= UPDATE_INTERVAL_MS && !rrBuffer.isEmpty()) {
                             lastReportTime = now;
 
                             int avgHr = currentHr;
