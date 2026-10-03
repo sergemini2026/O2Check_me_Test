@@ -12,12 +12,8 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0"
-    }
-  // Блок задания фиксированного имени APK
-    applicationVariants.all { variant ->
-        variant.outputs.all { output ->
-            outputFileName = "O2Test.apk"
-        }
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -30,4 +26,14 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    // Основные зависимости AndroidX и UI
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+
+    // Библиотека графиков MPAndroidChart
+    implementation 'com.github.PhilJay:MPAndroidChart:v3.1.0'
 }
