@@ -49,11 +49,11 @@ public class HrvCalculator {
     }
 
     public static Metrics calculate(List<Integer> rawRrBuffer) {
-        if (rawRrBuffer == null || rawRrBuffer.size() < 10) {
+        if (rawRrBuffer == null || rawRrBuffer.size() < 12) {
             return new Metrics(0, 0, 0, 0, 0, 0);
         }
 
-        // 1. Фильтрация и коррекция артефактов (Malik 20% Threshold Filter)
+        // 1. Фильтрация артефактов (Malik 20% Threshold Filter)
         List<Integer> cleanRr = new ArrayList<>();
         int artifactsCount = 0;
         cleanRr.add(rawRrBuffer.get(0));
@@ -65,7 +65,7 @@ public class HrvCalculator {
             double diffRatio = Math.abs(curr - prev) / (double) prev;
             if (diffRatio > 0.20) {
                 artifactsCount++;
-                cleanRr.add(prev); // Замещение предыдущим стабильным
+                cleanRr.add(prev);
             } else {
                 cleanRr.add(curr);
             }
@@ -89,25 +89,22 @@ public class HrvCalculator {
         double rmssd = Math.sqrt(sumSqDiff / countDiff);
         double pnn50 = (nn50 * 100.0) / countDiff;
 
-        // 3. Спектральный анализ (LF, HF, TP)
+        // 3. Спектральный анализ (Удаление линейного тренда + Ресемплинг 4 Гц)
         int N = 256; 
-        double fs = 4.0;
+        double fs = 4.0; // Частота дискретизации 4 Гц
 
-        double[] interpolated = interpolateRr(cleanRr, N);
+        double[] interpolated = interpolateAndDetrend(cleanRr, N, fs);
 
-        double mean = 0;
-        for (double val : interpolated) mean += val;
-        mean /= N;
-
+        // Окно Ханна (Hanning Window) с нормировкой коэф. энергии
         double[] re = new double[N];
         double[] im = new double[N];
+        double winSumSq = 0;
 
-        double winPowerSum = 0;
         for (int i = 0; i < N; i++) {
             double w = 0.5 * (1.0 - Math.cos(2.0 * Math.PI * i / (N - 1)));
-            re[i] = (interpolated[i] - mean) * w;
+            re[i] = interpolated[i] * w;
             im[i] = 0;
-            winPowerSum += w * w;
+            winSumSq += w * w;
         }
 
         fft(re, im, N);
@@ -117,15 +114,15 @@ public class HrvCalculator {
 
         for (int k = 1; k < N / 2; k++) {
             double freq = k * df;
-            double magSq = re[k] * re[k] + im[k] * im[k];
-            double power = (2.0 * magSq) / (N * winPowerSum);
+            // Двусторонняя спектральная плотность мощности (PSD)
+            double power = (2.0 * (re[k] * re[k] + im[k] * im[k])) / (fs * winSumSq);
 
             if (freq >= 0.0033 && freq < 0.04) {
-                vlf += power;
+                vlf += power * df;
             } else if (freq >= 0.04 && freq < 0.15) {
-                lf += power;
+                lf += power * df;
             } else if (freq >= 0.15 && freq <= 0.40) {
-                hf += power;
+                hf += power * df;
             }
         }
 
@@ -135,36 +132,57 @@ public class HrvCalculator {
         return new Metrics(rmssd, pnn50, lfHfRatio, totalPower, artifactPct, artifactsCount);
     }
 
-    private static double[] interpolateRr(List<Integer> rrList, int nPoints) {
-        double[] resamp = new double[nPoints];
-        double[] time = new double[rrList.size()];
-        
-        time[0] = rrList.get(0) / 1000.0;
-        for (int i = 1; i < rrList.size(); i++) {
+    private static double[] interpolateAndDetrend(List<Integer> rrList, int nPoints, double fs) {
+        int sz = rrList.size();
+        double[] time = new double[sz];
+        double[] values = new double[sz];
+
+        time[0] = 0;
+        values[0] = rrList.get(0);
+        for (int i = 1; i < sz; i++) {
             time[i] = time[i - 1] + (rrList.get(i) / 1000.0);
+            values[i] = rrList.get(i);
         }
 
-        double totalTime = time[time.length - 1];
-        double dt = totalTime / (nPoints - 1);
+        // Удаление линейного тренда (Linear Detrending)
+        double meanT = 0, meanY = 0;
+        for (int i = 0; i < sz; i++) {
+            meanT += time[i];
+            meanY += values[i];
+        }
+        meanT /= sz;
+        meanY /= sz;
+
+        double num = 0, den = 0;
+        for (int i = 0; i < sz; i++) {
+            num += (time[i] - meanT) * (values[i] - meanY);
+            den += (time[i] - meanT) * (time[i] - meanT);
+        }
+        double slope = (den != 0) ? num / den : 0;
+        double intercept = meanY - slope * meanT;
+
+        double[] resampled = new double[nPoints];
+        double totalDuration = time[sz - 1];
+        double dt = totalDuration / (nPoints - 1);
 
         int idx = 0;
         for (int i = 0; i < nPoints; i++) {
             double t = i * dt;
-            while (idx < time.length - 2 && time[idx + 1] < t) {
+            while (idx < sz - 2 && time[idx + 1] < t) {
                 idx++;
             }
             double t0 = time[idx];
             double t1 = time[idx + 1];
-            double y0 = rrList.get(idx);
-            double y1 = rrList.get(idx + 1);
+            double y0 = values[idx] - (slope * t0 + intercept);
+            double y1 = values[idx + 1] - (slope * t1 + intercept);
 
             if (t1 == t0) {
-                resamp[i] = y0;
+                resampled[i] = y0;
             } else {
-                resamp[i] = y0 + (y1 - y0) * (t - t0) / (t1 - t0);
+                resampled[i] = y0 + (y1 - y0) * (t - t0) / (t1 - t0);
             }
         }
-        return resamp;
+        return resampled;
     }
 
     private static void fft(double[] re, double[] im, int n) {
