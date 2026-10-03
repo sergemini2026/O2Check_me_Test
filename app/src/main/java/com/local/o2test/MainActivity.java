@@ -1,350 +1,195 @@
 package com.local.o2test;
 
-import android.Manifest;
-import android.annotation.SuppressLint;
-import android.app.Activity;
-import android.bluetooth.BluetoothAdapter;
-import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothManager;
-import android.bluetooth.le.BluetoothLeScanner;
-import android.bluetooth.le.ScanCallback;
-import android.bluetooth.le.ScanResult;
-import android.content.Context;
-import android.content.pm.PackageManager;
+import android.animation.ObjectAnimator;
+import android.animation.PropertyValuesHolder;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
-import android.os.Build;
 import android.os.Bundle;
-import android.text.SpannableStringBuilder;
-import android.text.Spanned;
-import android.text.style.ForegroundColorSpan;
-import android.view.Gravity;
-import android.widget.Button;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
+import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
+import androidx.appcompat.app.AppCompatActivity;
 
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
+import com.github.mikephil.charting.charts.LineChart;
+import com.github.mikephil.charting.data.Entry;
+import com.github.mikephil.charting.data.LineData;
+import com.github.mikephil.charting.data.LineDataSet;
+
 import java.util.LinkedList;
-import java.util.List;
 import java.util.Locale;
 import java.util.Queue;
 
-@SuppressLint("MissingPermission")
-public class MainActivity extends Activity implements O2BleManager.BleListener, PolarH10Manager.PolarCallback {
+public class MainActivity extends AppCompatActivity implements PolarH10Manager.PolarCallback {
 
-    private static final int PERMISSION_REQUEST_CODE = 101;
-    private static final int PI_SMOOTHING_WINDOW = 5;
+    // Элементы UI
+    private TextView tvSpo2, tvHr, tvRmssd, tvPi, tvLog;
+    private ProgressBar hrvProgressBar;
+    private ImageView heartPulseView;
+    private ObjectAnimator pulseAnimator;
 
-    private O2BleManager bleManager;
-    private PolarH10Manager polarH10Manager;
-    private BluetoothLeScanner polarScanner;
+    // Графики
+    private LineChart chartSpo2, chartHr, chartRmssd, chartPi;
 
-    private TextView tvLiveMetrics;
-    private TrendChartView chartView;
-    private TextView tvLog;
-    private ScrollView logScrollView;
+    // Сглаживание PI (окно скользящего среднего на 15 отсчетов)
+    private final Queue<Float> piBuffer = new LinkedList<>();
+    private static final int PI_SMOOTH_WINDOW = 15;
+    private float piSum = 0f;
 
-    private boolean isRecording = false;
-    private boolean polarConnected = false;
-    private long sessionStartTime = 0;
-
-    private final List<DataPoint> sessionData = new ArrayList<>();
-    private final Queue<Float> piWindow = new LinkedList<>();
-    private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
+    // Счётчик секунд для оси X
+    private int timeSecond = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
 
-        bleManager = new O2BleManager(this, this);
-        polarH10Manager = new PolarH10Manager(this, this);
+        // Инициализация UI компонентов
+        tvSpo2 = findViewById(R.id.tvSpo2);
+        tvHr = findViewById(R.id.tvHr);
+        tvRmssd = findViewById(R.id.tvRmssd);
+        tvPi = findViewById(R.id.tvPi);
+        tvLog = findViewById(R.id.tvLog);
+        hrvProgressBar = findViewById(R.id.hrvProgressBar);
+        heartPulseView = findViewById(R.id.heartPulseView);
 
-        LinearLayout mainLayout = new LinearLayout(this);
-        mainLayout.setOrientation(LinearLayout.VERTICAL);
-        mainLayout.setPadding(20, 20, 20, 20);
+        // Инициализация графиков
+        chartSpo2 = findViewById(R.id.chartSpo2);
+        chartHr = findViewById(R.id.chartHr);
+        chartRmssd = findViewById(R.id.chartRmssd);
+        chartPi = findViewById(R.id.chartPi);
 
-        tvLiveMetrics = new TextView(this);
-        tvLiveMetrics.setTextSize(18);
-        tvLiveMetrics.setGravity(Gravity.CENTER);
-        updateStatusHeader(0, 0, 0f, 0);
-        mainLayout.addView(tvLiveMetrics);
+        setupChart(chartSpo2, "SpO2 (%)", Color.parseColor("#00E676"));
+        setupChart(chartHr, "HR (bpm)", Color.parseColor("#FF5252"));
+        setupChart(chartRmssd, "RMSSD (ms)", Color.parseColor("#448AFF"));
+        setupChart(chartPi, "PI Smoothed (%)", Color.parseColor("#FFD700"));
 
-        LinearLayout btnBar = new LinearLayout(this);
-        btnBar.setOrientation(LinearLayout.HORIZONTAL);
-        btnBar.setPadding(0, 10, 0, 10);
-
-        Button btnMonitor = createButton("Панель монитора");
-        Button btnStop = createButton("Стоп");
-        Button btnSave = createButton("Сохранение данных");
-        Button btnExit = createButton("Выход");
-
-        btnBar.addView(btnMonitor);
-        btnBar.addView(btnStop);
-        btnBar.addView(btnSave);
-        btnBar.addView(btnExit);
-        mainLayout.addView(btnBar);
-
-        chartView = new TrendChartView(this);
-        LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 2.0f);
-        chartView.setLayoutParams(chartParams);
-        mainLayout.addView(chartView);
-
-        tvLog = new TextView(this);
-        tvLog.setTextSize(11);
-
-        logScrollView = new ScrollView(this);
-        LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        logParams.topMargin = 24;
-        logScrollView.setLayoutParams(logParams);
-        logScrollView.addView(tvLog);
-        mainLayout.addView(logScrollView);
-
-        setContentView(mainLayout);
-
-        btnMonitor.setOnClickListener(v -> startMonitoringPanel());
-        btnStop.setOnClickListener(v -> stopMonitoring());
-        btnSave.setOnClickListener(v -> saveData());
-        btnExit.setOnClickListener(v -> finish());
-
-        checkAndRequestPermissions();
+        setupHeartAnimation();
     }
 
-    private void checkAndRequestPermissions() {
-        List<String> permissions = new ArrayList<>();
+    // Базовая настройка внешнего вида и производительности графика
+    private void setupChart(LineChart chart, String label, int color) {
+        chart.getDescription().setEnabled(false);
+        chart.setTouchEnabled(false);
+        chart.setDragEnabled(false);
+        chart.setScaleEnabled(false);
+        chart.setPinchZoom(false);
+        chart.setDrawGridBackground(false);
+        chart.getAxisRight().setEnabled(false);
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                permissions.add(Manifest.permission.BLUETOOTH_SCAN);
-            }
-            if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                permissions.add(Manifest.permission.BLUETOOTH_CONNECT);
-            }
-        }
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
-        }
+        // Настройка осей под тёмную тему
+        chart.getXAxis().setTextColor(Color.parseColor("#888888"));
+        chart.getXAxis().setDrawGridLines(false);
+        chart.getAxisLeft().setTextColor(Color.parseColor("#CCCCCC"));
+        chart.getAxisLeft().setDrawGridLines(true);
+        chart.getAxisLeft().setGridColor(Color.parseColor("#222222"));
 
-        if (!permissions.isEmpty()) {
-            onLog("Запрос разрешений BLE...");
-            requestPermissions(permissions.toArray(new String[0]), PERMISSION_REQUEST_CODE);
-        } else {
-            startDevices();
+        // Инициализация датасета
+        LineDataSet dataSet = new LineDataSet(null, label);
+        dataSet.setColor(color);
+        dataSet.setLineWidth(2f);
+        dataSet.setDrawCircles(false);
+        dataSet.setDrawValues(false);
+        dataSet.setMode(LineDataSet.Mode.CUBIC_BEZIER); // Плавные скругленные линии
+
+        LineData data = new LineData(dataSet);
+        chart.setData(data);
+    }
+
+    // Добавление точки на график со сдвигом окна (показываем последние 60 секунд)
+    private void addChartEntry(LineChart chart, float value) {
+        LineData data = chart.getData();
+        if (data != null) {
+            LineDataSet set = (LineDataSet) data.getDataSetByIndex(0);
+            if (set == null) {
+                set = new LineDataSet(null, "");
+                data.addDataSet(set);
+            }
+
+            data.addEntry(new Entry(timeSecond, value), 0);
+            data.notifyDataChanged();
+            chart.notifyDataSetChanged();
+
+            // Ограничение видимого окна до 60 секунд
+            chart.setVisibleXRangeMaximum(60);
+            chart.moveViewToX(data.getEntryCount());
         }
     }
 
+    // Настройка анимированной пульсации сердца
+    private void setupHeartAnimation() {
+        PropertyValuesHolder scaleX = PropertyValuesHolder.ofFloat("scaleX", 1.0f, 1.22f);
+        PropertyValuesHolder scaleY = PropertyValuesHolder.ofFloat("scaleY", 1.0f, 1.22f);
+        PropertyValuesHolder alpha = PropertyValuesHolder.ofFloat("alpha", 0.75f, 1.0f);
+
+        pulseAnimator = ObjectAnimator.ofPropertyValuesHolder(heartPulseView, scaleX, scaleY, alpha);
+        pulseAnimator.setRepeatCount(ObjectAnimator.INFINITE);
+        pulseAnimator.setRepeatMode(ObjectAnimator.REVERSE);
+
+        updatePulseRate(60);
+        pulseAnimator.start();
+    }
+
+    private void updatePulseRate(int hr) {
+        if (hr <= 0) return;
+        long halfBeatMs = Math.max(200, (60000 / hr) / 2);
+        if (pulseAnimator != null) {
+            pulseAnimator.setDuration(halfBeatMs);
+        }
+    }
+
+    // Фильтр сглаживания PI (скользящее среднее)
+    private float smoothPi(float rawPi) {
+        piBuffer.add(rawPi);
+        piSum += rawPi;
+        if (piBuffer.size() > PI_SMOOTH_WINDOW) {
+            piSum -= piBuffer.poll();
+        }
+        return piSum / piBuffer.size();
+    }
+
+    // Колбэк с Polar H10
     @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == PERMISSION_REQUEST_CODE) {
-            boolean allGranted = true;
-            for (int result : grantResults) {
-                if (result != PackageManager.PERMISSION_GRANTED) {
-                    allGranted = false;
-                    break;
-                }
-            }
-            if (allGranted) {
-                onLog("Разрешения получены, запуск сканирования...");
-                startDevices();
+    public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
+        runOnUiThread(() -> {
+            timeSecond++;
+            updatePulseRate(hr);
+
+            int progress = Math.min(rrCount, 30);
+            hrvProgressBar.setProgress(progress);
+
+            if (rrCount < 30) {
+                hrvProgressBar.setProgressTintList(ColorStateList.valueOf(Color.parseColor("#FF9800")));
+                tvHr.setText(String.format(Locale.US, "HR: %d bpm", hr));
+                tvRmssd.setText(String.format(Locale.US, "Буфер: %d/30", rrCount));
+                
+                addChartEntry(chartHr, hr);
             } else {
-                onLog("Ошибка: разрешения Bluetooth не предоставлены!");
+                hrvProgressBar.setProgressTintList(ColorStateList.valueOf(Color.parseColor("#00E676")));
+                tvHr.setText(String.format(Locale.US, "HR: %d bpm", hr));
+                tvRmssd.setText(String.format(Locale.US, "RMSSD: %.1f ms", hrv.rmssd));
+
+                // Обновляем графики пульса и RMSSD
+                addChartEntry(chartHr, hr);
+                addChartEntry(chartRmssd, hrv.rmssd);
             }
-        }
+        });
     }
 
-    private void startDevices() {
-        if (bleManager != null) {
-            bleManager.initAndStartScan();
-        }
+    // Вызывать при получении кадра данных от Checkme O2
+    public void onCheckmeDataReceived(int spo2, float rawPi) {
+        runOnUiThread(() -> {
+            float smoothedPi = smoothPi(rawPi);
 
-        BluetoothManager bm = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
-        BluetoothAdapter adapter = bm != null ? bm.getAdapter() : null;
+            tvSpo2.setText(String.format(Locale.US, "SpO2: %d%%", spo2));
+            tvPi.setText(String.format(Locale.US, "PI: %.2f%%", smoothedPi));
 
-        if (adapter != null && adapter.isEnabled()) {
-            polarScanner = adapter.getBluetoothLeScanner();
-            if (polarScanner != null) {
-                onLog("Запуск поиска Polar H10...");
-                polarScanner.startScan(polarScanCallback);
-            }
-        }
+            addChartEntry(chartSpo2, spo2);
+            addChartEntry(chartPi, smoothedPi);
+        });
     }
-
-    private final ScanCallback polarScanCallback = new ScanCallback() {
-        @Override
-        public void onScanResult(int callbackType, ScanResult result) {
-            BluetoothDevice device = result.getDevice();
-            String name = device.getName();
-
-            if (name == null || polarConnected) return;
-
-            if (name.contains("Polar") || name.contains("H10")) {
-                polarConnected = true;
-                onLog("Найден Polar H10: " + name + " [" + device.getAddress() + "]");
-                if (polarScanner != null) {
-                    polarScanner.stopScan(this);
-                }
-                polarH10Manager.connect(device);
-            }
-        }
-    };
 
     @Override
     public void onPolarLog(String message) {
-        onLog(message);
-    }
-
-        @Override
-public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
-    if (rrCount < 30) {
-        onLog(String.format(Locale.US,
-                "Polar HR: %d bpm | Накопление буфера ВСР (%d/30 RR)...",
-                hr, rrCount));
-    } else {
-        onLog(String.format(Locale.US,
-                "Polar HR: %d bpm | RMSSD: %.1f мс | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms²",
-                hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower));
-    }
-}
-
-
-    private String bytesToHex(byte[] bytes) {
-        if (bytes == null) return "";
-        StringBuilder sb = new StringBuilder();
-        for (byte b : bytes) {
-            sb.append(String.format("%02X ", b));
-        }
-        return sb.toString().trim();
-    }
-
-    private Button createButton(String text) {
-        Button btn = new Button(this);
-        btn.setText(text);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
-        params.setMargins(4, 0, 4, 0);
-        btn.setLayoutParams(params);
-        return btn;
-    }
-
-    private void updateStatusHeader(int spo2, int hr, float pi, int battery) {
-        if (tvLiveMetrics == null) return;
-
-        String partO2 = String.format(Locale.US, "SpO2: %d%%", spo2);
-        String partHR = String.format(Locale.US, "  |  HR: %d bpm", hr);
-        String partPI = String.format(Locale.US, "  |  PI: %.1f%%", pi);
-        String partPower = String.format(Locale.US, "  |  Power: %d%%", battery);
-
-        SpannableStringBuilder builder = new SpannableStringBuilder();
-
-        int start = 0;
-        builder.append(partO2);
-        builder.setSpan(new ForegroundColorSpan(Color.CYAN), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-
-        start = builder.length();
-        builder.append(partHR);
-        builder.setSpan(new ForegroundColorSpan(Color.GREEN), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-
-        start = builder.length();
-        builder.append(partPI);
-        builder.setSpan(new ForegroundColorSpan(Color.YELLOW), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-
-        start = builder.length();
-        builder.append(partPower);
-        builder.setSpan(new ForegroundColorSpan(Color.RED), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-
-        tvLiveMetrics.setText(builder);
-    }
-
-    private void startMonitoringPanel() {
-        isRecording = true;
-        sessionStartTime = System.currentTimeMillis();
-        sessionData.clear();
-        piWindow.clear();
-        if (chartView != null) {
-            chartView.clearData();
-        }
-        onLog("Панель монитора активна");
-    }
-
-    private void stopMonitoring() {
-        isRecording = false;
-        piWindow.clear();
-        onLog("Мониторинг остановлен");
-    }
-
-    private void saveData() {
-        onLog("Сохранение данных...");
-        CsvExporter.saveSessionToCsv(this, sessionData, new CsvExporter.ExportCallback() {
-            @Override
-            public void onSuccess(String filePath, String fileName) {
-                onLog("Успешно сохранено: " + fileName);
-            }
-
-            @Override
-            public void onError(String errorMessage) {
-                onLog("Ошибка: " + errorMessage);
-            }
-        });
-    }
-
-    private float getSmoothedPi(float rawPi) {
-        piWindow.add(rawPi);
-        if (piWindow.size() > PI_SMOOTHING_WINDOW) {
-            piWindow.poll();
-        }
-        float sum = 0f;
-        for (float val : piWindow) {
-            sum += val;
-        }
-        return sum / piWindow.size();
-    }
-
-    @Override
-    public void onLog(String message) {
-        runOnUiThread(() -> {
-            if (tvLog != null) {
-                tvLog.append(message + "\n");
-                if (logScrollView != null) {
-                    logScrollView.post(() -> logScrollView.fullScroll(ScrollView.FOCUS_DOWN));
-                }
-            }
-        });
-    }
-
-    @Override
-    public void onDataReceived(byte[] data) {
-        O2Parser.ParseResult res = O2Parser.parse(data);
-
-        long now = System.currentTimeMillis();
-
-        float smoothedPi = getSmoothedPi(res.pi);
-
-        runOnUiThread(() -> updateStatusHeader(res.spo2, res.hr, smoothedPi, res.battery));
-
-        if (res.isFingerOn && isRecording) {
-            if (sessionStartTime == 0) sessionStartTime = now;
-            int elapsedSec = (int) ((now - sessionStartTime) / 1000);
-
-            String timestamp = timeFormat.format(new Date(now));
-            DataPoint dp = new DataPoint(timestamp, elapsedSec, res.spo2, res.hr, smoothedPi);
-
-            sessionData.add(dp);
-            runOnUiThread(() -> chartView.addDataPoint(dp));
-        }
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (bleManager != null) {
-            bleManager.close();
-        }
-        if (polarH10Manager != null) {
-            polarH10Manager.disconnect();
-        }
+        runOnUiThread(() -> tvLog.append("\n" + message));
     }
 }
