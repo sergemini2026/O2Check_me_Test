@@ -282,23 +282,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         @Override
-        public void onRrReceived(int rrMs, float instantHr) {
-            if (isRecording) {
-                long now = System.currentTimeMillis();
-                if (sessionStartTime == 0) sessionStartTime = now;
-                int elapsedSec = (int) ((now - sessionStartTime) / 1000);
-
-                int roundedHr = Math.round(instantHr);
-                String timestamp = timeFormat.format(new Date(now));
-                
-                DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, roundedHr, currentPi);
-                sessionData.add(dp);
-
-                runOnUiThread(() -> {
-                    updateStatusHeader(currentSpo2, roundedHr, currentPi, currentBattery);
-                    chartView.addDataPoint(dp);
-                });
-            }
+        public void onRrReceived(int rrMs) {
+            // Больше не генерируем ложный "скачущий" HR из одного RR для графика.
+            // График рисуется по данным оксиметра, а RR уходит в фоновые расчеты HRV.
         }
 
         @Override
@@ -311,6 +297,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             onLog(logMsg);
         }
     };
+
 
     @Override
     protected void onDestroy() {
