@@ -26,6 +26,7 @@ public class O2BleManager {
     public interface BleListener {
         void onLog(String message);
         void onDataReceived(byte[] data);
+        void onPolarDeviceFound(BluetoothDevice device); // Добавлено для передачи Polar H10
     }
 
     private static final UUID SERVICE_UUID = UUID.fromString("14839ac4-7d7e-415c-9a42-167340cf2339");
@@ -96,6 +97,9 @@ public class O2BleManager {
                         listener.onLog(">>> ДАТЧИК ОБНАРУЖЕН: " + name + " <<<");
                         scanner.stopScan(this);
                         connectToDevice(device);
+                    } else if (name.contains("Polar") || name.contains("H10")) {
+                        listener.onLog("Найден Polar H10 [" + address + "]. Подключение...");
+                        listener.onPolarDeviceFound(device);
                     }
                 }
             });
