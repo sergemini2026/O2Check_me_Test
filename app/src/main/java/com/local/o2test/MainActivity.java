@@ -30,7 +30,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private static final int PI_SMOOTHING_WINDOW = 5;
 
     private O2BleManager bleManager;
-    private PolarH10Manager polarManager; // Менеджер для Polar H10
+    private PolarH10Manager polarManager;
     private TextView tvLiveMetrics;
     private TrendChartView chartView;
     private TextView tvLog;
@@ -47,7 +47,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         super.onCreate(savedInstanceState);
 
         bleManager = new O2BleManager(this, this);
-        polarManager = new PolarH10Manager(this, polarCallback); // Инициализация Polar H10 менеджера
+        polarManager = new PolarH10Manager(this, polarCallback);
 
         LinearLayout mainLayout = new LinearLayout(this);
         mainLayout.setOrientation(LinearLayout.VERTICAL);
@@ -260,7 +260,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     }
 
-    // Обработка обнаружения Polar H10 от сканера
     @Override
     public void onPolarDeviceFound(BluetoothDevice device) {
         if (polarManager != null) {
@@ -268,7 +267,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     }
 
-    // Коллбек от PolarH10Manager — вывод данных ВСР/RMSSD исключительно в текстовый лог
     private final PolarH10Manager.PolarCallback polarCallback = new PolarH10Manager.PolarCallback() {
         @Override
         public void onPolarLog(String message) {
@@ -277,8 +275,19 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         @Override
         public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
-            float rmssd = (hrv != null) ? hrv.rmssd : 0f;
-            onLog(String.format(Locale.US, "[Polar H10] HR: %d bpm | RMSSD: %.1f ms (RR: %d)", hr, rmssd, rrCount));
+            if (hrv == null) return;
+
+            if (rrCount < 30) {
+                String logMsg = String.format(Locale.US,
+                        "[Polar H10] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | (Буфер БПФ: %d/30)",
+                        hr, hrv.rmssd, hrv.pnn50, rrCount);
+                onLog(logMsg);
+            } else {
+                String logMsg = String.format(Locale.US,
+                        "[Polar H10] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms² (RR: %d)",
+                        hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower, rrCount);
+                onLog(logMsg);
+            }
         }
     };
 
