@@ -25,18 +25,21 @@ public class PolarH10Manager {
     private static final UUID HR_CHAR_UUID    = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb");
     private static final UUID CCCD_UUID       = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
 
-    private static final long UPDATE_INTERVAL_MS = 60000;
+    private static final long UPDATE_INTERVAL_MS = 30000; // Задержка вывода метрик 30 сек
+    private static final int MAX_RR_COUNT = 300; // Расчет по последним 300 интервалам
 
     public interface PolarCallback {
         void onPolarLog(String message);
         void onPolarHrReceived(int avgHr, HrvCalculator.Metrics hrv, int rrCount);
-        // Передаем чисто RR интервал для накопительного HRV буфера
-        void onRrReceived(int rrMs);
+        void onRrReceived(int rrMs, float instantHr);
     }
 
     private final Context context;
     private final PolarCallback callback;
     private BluetoothGatt gatt;
+    
+    private boolean isConnected = false;
+    private boolean isConnecting = false;
     
     private final Queue<Integer> rrBuffer = new LinkedList<>();
     private final List<Integer> hrWindow = new ArrayList<>();
@@ -47,8 +50,13 @@ public class PolarH10Manager {
         this.callback = callback;
     }
 
+    public boolean isConnected() {
+        return isConnected;
+    }
+
     public void connect(BluetoothDevice device) {
         log("Polar H10: Подключение к " + device.getAddress());
+        isConnecting = true;
         synchronized (rrBuffer) {
             rrBuffer.clear();
             hrWindow.clear();
@@ -61,9 +69,13 @@ public class PolarH10Manager {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
+                isConnected = true;
+                isConnecting = false;
                 log("Polar H10: Подключен. Накопление данных...");
                 gatt.discoverServices();
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                isConnected = false;
+                isConnecting = false;
                 log("Polar H10: Отключен.");
             }
         }
@@ -80,7 +92,7 @@ public class PolarH10Manager {
                         if (descriptor != null) {
                             descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
                             gatt.writeDescriptor(descriptor);
-                            log("Polar H10: Старт накопления буфера (скользящее окно 60 сек)...");
+                            log("Polar H10: Старт накопления буфера (300 стабильных RR-интервалов)...");
                         }
                     }
                 }
@@ -103,16 +115,16 @@ public class PolarH10Manager {
                         for (int rr : newRrList) {
                             rrBuffer.add(rr);
 
-                            int totalDurationMs = 0;
-                            for (int val : rrBuffer) totalDurationMs += val;
-                            while (totalDurationMs > 60000 && !rrBuffer.isEmpty()) {
-                                totalDurationMs -= rrBuffer.poll();
+                            // Поддерживаем ровно 300 последних валидных интервалов
+                            while (rrBuffer.size() > MAX_RR_COUNT) {
+                                rrBuffer.poll();
                             }
 
                             final int rrMs = rr;
+                            final float fHr = currentHr;
                             new Handler(Looper.getMainLooper()).post(() -> {
                                 if (callback != null) {
-                                    callback.onRrReceived(rrMs);
+                                    callback.onRrReceived(rrMs, fHr);
                                 }
                             });
                         }
@@ -170,6 +182,6 @@ public class PolarH10Manager {
             gatt.disconnect();
             gatt.close();
             gatt = null;
-            }
         }
+    }
 }
