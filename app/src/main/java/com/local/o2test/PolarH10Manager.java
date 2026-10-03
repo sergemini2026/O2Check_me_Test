@@ -30,7 +30,8 @@ public class PolarH10Manager {
     public interface PolarCallback {
         void onPolarLog(String message);
         void onPolarHrReceived(int avgHr, HrvCalculator.Metrics hrv, int rrCount);
-        void onRrReceived(int rrMs, float instantHr);
+        // Передаем чисто RR интервал для накопительного HRV буфера
+        void onRrReceived(int rrMs);
     }
 
     private final Context context;
@@ -102,18 +103,16 @@ public class PolarH10Manager {
                         for (int rr : newRrList) {
                             rrBuffer.add(rr);
 
-                            // Ограничиваем буфер строго последними 60 секундами (~70-80 интервалов)
                             int totalDurationMs = 0;
                             for (int val : rrBuffer) totalDurationMs += val;
                             while (totalDurationMs > 60000 && !rrBuffer.isEmpty()) {
                                 totalDurationMs -= rrBuffer.poll();
                             }
 
-                            final float instantHr = 60000.0f / rr;
                             final int rrMs = rr;
                             new Handler(Looper.getMainLooper()).post(() -> {
                                 if (callback != null) {
-                                    callback.onRrReceived(rrMs, instantHr);
+                                    callback.onRrReceived(rrMs);
                                 }
                             });
                         }
@@ -171,6 +170,6 @@ public class PolarH10Manager {
             gatt.disconnect();
             gatt.close();
             gatt = null;
+            }
         }
-    }
 }
