@@ -26,16 +26,22 @@ public class PolarH10Manager {
     private static final UUID CCCD_UUID       = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
 
     private static final int RR_BUFFER_CAPACITY = 300;
+    
+    // Интервал задержки вывода данных (30 секунд)
+    private static final long UPDATE_INTERVAL_MS = 30000;
 
     public interface PolarCallback {
         void onPolarLog(String message);
-        void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount);
+        void onPolarHrReceived(int avgHr, HrvCalculator.Metrics hrv, int rrCount);
     }
 
     private final Context context;
     private final PolarCallback callback;
     private BluetoothGatt gatt;
+    
     private final Queue<Integer> rrBuffer = new LinkedList<>();
+    private final List<Integer> hrWindow = new ArrayList<>();
+    private long lastReportTime = 0;
 
     public PolarH10Manager(Context context, PolarCallback callback) {
         this.context = context;
@@ -44,6 +50,11 @@ public class PolarH10Manager {
 
     public void connect(BluetoothDevice device) {
         log("Polar H10: Подключение к " + device.getAddress());
+        synchronized (rrBuffer) {
+            rrBuffer.clear();
+            hrWindow.clear();
+            lastReportTime = 0;
+        }
         gatt = device.connectGatt(context, false, gattCallback);
     }
 
@@ -51,7 +62,7 @@ public class PolarH10Manager {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
-                log("Polar H10: Подключен. Поиск сервисов...");
+                log("Polar H10: Подключен. Накопление данных...");
                 gatt.discoverServices();
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 log("Polar H10: Отключен.");
@@ -70,7 +81,7 @@ public class PolarH10Manager {
                         if (descriptor != null) {
                             descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
                             gatt.writeDescriptor(descriptor);
-                            log("Polar H10: Подписка на поток данных выполнена");
+                            log("Polar H10: Старт накопления буфера (вывод каждые 30 сек)...");
                         }
                     }
                 }
@@ -82,10 +93,16 @@ public class PolarH10Manager {
             if (HR_CHAR_UUID.equals(characteristic.getUuid())) {
                 byte[] data = characteristic.getValue();
                 if (data != null && data.length > 1) {
-                    int hr = parseHeartRate(data);
+                    int currentHr = parseHeartRate(data);
                     List<Integer> newRrList = HrvCalculator.parseRrIntervals(data);
 
+                    long now = System.currentTimeMillis();
+
                     synchronized (rrBuffer) {
+                        // Сохраняем текущий пульс для усреднения
+                        hrWindow.add(currentHr);
+
+                        // Наполняем буфер RR-интервалов
                         for (int rr : newRrList) {
                             rrBuffer.add(rr);
                             if (rrBuffer.size() > RR_BUFFER_CAPACITY) {
@@ -93,15 +110,37 @@ public class PolarH10Manager {
                             }
                         }
 
-                        List<Integer> snapshot = new ArrayList<>(rrBuffer);
-                        HrvCalculator.Metrics hrv = HrvCalculator.calculate(snapshot);
-                        int count = snapshot.size();
+                        // Инициализируем метку времени при получении первых данных
+                        if (lastReportTime == 0) {
+                            lastReportTime = now;
+                        }
 
-                        new Handler(Looper.getMainLooper()).post(() -> {
-                            if (callback != null) {
-                                callback.onPolarHrReceived(hr, hrv, count);
+                        // Проверяем, прошло ли 30 секунд
+                        if (now - lastReportTime >= UPDATE_INTERVAL_MS) {
+                            lastReportTime = now;
+
+                            // 1. Расчет усредненного ЧСС за 30 секунд
+                            int avgHr = currentHr;
+                            if (!hrWindow.isEmpty()) {
+                                int sumHr = 0;
+                                for (int hr : hrWindow) sumHr += hr;
+                                avgHr = Math.round((float) sumHr / hrWindow.size());
+                                hrWindow.clear();
                             }
-                        });
+
+                            // 2. Расчет показателей ВСР по накопленному буферу
+                            List<Integer> snapshot = new ArrayList<>(rrBuffer);
+                            HrvCalculator.Metrics hrv = HrvCalculator.calculate(snapshot);
+                            int count = snapshot.size();
+
+                            // 3. Отправка устойчивых результатов в UI
+                            final int finalAvgHr = avgHr;
+                            new Handler(Looper.getMainLooper()).post(() -> {
+                                if (callback != null) {
+                                    callback.onPolarHrReceived(finalAvgHr, hrv, count);
+                                }
+                            });
+                        }
                     }
                 }
             }
