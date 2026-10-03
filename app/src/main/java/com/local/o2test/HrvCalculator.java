@@ -42,7 +42,9 @@ public class HrvCalculator {
         while (offset + 1 < data.length) {
             int rawRr = ((data[offset + 1] & 0xFF) << 8) | (data[offset] & 0xFF);
             int rrMs = (int) Math.round((rawRr / 1024.0) * 1000.0);
-            rrList.add(rrMs);
+            if (rrMs >= 300 && rrMs <= 2000) { // Фильтрация артефактов
+                rrList.add(rrMs);
+            }
             offset += 2;
         }
         return rrList;
@@ -87,6 +89,10 @@ public class HrvCalculator {
         double totalDuration = currentTime;
         int numSamples = (int) Math.floor(totalDuration * fs);
 
+        if (numSamples < 16) {
+            return new Metrics(rmssd, pnn50, 0, 0, 0, 0);
+        }
+
         int fftSize = 16;
         while (fftSize < numSamples) fftSize *= 2;
 
@@ -110,39 +116,45 @@ public class HrvCalculator {
             }
         }
 
-        // Удаление DC-составляющей
+        // Удаление постоянной составляющей (DC offset)
         double mean = 0;
         for (int i = 0; i < numSamples; i++) mean += resampled[i];
         mean /= numSamples;
         for (int i = 0; i < numSamples; i++) resampled[i] -= mean;
 
-        // Окно Ханна
+        // Окно Ханна и расчет энергии окна
         double[] windowedReal = new double[fftSize];
         double[] windowedImag = new double[fftSize];
+        double windowSumSq = 0;
+
         for (int i = 0; i < numSamples; i++) {
             double hanning = 0.5 * (1 - Math.cos(2 * Math.PI * i / (numSamples - 1)));
             windowedReal[i] = resampled[i] * hanning;
+            windowSumSq += hanning * hanning;
         }
 
         // БПФ (Fast Fourier Transform)
         fft(windowedReal, windowedImag);
 
-        // 3. Расчет мощностей частотных спектров
+        // 3. Расчет мощностей частотных спектров с нормировкой по Теореме Парсеваля
         double df = fs / fftSize;
         float lfPower = 0;
         float hfPower = 0;
         float vlfPower = 0;
 
-        for (int i = 0; i < fftSize / 2; i++) {
+        // Коэффициент нормировки мощности спектра в ms²
+        double normFactor = (windowSumSq > 0) ? (2.0 / (fftSize * windowSumSq)) : 0;
+
+        for (int i = 1; i < fftSize / 2; i++) {
             double freq = i * df;
-            double magnitude = (windowedReal[i] * windowedReal[i] + windowedImag[i] * windowedImag[i]) / fftSize;
+            double powerBin = (windowedReal[i] * windowedReal[i] + windowedImag[i] * windowedImag[i]) * normFactor;
 
             if (freq >= 0.0033 && freq < 0.04) {
-                vlfPower += magnitude;
+                vlfPower += powerBin;
             } else if (freq >= 0.04 && freq < 0.15) {
-                lfPower += magnitude;
+                lfPower += powerBin;
             } else if (freq >= 0.15 && freq <= 0.40) {
-                hfPower += magnitude;
+                hfPower += powerBin;
             }
         }
 
@@ -197,4 +209,4 @@ public class HrvCalculator {
             }
         }
     }
-                      }
+}
