@@ -95,7 +95,7 @@ public class O2BleManager {
                     if (!isConnecting && (name.contains("O2") || name.contains("Viatom") || name.contains("Checkme"))) {
                         isConnecting = true;
                         listener.onLog(">>> ДАТЧИК ОБНАРУЖЕН: " + name + " <<<");
-                        scanner.stopScan(this);
+                        //scanner.stopScan(this);
                         connectToDevice(device);
                     } else if (name.contains("Polar") || name.contains("H10")) {
                         listener.onLog("Найден Polar H10 [" + address + "]. Подключение...");
