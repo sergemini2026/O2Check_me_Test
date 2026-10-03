@@ -42,6 +42,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private final Queue<Float> piWindow = new LinkedList<>();
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
 
+    private int currentSpo2 = 95;
+    private float currentPi = 0.3f;
+    private int currentBattery = 100;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -246,14 +250,18 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         long now = System.currentTimeMillis();
         float smoothedPi = getSmoothedPi(res.pi);
 
-        runOnUiThread(() -> updateStatusHeader(res.spo2, res.hr, smoothedPi, res.battery));
+        currentSpo2 = res.spo2;
+        currentPi = smoothedPi;
+        currentBattery = res.battery;
+
+        runOnUiThread(() -> updateStatusHeader(currentSpo2, res.hr, currentPi, currentBattery));
 
         if (res.isFingerOn && isRecording) {
             if (sessionStartTime == 0) sessionStartTime = now;
             int elapsedSec = (int) ((now - sessionStartTime) / 1000);
 
             String timestamp = timeFormat.format(new Date(now));
-            DataPoint dp = new DataPoint(timestamp, elapsedSec, res.spo2, res.hr, smoothedPi);
+            DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, res.hr, currentPi);
 
             sessionData.add(dp);
             runOnUiThread(() -> chartView.addDataPoint(dp));
@@ -274,12 +282,32 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         @Override
+        public void onRrReceived(int rrMs, float instantHr) {
+            if (isRecording) {
+                long now = System.currentTimeMillis();
+                if (sessionStartTime == 0) sessionStartTime = now;
+                int elapsedSec = (int) ((now - sessionStartTime) / 1000);
+
+                int roundedHr = Math.round(instantHr);
+                String timestamp = timeFormat.format(new Date(now));
+                
+                DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, roundedHr, currentPi);
+                sessionData.add(dp);
+
+                runOnUiThread(() -> {
+                    updateStatusHeader(currentSpo2, roundedHr, currentPi, currentBattery);
+                    chartView.addDataPoint(dp);
+                });
+            }
+        }
+
+        @Override
         public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
             if (hrv == null) return;
 
-            if (rrCount < 30) {
+            if (rrCount < 60) {
                 String logMsg = String.format(Locale.US,
-                        "[Polar H10] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | (Буфер БПФ: %d/30)",
+                        "[Polar H10] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | (Буфер БПФ: %d/60)",
                         hr, hrv.rmssd, hrv.pnn50, rrCount);
                 onLog(logMsg);
             } else {
