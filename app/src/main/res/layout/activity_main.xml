@@ -1,65 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="#121212"
+    android:orientation="vertical"
     android:padding="8dp">
 
-    <!-- Верхняя статусная панель -->
+    <!-- Верхняя панель текущих показаний -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center"
-        android:paddingBottom="6dp">
+        android:padding="4dp">
 
         <TextView
-            android:id="@+id/tvSpo2"
+            android:id="@+id/tvSpO2"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:gravity="center"
-            android:textColor="#00E676"
+            android:text="SpO2: --%"
+            android:textColor="#00FF00"
             android:textSize="14sp"
-            android:textStyle="bold"
-            android:text="SpO2: --%" />
+            android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/tvHr"
+            android:id="@+id/tvHR"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:gravity="center"
-            android:textColor="#FF5252"
+            android:text="HR: -- bpm"
+            android:textColor="#FF3333"
             android:textSize="14sp"
-            android:textStyle="bold"
-            android:text="HR: -- bpm" />
+            android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/tvRmssd"
+            android:id="@+id/tvRMSSD"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:gravity="center"
-            android:textColor="#448AFF"
+            android:text="RMSSD: -- ms"
+            android:textColor="#3399FF"
             android:textSize="14sp"
-            android:textStyle="bold"
-            android:text="RMSSD: -- ms" />
+            android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/tvPi"
+            android:id="@+id/tvPI"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:gravity="center"
-            android:textColor="#FFD700"
+            android:text="PI: --%"
+            android:textColor="#FFCC00"
             android:textSize="14sp"
-            android:textStyle="bold"
-            android:text="PI: --%" />
+            android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- Блок с 4 графиками -->
+    <!-- Область графиков (4 канала) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -67,75 +63,81 @@
         android:orientation="vertical">
 
         <com.github.mikephil.charting.charts.LineChart
-            android:id="@+id/chartSpo2"
+            android:id="@+id/chartECG"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1" />
 
         <com.github.mikephil.charting.charts.LineChart
-            android:id="@+id/chartHr"
+            android:id="@+id/chartPPG"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1" />
 
         <com.github.mikephil.charting.charts.LineChart
-            android:id="@+id/chartRmssd"
+            android:id="@+id/chartSpO2"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1" />
 
         <com.github.mikephil.charting.charts.LineChart
-            android:id="@+id/chartPi"
+            android:id="@+id/chartRR"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1" />
     </LinearLayout>
 
-    <!-- Индикатор заполнении буфера ВСР (0 .. 30 RR) -->
-    <ProgressBar
-        android:id="@+id/hrvProgressBar"
-        style="?android:attr/progressBarStyleHorizontal"
-        android:layout_width="match_parent"
-        android:layout_height="6dp"
-        android:layout_marginTop="4dp"
-        android:layout_marginBottom="4dp"
-        android:max="30"
-        android:progress="0"
-        android:progressBackgroundTint="#333333"
-        android:progressTint="#FF9800" />
-
-    <!-- Нижняя зона: Лог слева + Эмблема сердца справа -->
+    <!-- Нижняя панель логов и управления -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="100dp"
-        android:orientation="horizontal"
+        android:layout_height="120dp"
         android:background="#1E1E1E"
+        android:orientation="horizontal"
         android:padding="6dp">
 
+        <!-- Текстовый консольный лог со скроллом -->
         <ScrollView
-            android:id="@+id/logScrollView"
+            android:id="@+id/scrollLog"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1">
 
             <TextView
-                android:id="@+id/tvLog"
+                android:id="@+id/tvLogConsole"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:textColor="#AAAAAA"
-                android:textSize="10sp"
+                android:textColor="#A0A0A0"
+                android:textSize="11sp"
                 android:fontFamily="monospace"
-                android:text="Ожидание подключений..." />
+                android:text="Инициализация приложения...\n" />
         </ScrollView>
 
-        <ImageView
-            android:id="@+id/heartPulseView"
-            android:layout_width="88dp"
-            android:layout_height="88dp"
-            android:layout_gravity="center_vertical"
-            android:layout_marginStart="8dp"
-            android:src="@drawable/ic_heart_pulse"
-            android:contentDescription="Индикатор пульса" />
+        <!-- Кнопка с пояснением -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:paddingStart="8dp">
+
+            <TextView
+                android:layout_width="80dp"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="Нажмите для\nпоиска BLE"
+                android:textColor="#FFFFFF"
+                android:textSize="10sp" />
+
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
+                android:id="@+id/fabScan"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:contentDescription="Перезапуск сканирования"
+                app:backgroundTint="#FF334B"
+                app:srcCompat="@android:drawable/ic_menu_rotate"
+                app:tint="#FFFFFF" />
+        </LinearLayout>
     </LinearLayout>
 
 </LinearLayout>
