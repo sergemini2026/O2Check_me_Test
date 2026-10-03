@@ -6,167 +6,256 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.util.AttributeSet;
+import android.view.MotionEvent;
 import android.view.View;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 public class TrendChartView extends View {
+    private final List<DataPoint> points = new ArrayList<>();
+    private final Paint paintGrid = new Paint();
+    private final Paint paintText = new Paint();
+    private final Paint paintSubText = new Paint();
+    private final Paint paintSpO2 = new Paint();
+    private final Paint paintHR = new Paint();
+    private final Paint paintPI = new Paint();
+    private final Paint paintCursor = new Paint();
+    private final Paint paintTooltipBg = new Paint();
 
-    private static final int MAX_POINTS = 120; // Храним последние 120 точек
-
-    private final List<Integer> spo2List = new ArrayList<>();
-    private final List<Integer> o2HrList = new ArrayList<>();
-    private final List<Integer> polarHrList = new ArrayList<>();
-    private final List<Float> rrList = new ArrayList<>();
-
-    private final Paint gridPaint = new Paint();
-    private final Paint textPaint = new Paint();
-    private final Paint spo2Paint = new Paint();
-    private final Paint o2HrPaint = new Paint();
-    private final Paint polarHrPaint = new Paint();
-    private final Paint rrPaint = new Paint();
+    private Float touchX = null;
 
     public TrendChartView(Context context) {
         super(context);
-        init();
+        initPaints();
     }
 
     public TrendChartView(Context context, AttributeSet attrs) {
         super(context, attrs);
-        init();
+        initPaints();
     }
 
-    private void init() {
-        gridPaint.setColor(Color.DKGRAY);
-        gridPaint.setStrokeWidth(1f);
-        gridPaint.setStyle(Paint.Style.STROKE);
+    private void initPaints() {
+        paintGrid.setColor(Color.parseColor("#333333"));
+        paintGrid.setStrokeWidth(1.5f);
 
-        textPaint.setColor(Color.LTGRAY);
-        textPaint.setTextSize(24f);
-        textPaint.setAntiAlias(true);
+        paintText.setTextSize(22f);
+        paintText.setAntiAlias(true);
 
-        spo2Paint.setColor(Color.CYAN);
-        spo2Paint.setStrokeWidth(3f);
-        spo2Paint.setStyle(Paint.Style.STROKE);
-        spo2Paint.setAntiAlias(true);
+        paintSubText.setColor(Color.GRAY);
+        paintSubText.setTextSize(16f);
+        paintSubText.setAntiAlias(true);
 
-        o2HrPaint.setColor(Color.GREEN);
-        o2HrPaint.setStrokeWidth(3f);
-        o2HrPaint.setStyle(Paint.Style.STROKE);
-        o2HrPaint.setAntiAlias(true);
+        paintSpO2.setColor(Color.CYAN);
+        paintSpO2.setStrokeWidth(4f);
+        paintSpO2.setStyle(Paint.Style.STROKE);
+        paintSpO2.setAntiAlias(true);
 
-        polarHrPaint.setColor(Color.MAGENTA);
-        polarHrPaint.setStrokeWidth(3f);
-        polarHrPaint.setStyle(Paint.Style.STROKE);
-        polarHrPaint.setAntiAlias(true);
+        paintHR.setColor(Color.GREEN);
+        paintHR.setStrokeWidth(4f);
+        paintHR.setStyle(Paint.Style.STROKE);
+        paintHR.setAntiAlias(true);
 
-        rrPaint.setColor(Color.YELLOW);
-        rrPaint.setStrokeWidth(3f);
-        rrPaint.setStyle(Paint.Style.STROKE);
-        rrPaint.setAntiAlias(true);
+        paintPI.setColor(Color.YELLOW);
+        paintPI.setStrokeWidth(4f);
+        paintPI.setStyle(Paint.Style.STROKE);
+        paintPI.setAntiAlias(true);
 
-        setBackgroundColor(Color.BLACK);
+        paintCursor.setColor(Color.WHITE);
+        paintCursor.setStrokeWidth(2f);
+        paintCursor.setAntiAlias(true);
+
+        paintTooltipBg.setColor(Color.parseColor("#CC1E1E1E"));
+        paintTooltipBg.setStyle(Paint.Style.FILL);
     }
 
     public void addDataPoint(DataPoint dp) {
-        if (dp != null) {
-            spo2List.add(dp.spo2);
-            o2HrList.add(dp.hr);
-            if (spo2List.size() > MAX_POINTS) spo2List.remove(0);
-            if (o2HrList.size() > MAX_POINTS) o2HrList.remove(0);
-            postInvalidate();
-        }
-    }
-
-    public void addPolarPoint(int hr, float rrMs) {
-        polarHrList.add(hr);
-        if (rrMs > 0) rrList.add(rrMs);
-        if (polarHrList.size() > MAX_POINTS) polarHrList.remove(0);
-        if (rrList.size() > MAX_POINTS) rrList.remove(0);
-        postInvalidate();
+        points.add(dp);
+        invalidate();
     }
 
     public void clearData() {
-        spo2List.clear();
-        o2HrList.clear();
-        polarHrList.clear();
-        rrList.clear();
-        postInvalidate();
+        points.clear();
+        touchX = null;
+        invalidate();
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+            case MotionEvent.ACTION_MOVE:
+                touchX = event.getX();
+                invalidate();
+                return true;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                touchX = null;
+                invalidate();
+                return true;
+        }
+        return super.onTouchEvent(event);
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
+        canvas.drawColor(Color.parseColor("#121212"));
 
-        int width = getWidth();
-        int height = getHeight();
+        float w = getWidth();
+        float h = getHeight();
+        float leftPad = 80f;
+        float rightPad = 100f;
+        float topPad = 15f;
+        float bottomPad = 32f;
 
-        if (width <= 0 || height <= 0) return;
+        float availableH = h - topPad - bottomPad;
+        float zoneH = availableH / 3f;
+        float plotW = w - leftPad - rightPad;
 
-        // Отрисовка сетки
-        for (int i = 1; i < 4; i++) {
-            float y = (height / 4f) * i;
-            canvas.drawLine(0, y, width, y, gridPaint);
+        // 1. Сетка и метки оси Y
+        int[] o2Ticks = {100, 95, 90, 85, 80};
+        for (int val : o2Ticks) {
+            float ratio = (val - 80f) / (100f - 80f);
+            float y = (topPad + zoneH) - ratio * zoneH;
+            canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
+            canvas.drawText(val + "%", leftPad + 5f, y + 5f, paintSubText);
         }
 
-        // Тренд SpO2 (шкала 70 - 100 %)
-        drawIntTrend(canvas, spo2List, 70, 100, spo2Paint, width, height);
+        int[] hrTicks = {200, 160, 120, 80, 40};
+        for (int val : hrTicks) {
+            float ratio = (val - 40f) / (200f - 40f);
+            float y = (topPad + 2 * zoneH) - ratio * zoneH;
+            canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
+            canvas.drawText(String.valueOf(val), leftPad + 5f, y + 5f, paintSubText);
+        }
 
-        // Тренд O2 HR (шкала 40 - 180 bpm)
-        drawIntTrend(canvas, o2HrList, 40, 180, o2HrPaint, width, height);
+        // Шкала PI теперь 0 - 2% с промежуточным 1%
+        int[] piTicks = {2, 1, 0};
+        for (int val : piTicks) {
+            float ratio = (val - 0f) / (2f - 0f);
+            float y = (topPad + 3 * zoneH) - ratio * zoneH;
+            canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
+            canvas.drawText(val + "%", leftPad + 5f, y + 5f, paintSubText);
+        }
 
-        // Тренд Polar HR (шкала 40 - 180 bpm)
-        drawIntTrend(canvas, polarHrList, 40, 180, polarHrPaint, width, height);
+        // 2. Временная шкала
+        int lastSec = points.isEmpty() ? 0 : points.get(points.size() - 1).elapsedSec;
+        float maxTime = Math.max(60, lastSec);
+        float timeStepSec = (maxTime > 1800) ? 900f : ((maxTime > 300) ? 300f : 60f);
 
-        // Тренд RR (шкала 400 - 1400 ms)
-        drawFloatTrend(canvas, rrList, 400f, 1400f, rrPaint, width, height);
+        for (float t = 0; t <= maxTime; t += timeStepSec) {
+            float x = leftPad + (t / maxTime) * plotW;
+            canvas.drawLine(x, topPad, x, topPad + 3 * zoneH, paintGrid);
 
-        // Легенда
-        canvas.drawText("Cyan: SpO2 | Green: O2 HR | Magenta: Polar HR | Yellow: RR (ms)", 20, 35, textPaint);
-    }
+            int mins = (int) (t / 60);
+            String label = mins + "m";
+            canvas.drawText(label, x - 10f, h - 6f, paintSubText);
+        }
 
-    private void drawIntTrend(Canvas canvas, List<Integer> data, int minVal, int maxVal, Paint paint, int width, int height) {
-        if (data == null || data.size() < 2) return;
+        paintText.setColor(Color.CYAN);
+        canvas.drawText("O2", 15f, topPad + zoneH * 0.55f, paintText);
 
-        Path path = new Path();
-        float xStep = (float) width / (MAX_POINTS - 1);
+        paintText.setColor(Color.GREEN);
+        canvas.drawText("Pulse", 15f, topPad + zoneH * 1.55f, paintText);
 
-        for (int i = 0; i < data.size(); i++) {
-            float x = i * xStep;
-            float val = data.get(i);
-            float normalized = (val - minVal) / (float) (maxVal - minVal);
-            normalized = Math.max(0f, Math.min(1f, normalized));
-            float y = height - (normalized * height);
+        paintText.setColor(Color.YELLOW);
+        canvas.drawText("PI", 15f, topPad + zoneH * 2.55f, paintText);
+
+        if (points.isEmpty()) return;
+
+        DataPoint last = points.get(points.size() - 1);
+        paintText.setColor(Color.CYAN);
+        canvas.drawText(last.spo2 + "%", w - rightPad + 15f, topPad + zoneH * 0.55f, paintText);
+
+        paintText.setColor(Color.GREEN);
+        canvas.drawText(last.hr + "", w - rightPad + 15f, topPad + zoneH * 1.55f, paintText);
+
+        paintText.setColor(Color.YELLOW);
+        canvas.drawText(String.format(Locale.US, "%.1f%%", last.pi), w - rightPad + 15f, topPad + zoneH * 2.55f, paintText);
+
+        if (points.size() < 2) return;
+
+        Path pathSpO2 = new Path();
+        Path pathHR = new Path();
+        Path pathPI = new Path();
+
+        float prevX = 0, prevYSpO2 = 0, prevYHR = 0, prevYPI = 0;
+
+        for (int i = 0; i < points.size(); i++) {
+            DataPoint dp = points.get(i);
+            float x = leftPad + (dp.elapsedSec / maxTime) * plotW;
+
+            float minSpO2 = 80f, maxSpO2 = 100f;
+            float normSpO2 = (Math.max(minSpO2, Math.min(maxSpO2, (float) dp.spo2)) - minSpO2) / (maxSpO2 - minSpO2);
+            float ySpO2 = (topPad + zoneH) - (normSpO2 * zoneH);
+
+            float minHR = 40f, maxHR = 200f;
+            float normHR = (Math.max(minHR, Math.min(maxHR, (float) dp.hr)) - minHR) / (maxHR - minHR);
+            float yHR = (topPad + 2 * zoneH) - (normHR * zoneH);
+
+            // Диапазон нормирования PI равен [0f .. 2f]
+            float minPI = 0f, maxPI = 2f;
+            float normPI = (Math.max(minPI, Math.min(maxPI, dp.pi)) - minPI) / (maxPI - minPI);
+            float yPI = (topPad + 3 * zoneH) - (normPI * zoneH);
 
             if (i == 0) {
-                path.moveTo(x, y);
+                pathSpO2.moveTo(x, ySpO2);
+                pathHR.moveTo(x, yHR);
+                pathPI.moveTo(x, yPI);
             } else {
-                path.lineTo(x, y);
+                float midX = (prevX + x) / 2f;
+                float midYSpO2 = (prevYSpO2 + ySpO2) / 2f;
+                float midYHR = (prevYHR + yHR) / 2f;
+                float midYPI = (prevYPI + yPI) / 2f;
+
+                pathSpO2.quadTo(prevX, prevYSpO2, midX, midYSpO2);
+                pathHR.quadTo(prevX, prevYHR, midX, midYHR);
+                pathPI.quadTo(prevX, prevYPI, midX, midYPI);
             }
+            prevX = x;
+            prevYSpO2 = ySpO2;
+            prevYHR = yHR;
+            prevYPI = yPI;
         }
-        canvas.drawPath(path, paint);
-    }
+        pathSpO2.lineTo(prevX, prevYSpO2);
+        pathHR.lineTo(prevX, prevYHR);
+        pathPI.lineTo(prevX, prevYPI);
 
-    private void drawFloatTrend(Canvas canvas, List<Float> data, float minVal, float maxVal, Paint paint, int width, int height) {
-        if (data == null || data.size() < 2) return;
+        canvas.drawPath(pathSpO2, paintSpO2);
+        canvas.drawPath(pathHR, paintHR);
+        canvas.drawPath(pathPI, paintPI);
 
-        Path path = new Path();
-        float xStep = (float) width / (MAX_POINTS - 1);
+        if (touchX != null && touchX >= leftPad && touchX <= w - rightPad) {
+            canvas.drawLine(touchX, topPad, touchX, topPad + 3 * zoneH, paintCursor);
 
-        for (int i = 0; i < data.size(); i++) {
-            float x = i * xStep;
-            float val = data.get(i);
-            float normalized = (val - minVal) / (maxVal - minVal);
-            normalized = Math.max(0f, Math.min(1f, normalized));
-            float y = height - (normalized * height);
+            float touchRatio = (touchX - leftPad) / plotW;
+            float targetSec = touchRatio * maxTime;
 
-            if (i == 0) {
-                path.moveTo(x, y);
-            } else {
-                path.lineTo(x, y);
+            DataPoint closest = points.get(0);
+            float minDiff = Math.abs(closest.elapsedSec - targetSec);
+            for (DataPoint dp : points) {
+                float diff = Math.abs(dp.elapsedSec - targetSec);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    closest = dp;
+                }
             }
+
+            String info = String.format(Locale.US, "[%dm%ds] O2:%d%% | HR:%d | PI:%.1f%%",
+                    closest.elapsedSec / 60, closest.elapsedSec % 60,
+                    closest.spo2, closest.hr, closest.pi);
+
+            float boxW = 390f;
+            float boxH = 36f;
+            float boxX = Math.min(Math.max(touchX - boxW / 2f, leftPad), w - rightPad - boxW);
+            float boxY = topPad + 2f;
+
+            canvas.drawRect(boxX, boxY, boxX + boxW, boxY + boxH, paintTooltipBg);
+            paintText.setColor(Color.WHITE);
+            paintText.setTextSize(20f);
+            canvas.drawText(info, boxX + 10f, boxY + 25f, paintText);
         }
-        canvas.drawPath(path, paint);
     }
-}
+            }
