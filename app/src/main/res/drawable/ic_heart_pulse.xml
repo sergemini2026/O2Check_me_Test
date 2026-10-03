@@ -1,0 +1,39 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Внешняя расходящаяся волна (контур с прозрачностью) -->
+    <path
+        android:pathData="M12,21.35l-1.45,-1.32C5.4,15.36 2,12.28 2,8.5 2,5.42 4.42,3 7.5,3c1.74,0 3.41,0.81 4.5,2.09C13.09,3.81 14.76,3 16.5,3 19.58,3 22,5.42 22,8.5c0,3.78 -3.4,6.86 -8.55,11.54L12,21.35z"
+        android:strokeWidth="1.5"
+        android:strokeColor="#FF5252"
+        android:strokeAlpha="0.35"
+        android:fillColor="#00000000" />
+
+    <!-- Средняя полупрозрачная волна -->
+    <path
+        android:pathData="M12,19.5l-1.2,-1.1C6,14 3.2,11.3 3.2,8.2c0,-2.5 2,-4.5 4.5,-4.5c1.4,0 2.8,0.7 3.6,1.8c0.8,-1.1 2.2,-1.8 3.6,-1.8c2.5,0 4.5,2 4.5,4.5c0,3.1 -2.8,5.8 -7.6,10.2L12,19.5z"
+        android:strokeWidth="1"
+        android:strokeColor="#FF4081"
+        android:strokeAlpha="0.6"
+        android:fillColor="#00000000" />
+
+    <!-- Главное центральное сердце с градиентом -->
+    <path android:pathData="M12,17.5l-1,-0.9C6.5,12.5 4,10 4,7.2c0,-2 1.5,-3.5 3.5,-3.5c1.2,0 2.3,0.6 3,1.5c0.7,-0.9 1.8,-1.5 3,-1.5c2,0 3.5,1.5 3.5,3.5c0,2.8 -2.5,5.3 -7,9.4L12,17.5z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="12"
+                android:startY="3.7"
+                android:endX="12"
+                android:endY="17.5"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FF5252" />
+                <item android:offset="1.0" android:color="#E91E63" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+</vector>
