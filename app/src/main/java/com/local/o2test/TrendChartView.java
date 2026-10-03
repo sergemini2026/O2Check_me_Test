@@ -25,6 +25,9 @@ public class TrendChartView extends View {
     private final Paint paintTooltipBg = new Paint();
 
     private Float touchX = null;
+    
+    // Ширина видимого окна графика на экране (90 секунд)
+    private static final float VISIBLE_WINDOW_SEC = 90.0f;
 
     public TrendChartView(Context context) {
         super(context);
@@ -123,12 +126,17 @@ public class TrendChartView extends View {
             canvas.drawText(val + "%", leftPad + 5f, y + 5f, paintSubText);
         }
 
-        // 2. Расчет ДИНАМИЧЕСКОГО масштаба оси Y для ЧСС (Pulse)
+        // 2. Вычисление скользящего окна времени [minTime .. maxTime]
+        int lastSec = points.isEmpty() ? 0 : points.get(points.size() - 1).elapsedSec;
+        float maxTime = Math.max(VISIBLE_WINDOW_SEC, lastSec);
+        float minTime = Math.max(0f, maxTime - VISIBLE_WINDOW_SEC);
+
+        // 3. Динамический масштаб оси Y для ЧСС по ВИДИМОМУ окну
         float minHR = Float.MAX_VALUE;
         float maxHR = Float.MIN_VALUE;
 
         for (DataPoint dp : points) {
-            if (dp.hr > 0) {
+            if (dp.elapsedSec >= minTime && dp.hr > 0) {
                 if (dp.hr < minHR) minHR = dp.hr;
                 if (dp.hr > maxHR) maxHR = dp.hr;
             }
@@ -146,7 +154,6 @@ public class TrendChartView extends View {
             maxHR += 2f;
         }
 
-        // Динамическая сетка оси Y для пульса (5 меток)
         float hrStep = (maxHR - minHR) / 4f;
         for (int i = 0; i <= 4; i++) {
             float val = maxHR - i * hrStep;
@@ -156,7 +163,7 @@ public class TrendChartView extends View {
             canvas.drawText(String.format(Locale.US, "%.0f", val), leftPad + 5f, y + 5f, paintSubText);
         }
 
-        // 3. Сетка PI (0 - 2%)
+        // 4. Сетка PI (0 - 2%)
         int[] piTicks = {2, 1, 0};
         for (int val : piTicks) {
             float ratio = (val - 0f) / (2f - 0f);
@@ -165,18 +172,16 @@ public class TrendChartView extends View {
             canvas.drawText(val + "%", leftPad + 5f, y + 5f, paintSubText);
         }
 
-        // 4. Временная шкала
-        int lastSec = points.isEmpty() ? 0 : points.get(points.size() - 1).elapsedSec;
-        float maxTime = Math.max(60, lastSec);
-        float timeStepSec = (maxTime > 1800) ? 900f : ((maxTime > 300) ? 300f : 60f);
-
-        for (float t = 0; t <= maxTime; t += timeStepSec) {
-            float x = leftPad + (t / maxTime) * plotW;
+        // 5. Скользящая временная шкала (метка каждые 15 сек)
+        for (float t = Math.max(0, (float) Math.floor(minTime / 15.0) * 15); t <= maxTime; t += 15f) {
+            if (t < minTime) continue;
+            float x = leftPad + ((t - minTime) / VISIBLE_WINDOW_SEC) * plotW;
             canvas.drawLine(x, topPad, x, topPad + 3 * zoneH, paintGrid);
 
             int mins = (int) (t / 60);
-            String label = mins + "m";
-            canvas.drawText(label, x - 10f, h - 6f, paintSubText);
+            int secs = (int) (t % 60);
+            String label = String.format(Locale.US, "%dm%02ds", mins, secs);
+            canvas.drawText(label, x - 15f, h - 6f, paintSubText);
         }
 
         paintText.setColor(Color.CYAN);
@@ -200,23 +205,24 @@ public class TrendChartView extends View {
         paintText.setColor(Color.YELLOW);
         canvas.drawText(String.format(Locale.US, "%.1f%%", last.pi), w - rightPad + 15f, topPad + zoneH * 2.55f, paintText);
 
-        if (points.size() < 2) return;
-
+        // 6. Отрисовка видимого сегмента графика
         Path pathSpO2 = new Path();
         Path pathHR = new Path();
         Path pathPI = new Path();
 
+        boolean firstPoint = true;
         float prevX = 0, prevYSpO2 = 0, prevYHR = 0, prevYPI = 0;
 
         for (int i = 0; i < points.size(); i++) {
             DataPoint dp = points.get(i);
-            float x = leftPad + (dp.elapsedSec / maxTime) * plotW;
+            if (dp.elapsedSec < minTime) continue; // Пропуск точек вне видимого экрана
+
+            float x = leftPad + ((dp.elapsedSec - minTime) / VISIBLE_WINDOW_SEC) * plotW;
 
             float minSpO2 = 80f, maxSpO2 = 100f;
             float normSpO2 = (Math.max(minSpO2, Math.min(maxSpO2, (float) dp.spo2)) - minSpO2) / (maxSpO2 - minSpO2);
             float ySpO2 = (topPad + zoneH) - (normSpO2 * zoneH);
 
-            // Отрисовка ЧСС по ДИНАМИЧЕСКОЙ шкале [minHR .. maxHR]
             float normHR = (Math.max(minHR, Math.min(maxHR, (float) dp.hr)) - minHR) / (maxHR - minHR);
             float yHR = (topPad + 2 * zoneH) - (normHR * zoneH);
 
@@ -224,10 +230,11 @@ public class TrendChartView extends View {
             float normPI = (Math.max(minPI, Math.min(maxPI, dp.pi)) - minPI) / (maxPI - minPI);
             float yPI = (topPad + 3 * zoneH) - (normPI * zoneH);
 
-            if (i == 0) {
+            if (firstPoint) {
                 pathSpO2.moveTo(x, ySpO2);
                 pathHR.moveTo(x, yHR);
                 pathPI.moveTo(x, yPI);
+                firstPoint = false;
             } else {
                 float midX = (prevX + x) / 2f;
                 float midYSpO2 = (prevYSpO2 + ySpO2) / 2f;
@@ -243,22 +250,27 @@ public class TrendChartView extends View {
             prevYHR = yHR;
             prevYPI = yPI;
         }
-        pathSpO2.lineTo(prevX, prevYSpO2);
-        pathHR.lineTo(prevX, prevYHR);
-        pathPI.lineTo(prevX, prevYPI);
+        
+        if (!firstPoint) {
+            pathSpO2.lineTo(prevX, prevYSpO2);
+            pathHR.lineTo(prevX, prevYHR);
+            pathPI.lineTo(prevX, prevYPI);
 
-        canvas.drawPath(pathSpO2, paintSpO2);
-        canvas.drawPath(pathHR, paintHR);
-        canvas.drawPath(pathPI, paintPI);
+            canvas.drawPath(pathSpO2, paintSpO2);
+            canvas.drawPath(pathHR, paintHR);
+            canvas.drawPath(pathPI, paintPI);
+        }
 
+        // 7. Курсор
         if (touchX != null && touchX >= leftPad && touchX <= w - rightPad) {
             canvas.drawLine(touchX, topPad, touchX, topPad + 3 * zoneH, paintCursor);
 
             float touchRatio = (touchX - leftPad) / plotW;
-            float targetSec = touchRatio * maxTime;
+            float targetSec = minTime + touchRatio * VISIBLE_WINDOW_SEC;
 
-            DataPoint closest = points.get(0);
-            float minDiff = Math.abs(closest.elapsedSec - targetSec);
+            DataPoint closest = null;
+            float minDiff = Float.MAX_VALUE;
+
             for (DataPoint dp : points) {
                 float diff = Math.abs(dp.elapsedSec - targetSec);
                 if (diff < minDiff) {
@@ -267,19 +279,21 @@ public class TrendChartView extends View {
                 }
             }
 
-            String info = String.format(Locale.US, "[%dm%ds] O2:%d%% | HR:%d | PI:%.1f%%",
-                    closest.elapsedSec / 60, closest.elapsedSec % 60,
-                    closest.spo2, closest.hr, closest.pi);
+            if (closest != null) {
+                String info = String.format(Locale.US, "[%dm%ds] O2:%d%% | HR:%d | PI:%.1f%%",
+                        closest.elapsedSec / 60, closest.elapsedSec % 60,
+                        closest.spo2, closest.hr, closest.pi);
 
-            float boxW = 390f;
-            float boxH = 36f;
-            float boxX = Math.min(Math.max(touchX - boxW / 2f, leftPad), w - rightPad - boxW);
-            float boxY = topPad + 2f;
+                float boxW = 390f;
+                float boxH = 36f;
+                float boxX = Math.min(Math.max(touchX - boxW / 2f, leftPad), w - rightPad - boxW);
+                float boxY = topPad + 2f;
 
-            canvas.drawRect(boxX, boxY, boxX + boxW, boxY + boxH, paintTooltipBg);
-            paintText.setColor(Color.WHITE);
-            paintText.setTextSize(20f);
-            canvas.drawText(info, boxX + 10f, boxY + 25f, paintText);
+                canvas.drawRect(boxX, boxY, boxX + boxW, boxY + boxH, paintTooltipBg);
+                paintText.setColor(Color.WHITE);
+                paintText.setTextSize(20f);
+                canvas.drawText(info, boxX + 10f, boxY + 25f, paintText);
+            }
         }
     }
 }
