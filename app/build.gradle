@@ -12,6 +12,8 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0"
+        // Задаем базовое имя для скомпилированного APK файла
+        setProperty("archivesBaseName", "o2test")
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
