@@ -114,7 +114,7 @@ public class TrendChartView extends View {
         float zoneH = availableH / 3f;
         float plotW = w - leftPad - rightPad;
 
-        // 1. Сетка и метки оси Y
+        // 1. Сетка и метки SpO2 (Фиксировано 80% - 100%)
         int[] o2Ticks = {100, 95, 90, 85, 80};
         for (int val : o2Ticks) {
             float ratio = (val - 80f) / (100f - 80f);
@@ -123,15 +123,40 @@ public class TrendChartView extends View {
             canvas.drawText(val + "%", leftPad + 5f, y + 5f, paintSubText);
         }
 
-        int[] hrTicks = {200, 160, 120, 80, 40};
-        for (int val : hrTicks) {
-            float ratio = (val - 40f) / (200f - 40f);
-            float y = (topPad + 2 * zoneH) - ratio * zoneH;
-            canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
-            canvas.drawText(String.valueOf(val), leftPad + 5f, y + 5f, paintSubText);
+        // 2. Расчет ДИНАМИЧЕСКОГО масштаба оси Y для ЧСС (Pulse)
+        float minHR = Float.MAX_VALUE;
+        float maxHR = Float.MIN_VALUE;
+
+        for (DataPoint dp : points) {
+            if (dp.hr > 0) {
+                if (dp.hr < minHR) minHR = dp.hr;
+                if (dp.hr > maxHR) maxHR = dp.hr;
+            }
         }
 
-        // Шкала PI теперь 0 - 2% с промежуточным 1%
+        if (minHR == Float.MAX_VALUE) {
+            minHR = 50f;
+            maxHR = 100f;
+        } else if (maxHR - minHR < 6f) {
+            float mid = (minHR + maxHR) / 2f;
+            minHR = mid - 4f;
+            maxHR = mid + 4f;
+        } else {
+            minHR -= 2f;
+            maxHR += 2f;
+        }
+
+        // Динамическая сетка оси Y для пульса (5 меток)
+        float hrStep = (maxHR - minHR) / 4f;
+        for (int i = 0; i <= 4; i++) {
+            float val = maxHR - i * hrStep;
+            float ratio = 1.0f - (i / 4.0f);
+            float y = (topPad + 2 * zoneH) - ratio * zoneH;
+            canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
+            canvas.drawText(String.format(Locale.US, "%.0f", val), leftPad + 5f, y + 5f, paintSubText);
+        }
+
+        // 3. Сетка PI (0 - 2%)
         int[] piTicks = {2, 1, 0};
         for (int val : piTicks) {
             float ratio = (val - 0f) / (2f - 0f);
@@ -140,7 +165,7 @@ public class TrendChartView extends View {
             canvas.drawText(val + "%", leftPad + 5f, y + 5f, paintSubText);
         }
 
-        // 2. Временная шкала
+        // 4. Временная шкала
         int lastSec = points.isEmpty() ? 0 : points.get(points.size() - 1).elapsedSec;
         float maxTime = Math.max(60, lastSec);
         float timeStepSec = (maxTime > 1800) ? 900f : ((maxTime > 300) ? 300f : 60f);
@@ -191,11 +216,10 @@ public class TrendChartView extends View {
             float normSpO2 = (Math.max(minSpO2, Math.min(maxSpO2, (float) dp.spo2)) - minSpO2) / (maxSpO2 - minSpO2);
             float ySpO2 = (topPad + zoneH) - (normSpO2 * zoneH);
 
-            float minHR = 40f, maxHR = 200f;
+            // Отрисовка ЧСС по ДИНАМИЧЕСКОЙ шкале [minHR .. maxHR]
             float normHR = (Math.max(minHR, Math.min(maxHR, (float) dp.hr)) - minHR) / (maxHR - minHR);
             float yHR = (topPad + 2 * zoneH) - (normHR * zoneH);
 
-            // Диапазон нормирования PI равен [0f .. 2f]
             float minPI = 0f, maxPI = 2f;
             float normPI = (Math.max(minPI, Math.min(maxPI, dp.pi)) - minPI) / (maxPI - minPI);
             float yPI = (topPad + 3 * zoneH) - (normPI * zoneH);
@@ -258,4 +282,4 @@ public class TrendChartView extends View {
             canvas.drawText(info, boxX + 10f, boxY + 25f, paintText);
         }
     }
-            }
+}
