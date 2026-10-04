@@ -64,7 +64,7 @@ public class HrvCalculator {
         double artifactPct = ((double) artifacts / rawRrList.size()) * 100.0;
 
         // ==========================================
-        // 2. ВРЕМЕННОЙ АНАЛИЗ (Time-Domain) с Linear Detrending
+        // 2. ВРЕМЕННОЙ АНАЛИЗ (Time-Domain) + Smoothness Priors Detrending
         // ==========================================
         
         // --- Mean RR ---
@@ -74,25 +74,19 @@ public class HrvCalculator {
         }
         double meanRr = sumRr / N;
 
-        // --- Linear Detrending для расчета SDNN ---
-        double meanX = (N - 1) / 2.0;
-        double numSlope = 0.0;
-        double denSlope = 0.0;
+        // --- Smoothness Priors Detrending (lambda = 500) ---
+        double[] zTrend = smoothnessPriorsDetrend(cleanRr, 500.0);
 
+        // SDNN по отфильтрованному от нелинейного тренда ряду
+        double sumDetrended = 0.0;
         for (int i = 0; i < N; i++) {
-            double xDiff = i - meanX;
-            double yDiff = cleanRr.get(i) - meanRr;
-            numSlope += xDiff * yDiff;
-            denSlope += xDiff * xDiff;
+            sumDetrended += (cleanRr.get(i) - zTrend[i]);
         }
+        double meanDetrended = sumDetrended / N;
 
-        double slope = (denSlope != 0.0) ? numSlope / denSlope : 0.0;
-
-        // SDNN по отфильтрованному от линейного тренда ряду
         double sumSdnnSq = 0.0;
         for (int i = 0; i < N; i++) {
-            double trendValue = meanRr + slope * (i - meanX);
-            double detrendedRr = cleanRr.get(i) - trendValue;
+            double detrendedRr = (cleanRr.get(i) - zTrend[i]) - meanDetrended;
             sumSdnnSq += detrendedRr * detrendedRr;
         }
         double sdnn = Math.sqrt(sumSdnnSq / (N - 1));
@@ -202,6 +196,103 @@ public class HrvCalculator {
         return new Metrics(rmssd, sdnn, pnn50, lfPower, hfPower, totalPower, lfHfRatio, artifacts, artifactPct);
     }
 
+    /**
+     * Smoothness Priors Detrending (Tarvainen et al., 2002)
+     * Быстрое решение системы (I + lambda^2 * D2^T * D2) * z_trend = y
+     * с помощью LDL^T разложения ленточной (пятидиагональной) матрицы за O(N).
+     */
+    private static double[] smoothnessPriorsDetrend(List<Double> y, double lambda) {
+        int N = y.size();
+        double[] zTrend = new double[N];
+        if (N < 3) {
+            for (int i = 0; i < N; i++) zTrend[i] = y.get(i);
+            return zTrend;
+        }
+
+        double alpha = lambda * lambda;
+
+        // Диагонали матрицы A = I + alpha * D2^T * D2
+        double[] d = new double[N];     // Главная диагональ
+        double[] e = new double[N - 1]; // 1-я побочная диагональ
+        double[] f = new double[N - 2]; // 2-я побочная диагональ
+
+        for (int i = 0; i < N; i++) {
+            if (i == 0 || i == N - 1) {
+                d[i] = 1.0 + alpha;
+            } else if (i == 1 || i == N - 2) {
+                d[i] = 1.0 + 5.0 * alpha;
+            } else {
+                d[i] = 1.0 + 6.0 * alpha;
+            }
+        }
+
+        for (int i = 0; i < N - 1; i++) {
+            if (i == 0 || i == N - 2) {
+                e[i] = -2.0 * alpha;
+            } else {
+                e[i] = -4.0 * alpha;
+            }
+        }
+
+        for (int i = 0; i < N - 2; i++) {
+            f[i] = alpha;
+        }
+
+        // LDL^T разложение пятидиагональной матрицы
+        double[] dL = new double[N];
+        double[] l1 = new double[N - 1];
+        double[] l2 = new double[N - 2];
+
+        for (int i = 0; i < N; i++) {
+            double sumD = d[i];
+            if (i >= 1) {
+                sumD -= l1[i - 1] * l1[i - 1] * dL[i - 1];
+            }
+            if (i >= 2) {
+                sumD -= l2[i - 2] * l2[i - 2] * dL[i - 2];
+            }
+            dL[i] = sumD;
+
+            if (i < N - 1) {
+                double sumL1 = e[i];
+                if (i >= 1) {
+                    sumL1 -= l2[i - 1] * l1[i - 1] * dL[i - 1];
+                }
+                l1[i] = sumL1 / dL[i];
+            }
+
+            if (i < N - 2) {
+                double sumL2 = f[i];
+                l2[i] = sumL2 / dL[i];
+            }
+        }
+
+        // 1. Прямой ход: L * w = y
+        double[] w = new double[N];
+        for (int i = 0; i < N; i++) {
+            double val = y.get(i);
+            if (i >= 1) val -= l1[i - 1] * w[i - 1];
+            if (i >= 2) val -= l2[i - 2] * w[i - 2];
+            w[i] = val;
+        }
+
+        // 2. Диагональное деление: D * v = w
+        double[] v = new double[N];
+        for (int i = 0; i < N; i++) {
+            v[i] = w[i] / dL[i];
+        }
+
+        // 3. Обратный ход: L^T * z_trend = v
+        for (int i = N - 1; i >= 0; i--) {
+            double val = v[i];
+            if (i < N - 1) val -= l1[i] * zTrend[i + 1];
+            if (i < N - 2) val -= l2[i] * zTrend[i + 2];
+            zTrend[i] = val;
+        }
+
+        return zTrend;
+    }
+
     private static void fft(double[] real, double[] imag) {
         int n = real.length;
         if (n <= 1) return;
@@ -270,4 +361,5 @@ public class HrvCalculator {
         }
         return rrList;
     }
-}
+                        }
+                            
