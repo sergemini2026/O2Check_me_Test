@@ -34,11 +34,13 @@ public class CsvExporter {
         File file = new File(docDir, fileName);
 
         try (FileWriter writer = new FileWriter(file)) {
-            writer.append("Timestamp,Elapsed_Sec,SpO2,HR,PI\n");
+            // Добавлена колонка RR_ms в заголовок
+            writer.append("Timestamp,Elapsed_Sec,SpO2,HR,PI,RR_ms\n");
+            
             for (DataPoint dp : sessionData) {
-                writer.append(String.format(Locale.US, "%s,%d,%d,%d,%.2f\n",
-        dp.timestamp, dp.elapsedSec, dp.spo2, dp.hr, dp.pi));
-
+                // Добавлен вывод %d для dp.rrMs
+                writer.append(String.format(Locale.US, "%s,%d,%d,%d,%.2f,%d\n",
+                        dp.timestamp, dp.elapsedSec, dp.spo2, dp.hr, dp.pi, dp.rrMs));
             }
             callback.onSuccess(file.getAbsolutePath(), fileName);
         } catch (IOException e) {
