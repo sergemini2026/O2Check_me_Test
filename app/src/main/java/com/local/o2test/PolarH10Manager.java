@@ -11,23 +11,24 @@ import android.bluetooth.BluetoothProfile;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
-import java.util.Locale;
-
 
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Queue;
 import java.util.UUID;
 
 @SuppressLint("MissingPermission")
 public class PolarH10Manager {
 
+    // Включатель режимов: false — реальный датчик, true — эмуляция
+    public static final boolean USE_MOCK_DATA = false;
+
     private static final UUID HR_SERVICE_UUID = UUID.fromString("0000180d-0000-1000-8000-00805f9b34fb");
     private static final UUID HR_CHAR_UUID    = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb");
     private static final UUID CCCD_UUID       = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
 
-    private static final long UPDATE_INTERVAL_MS = 30000; 
     private static final int MAX_RR_COUNT = 300; 
 
     public interface PolarCallback {
@@ -44,11 +45,8 @@ public class PolarH10Manager {
     private boolean isConnecting = false;
     
     private final Queue<Integer> rrBuffer = new LinkedList<>();
+    private final List<Integer> rawGoldenBuffer = new ArrayList<>(); // Буфер для Golden Dataset
     private final List<Integer> hrWindow = new ArrayList<>();
-    private long lastReportTime = 0;
-    
-    // Переменная для потоковой фильтрации артефактов
-    private int lastValidRr = 0;
 
     public PolarH10Manager(Context context, PolarCallback callback) {
         this.context = context;
@@ -64,9 +62,8 @@ public class PolarH10Manager {
         isConnecting = true;
         synchronized (rrBuffer) {
             rrBuffer.clear();
+            rawGoldenBuffer.clear();
             hrWindow.clear();
-            lastReportTime = 0;
-            lastValidRr = 0;
         }
         gatt = device.connectGatt(context, false, gattCallback);
     }
@@ -77,7 +74,7 @@ public class PolarH10Manager {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 isConnected = true;
                 isConnecting = false;
-                log("Polar H10: Подключен. Накопление чистых данных...");
+                log("Polar H10: Подключен. Запись сырого датасета (300 RR)...");
                 gatt.discoverServices();
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 isConnected = false;
@@ -98,7 +95,6 @@ public class PolarH10Manager {
                         if (descriptor != null) {
                             descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
                             gatt.writeDescriptor(descriptor);
-                            log("Polar H10: Старт записи эпохи (300 чистых RR-интервалов)...");
                         }
                     }
                 }
@@ -113,29 +109,23 @@ public class PolarH10Manager {
                     int currentHr = parseHeartRate(data);
                     List<Integer> newRrList = HrvCalculator.parseRrIntervals(data);
 
-                    long now = System.currentTimeMillis();
-                    if (lastReportTime == 0) lastReportTime = now;
-
                     synchronized (rrBuffer) {
                         hrWindow.add(currentHr);
 
                         for (int rr : newRrList) {
-                            // 1. Физиологический диапазон (300 - 2000 мс)
-                            if (rr < 300 || rr > 2000) {
-                                continue;
-                            }
+                            if (rr < 300 || rr > 2000) continue;
 
-                            // 2. Потоковый фильтр артефактов (Malik 20% Threshold на входе)
-                            if (lastValidRr > 0) {
-                                double diffRatio = Math.abs(rr - lastValidRr) / (double) lastValidRr;
-                                if (diffRatio > 0.20) {
-                                    log(String.format(Locale.US, "[Polar H10] Артефакт в потоке: %dмс -> %dмс (исключен)", lastValidRr, rr));
-                                    continue; // Пропускаем мусорный интервал, не добавляем в буфер
+                            rrBuffer.add(rr);
+                            
+                            // Сохраняем сырой интервал для сборки Golden Dataset
+                            if (rawGoldenBuffer.size() < MAX_RR_COUNT) {
+                                rawGoldenBuffer.add(rr);
+                                
+                                // Когда накопилось ровно 300 сырых RR — печатаем готовый массив в лог
+                                if (rawGoldenBuffer.size() == MAX_RR_COUNT) {
+                                    dumpGoldenDataset();
                                 }
                             }
-
-                            lastValidRr = rr;
-                            rrBuffer.add(rr);
 
                             final int rrMs = rr;
                             final float instantHr = 60000.0f / rrMs;
@@ -146,7 +136,7 @@ public class PolarH10Manager {
                                 }
                             });
 
-                            // При заполнении эпохи в 300 ЧИСТЫХ интервалов считаем метрики
+                            // При достижении 300 интервалов считаем итоговые метрики
                             if (rrBuffer.size() == MAX_RR_COUNT) {
                                 List<Integer> snapshot = new ArrayList<>(rrBuffer);
                                 HrvCalculator.Metrics hrv = HrvCalculator.calculate(snapshot);
@@ -167,38 +157,27 @@ public class PolarH10Manager {
                                 });
 
                                 rrBuffer.clear();
-                                lastReportTime = now; 
                             }
-                        }
-
-                        // Промежуточные отчеты каждые 30 секунд
-                        if (now - lastReportTime >= UPDATE_INTERVAL_MS && !rrBuffer.isEmpty()) {
-                            lastReportTime = now;
-
-                            int avgHr = currentHr;
-                            if (!hrWindow.isEmpty()) {
-                                int sumHr = 0;
-                                for (int hr : hrWindow) sumHr += hr;
-                                avgHr = Math.round((float) sumHr / hrWindow.size());
-                                hrWindow.clear();
-                            }
-
-                            List<Integer> snapshot = new ArrayList<>(rrBuffer);
-                            HrvCalculator.Metrics hrv = HrvCalculator.calculate(snapshot);
-                            int count = snapshot.size();
-
-                            final int finalAvgHr = avgHr;
-                            new Handler(Looper.getMainLooper()).post(() -> {
-                                if (callback != null) {
-                                    callback.onPolarHrReceived(finalAvgHr, hrv, count);
-                                }
-                            });
                         }
                     }
                 }
             }
         }
     };
+
+    private void dumpGoldenDataset() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("GOLDEN_DATASET = new int[]{");
+        for (int i = 0; i < rawGoldenBuffer.size(); i++) {
+            sb.append(rawGoldenBuffer.get(i));
+            if (i < rawGoldenBuffer.size() - 1) sb.append(", ");
+        }
+        sb.append("};");
+
+        log("=== СКОПИРУЙТЕ ЭТОТ МАССИВ В JUNIT ТЕСТ ===");
+        log(sb.toString());
+        log("==========================================");
+    }
 
     private int parseHeartRate(byte[] data) {
         byte flags = data[0];
