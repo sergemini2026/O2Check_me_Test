@@ -106,19 +106,26 @@ public class HrvCalculator {
             resampled[i] = v0 + (v1 - v0) * ((t - t0) / (t1 - t0));
         }
 
-        // 4. High-Pass Детрендинг (ФВЧ с частотой среза fc = 0.035 Гц)
-        // Убирает медленный дрейф, VLF и паразитные волны
+        // 4. Двухпроходный High-Pass Детрендинг (ФВЧ 2-го порядка, 12 дБ/окт)
         double fc = 0.035;
         double rc = 1.0 / (2.0 * Math.PI * fc);
         double alpha = rc / (rc + dt);
 
+        // Первый проход ФВЧ
+        double[] hpPass1 = new double[numSamples];
+        hpPass1[0] = 0;
+        for (int i = 1; i < numSamples; i++) {
+            hpPass1[i] = alpha * (hpPass1[i - 1] + resampled[i] - resampled[i - 1]);
+        }
+
+        // Второй проход ФВЧ (подавляет утечку VLF с крутизной 12 дБ/окт)
         double[] hpFiltered = new double[numSamples];
         hpFiltered[0] = 0;
         for (int i = 1; i < numSamples; i++) {
-            hpFiltered[i] = alpha * (hpFiltered[i - 1] + resampled[i] - resampled[i - 1]);
+            hpFiltered[i] = alpha * (hpFiltered[i - 1] + hpPass1[i] - hpPass1[i - 1]);
         }
 
-        // Расчет корректного SDNN без влияния дрейфа
+        // Расчет SDNN после 2-проходной фильтрации
         double sumHpSq = 0;
         for (int i = 0; i < numSamples; i++) {
             sumHpSq += hpFiltered[i] * hpFiltered[i];
