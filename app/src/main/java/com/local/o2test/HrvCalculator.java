@@ -36,7 +36,9 @@ public class HrvCalculator {
             return new Metrics(0, 0, 0, 0, 0, 0, 0, 0, 0);
         }
 
-        // 1. Фильтрация выбросов (артефактов)
+        // ==========================================
+        // 1. ФИЛЬТРАЦИЯ ВЫБРОСОВ (АРТЕФАКТОВ)
+        // ==========================================
         List<Double> cleanRr = new ArrayList<>();
         int artifacts = 0;
 
@@ -46,7 +48,7 @@ public class HrvCalculator {
                 artifacts++;
                 continue;
             }
-            if (i > 0) {
+            if (!cleanRr.isEmpty()) {
                 double prev = cleanRr.get(cleanRr.size() - 1);
                 if (Math.abs(rr - prev) / prev > 0.25) {
                     artifacts++;
@@ -64,27 +66,8 @@ public class HrvCalculator {
         double artifactPct = ((double) artifacts / rawRrList.size()) * 100.0;
 
         // ==========================================
-        // 2. ВРЕМЕННОЙ АНАЛИЗ (Time-Domain)
+        // 2. ВРЕМЕННОЙ АНАЛИЗ (RMSSD и pNN50)
         // ==========================================
-
-        // --- Smoothness Priors Detrending (lambda = 500) ---
-        double[] zTrend = smoothnessPriorsDetrend(cleanRr, 500.0);
-
-        // SDNN по отфильтрованному ряду
-        double sumDetrended = 0.0;
-        for (int i = 0; i < N; i++) {
-            sumDetrended += (cleanRr.get(i) - zTrend[i]);
-        }
-        double meanDetrended = sumDetrended / N;
-
-        double sumSdnnSq = 0.0;
-        for (int i = 0; i < N; i++) {
-            double detrendedRr = (cleanRr.get(i) - zTrend[i]) - meanDetrended;
-            sumSdnnSq += detrendedRr * detrendedRr;
-        }
-        double sdnn = Math.sqrt(sumSdnnSq / (N - 1));
-
-        // --- RMSSD & pNN50 ---
         double sumDiffSq = 0.0;
         int nn50Count = 0;
         int totalPairs = N - 1;
@@ -101,13 +84,13 @@ public class HrvCalculator {
         double pnn50 = ((double) nn50Count / totalPairs) * 100.0;
 
         // ==========================================
-        // 3. РЕСЕМПЛИРОВАНИЕ И ФВЧ (4 Гц)
+        // 3. РЕСЕМПЛИРОВАНИЕ В 4 Гц (Равномерная сетка)
         // ==========================================
         double[] timeStamps = new double[N];
         double currentTime = 0;
         for (int i = 0; i < N; i++) {
             timeStamps[i] = currentTime;
-            currentTime += cleanRr.get(i) / 1000.0;
+            currentTime += cleanRr.get(i) / 1000.0; // секунды
         }
 
         double samplingFreq = 4.0;
@@ -115,7 +98,7 @@ public class HrvCalculator {
         int numSamples = (int) Math.floor(currentTime * samplingFreq);
 
         if (numSamples < 32) {
-            return new Metrics(rmssd, sdnn, pnn50, 0, 0, 0, 0, artifacts, artifactPct);
+            return new Metrics(rmssd, 0, pnn50, 0, 0, 0, 0, artifacts, artifactPct);
         }
 
         double[] resampled = new double[numSamples];
@@ -133,25 +116,28 @@ public class HrvCalculator {
             resampled[i] = v0 + (v1 - v0) * ((t - t0) / (t1 - t0));
         }
 
-        // Двухпроходный ФВЧ (fc = 0.042 Гц)
-        double fc = 0.042;
-        double rc = 1.0 / (2.0 * Math.PI * fc);
-        double alpha = rc / (rc + dt);
+        // ==========================================
+        // 4. ДЕТРЕНДИНГ (Smoothness Priors, lambda = 500) И SDNN
+        // ==========================================
+        double[] zTrend = smoothnessPriorsDetrend(resampled, 500.0);
+        double[] detrended = new double[numSamples];
 
-        double[] hpPass1 = new double[numSamples];
-        hpPass1[0] = 0;
-        for (int i = 1; i < numSamples; i++) {
-            hpPass1[i] = alpha * (hpPass1[i - 1] + resampled[i] - resampled[i - 1]);
+        double sumDetrended = 0.0;
+        for (int i = 0; i < numSamples; i++) {
+            detrended[i] = resampled[i] - zTrend[i];
+            sumDetrended += detrended[i];
         }
+        double meanDetrended = sumDetrended / numSamples;
 
-        double[] hpFiltered = new double[numSamples];
-        hpFiltered[0] = 0;
-        for (int i = 1; i < numSamples; i++) {
-            hpFiltered[i] = alpha * (hpFiltered[i - 1] + hpPass1[i] - hpPass1[i - 1]);
+        double sumSdnnSq = 0.0;
+        for (int i = 0; i < numSamples; i++) {
+            double diff = detrended[i] - meanDetrended;
+            sumSdnnSq += diff * diff;
         }
+        double sdnn = Math.sqrt(sumSdnnSq / (numSamples - 1));
 
         // ==========================================
-        // 4. СПЕКТРАЛЬНЫЙ АНАЛИЗ ПО МЕТОДУ УЭЛЧА (Welch's Method)
+        // 5. СПЕКТРАЛЬНЫЙ АНАЛИЗ ПО МЕТОДУ УЭЛЧА (Welch's PSD)
         // ==========================================
         int segmentLength = 128; // 32 секунды при 4 Гц
         if (numSamples < segmentLength) {
@@ -160,9 +146,9 @@ public class HrvCalculator {
         int overlap = segmentLength / 2; // 50% перекрытие (16 сек)
         int step = segmentLength - overlap;
 
-        int fftSize = 256; // Нуль-дополнение (Zero Padding) для плавности спектра
+        int fftSize = 256; // Zero Padding для плавности спектра
 
-        // Мощность окна Ханна для нормализации
+        // Энергия окна Ханна для нормализации
         double hannPowerSum = 0;
         double[] hannWindow = new double[segmentLength];
         for (int i = 0; i < segmentLength; i++) {
@@ -178,12 +164,11 @@ public class HrvCalculator {
             double[] imag = new double[fftSize];
 
             for (int i = 0; i < segmentLength; i++) {
-                real[i] = hpFiltered[start + i] * hannWindow[i];
+                real[i] = detrended[start + i] * hannWindow[i];
             }
 
             fft(real, imag);
 
-            double df = samplingFreq / fftSize;
             double norm = 2.0 / (samplingFreq * hannPowerSum);
 
             for (int k = 0; k < fftSize / 2; k++) {
@@ -194,11 +179,9 @@ public class HrvCalculator {
         }
 
         if (segmentCount == 0) {
-            // Если длина меньше одного окна, берем весь массив
             segmentCount = 1;
         }
 
-        // Усреднение спектра по всем сегментам
         double df = samplingFreq / fftSize;
         double vlfPower = 0;
         double lfPower = 0;
@@ -224,11 +207,12 @@ public class HrvCalculator {
         return new Metrics(rmssd, sdnn, pnn50, lfPower, hfPower, totalPower, lfHfRatio, artifacts, artifactPct);
     }
 
-    private static double[] smoothnessPriorsDetrend(List<Double> y, double lambda) {
-        int N = y.size();
+    // --- Smoothness Priors Detrending (Tarvainen et al., 2002) ---
+    private static double[] smoothnessPriorsDetrend(double[] y, double lambda) {
+        int N = y.length;
         double[] zTrend = new double[N];
         if (N < 3) {
-            for (int i = 0; i < N; i++) zTrend[i] = y.get(i);
+            System.arraycopy(y, 0, zTrend, 0, N);
             return zTrend;
         }
 
@@ -277,14 +261,13 @@ public class HrvCalculator {
             }
 
             if (i < N - 2) {
-                f[i] = f[i];
                 l2[i] = f[i] / dL[i];
             }
         }
 
         double[] w = new double[N];
         for (int i = 0; i < N; i++) {
-            double val = y.get(i);
+            double val = y[i];
             if (i >= 1) val -= l1[i - 1] * w[i - 1];
             if (i >= 2) val -= l2[i - 2] * w[i - 2];
             w[i] = val;
@@ -305,6 +288,7 @@ public class HrvCalculator {
         return zTrend;
     }
 
+    // --- Быстрое преобразование Фурье (Cooley-Tukey FFT) ---
     private static void fft(double[] real, double[] imag) {
         int n = real.length;
         if (n <= 1) return;
@@ -344,7 +328,6 @@ public class HrvCalculator {
                     imag[u] += vI;
 
                     double nextWR = wR * wlenR - wI * wlenI;
-                    nextWR = wR * wlenR - wI * wlenI;
                     double nextWI = wR * wlenI + wI * wlenR;
                     wR = nextWR;
                     wI = nextWI;
@@ -353,6 +336,7 @@ public class HrvCalculator {
         }
     }
 
+    // --- Парсер BLE Heart Rate Measurement Characteristic ---
     public static List<Integer> parseRrIntervals(byte[] data) {
         List<Integer> rrList = new ArrayList<>();
         if (data == null || data.length < 2) return rrList;
