@@ -310,8 +310,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
                     String timestamp = timeFormat.format(new Date(now));
                     
-                    DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, currentPolarHr, currentPi);
+                    DataPoint dp = new DataPoint(timestamp, (int) elapsedSec, currentSpo2, currentPolarHr, currentPi);
                     sessionData.add(dp);
+
+                    
+                    
 
                     runOnUiThread(() -> {
                         updateStatusHeader(currentSpo2, currentPolarHr, currentPi, currentBattery);
