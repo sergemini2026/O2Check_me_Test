@@ -20,9 +20,9 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Grant Execute Permission for Gradle
-        run: chmod +x gradlew
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
 
       - name: Run Unit Tests
-        run: ./gradlew test --info
+        run: gradle test --info
         
