@@ -63,17 +63,40 @@ public class HrvCalculator {
         int N = cleanRr.size();
         double artifactPct = ((double) artifacts / rawRrList.size()) * 100.0;
 
-        // 2. Временные метрики (Time-Domain)
-        double sumSqDiff = 0;
-        int nn50 = 0;
-        for (int i = 0; i < N - 1; i++) {
+        // ==========================================
+        // 2. ВРЕМЕННОЙ АНАЛИЗ (Time-Domain) по cleanRr
+        // ==========================================
+        
+        // --- Mean RR ---
+        double sumRr = 0.0;
+        for (double rr : cleanRr) {
+            sumRr += rr;
+        }
+        double meanRr = sumRr / N;
+
+        // --- SDNN ---
+        double sumSdnnSq = 0.0;
+        for (double rr : cleanRr) {
+            double diff = rr - meanRr;
+            sumSdnnSq += diff * diff;
+        }
+        double sdnn = Math.sqrt(sumSdnnSq / (N - 1));
+
+        // --- RMSSD & pNN50 ---
+        double sumDiffSq = 0.0;
+        int nn50Count = 0;
+        int totalPairs = N - 1;
+
+        for (int i = 0; i < totalPairs; i++) {
             double diff = Math.abs(cleanRr.get(i + 1) - cleanRr.get(i));
-            sumSqDiff += diff * diff;
-            if (diff > 50) nn50++;
+            sumDiffSq += diff * diff;
+            if (diff > 50.0) {
+                nn50Count++;
+            }
         }
 
-        double rmssd = Math.sqrt(sumSqDiff / (N - 1));
-        double pnn50 = ((double) nn50 / (N - 1)) * 100.0;
+        double rmssd = Math.sqrt(sumDiffSq / totalPairs);
+        double pnn50 = ((double) nn50Count / totalPairs) * 100.0;
 
         // 3. Ресемплирование 4 Гц
         double[] timeStamps = new double[N];
@@ -124,13 +147,6 @@ public class HrvCalculator {
         for (int i = 1; i < numSamples; i++) {
             hpFiltered[i] = alpha * (hpFiltered[i - 1] + hpPass1[i] - hpPass1[i - 1]);
         }
-
-        // Расчет SDNN после 2-проходной фильтрации
-        double sumHpSq = 0;
-        for (int i = 0; i < numSamples; i++) {
-            sumHpSq += hpFiltered[i] * hpFiltered[i];
-        }
-        double sdnn = Math.sqrt(sumHpSq / (numSamples - 1));
 
         // 5. Окно Ханна перед БПФ
         double[] detrended = new double[fftSize];
