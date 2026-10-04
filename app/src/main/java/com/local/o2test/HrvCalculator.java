@@ -66,7 +66,7 @@ public class HrvCalculator {
         double artifactPct = ((double) artifacts / rawRrList.size()) * 100.0;
 
         // ==========================================
-        // 2. ВРЕМЕННОЙ АНАЛИЗ (RMSSD, pNN50, SDNN)
+        // 2. ВРЕМЕННОЙ АНАЛИЗ (RMSSD, pNN50, SDNN) STRICTLY ON cleanRr
         // ==========================================
         double sumDiffSq = 0.0;
         int nn50Count = 0;
@@ -83,7 +83,7 @@ public class HrvCalculator {
         double rmssd = Math.sqrt(sumDiffSq / totalPairs);
         double pnn50 = ((double) nn50Count / totalPairs) * 100.0;
 
-        // SDNN рассчитывается по очищенному ряду RR-интервалов
+        // SDNN по физическому ряду RR
         double sumRr = 0.0;
         for (double rr : cleanRr) {
             sumRr += rr;
@@ -98,21 +98,7 @@ public class HrvCalculator {
         double sdnn = Math.sqrt(sumSdnnSq / (N - 1));
 
         // ==========================================
-        // 3. ДЕТРЕНДИНГ ИСХОДНОГО РЯДА (Smoothness Priors, lambda = 500)
-        // ==========================================
-        double[] rrArray = new double[N];
-        for (int i = 0; i < N; i++) {
-            rrArray[i] = cleanRr.get(i);
-        }
-
-        double[] zTrend = smoothnessPriorsDetrend(rrArray, 500.0);
-        double[] detrendedRr = new double[N];
-        for (int i = 0; i < N; i++) {
-            detrendedRr[i] = rrArray[i] - zTrend[i];
-        }
-
-        // ==========================================
-        // 4. КУБИЧЕСКАЯ СПЛАЙН-ИНТЕРПОЛЯЦИЯ В 4 Гц
+        // 3. РЕСЕМПЛИРОВАНИЕ В 4 Гц (PCHIP / Monotone Hermite)
         // ==========================================
         double[] timeStamps = new double[N];
         double currentTime = 0;
@@ -129,20 +115,33 @@ public class HrvCalculator {
             return new Metrics(rmssd, sdnn, pnn50, 0, 0, 0, 0, artifacts, artifactPct);
         }
 
-        double[] resampled = cubicSplineInterpolate(timeStamps, detrendedRr, numSamples, dt);
+        double[] rrArray = new double[N];
+        for (int i = 0; i < N; i++) rrArray[i] = cleanRr.get(i);
+
+        double[] resampled = pchipInterpolate(timeStamps, rrArray, numSamples, dt);
 
         // ==========================================
-        // 5. СПЕКТРАЛЬНЫЙ АНАЛИЗ ПО МЕТОДУ УЭЛЧА (Welch's PSD)
+        // 4. ДЕТРЕНДИНГ НА СЕТКЕ 4 Гц (Smoothness Priors, lambda = 10000)
         // ==========================================
-        int segmentLength = 128; // 32 секунды при 4 Гц
+        // На 4 Гц сетке lambda = 10000 соответствует cutoff frequency ~0.035 Hz (убирает VLF-дрейф)
+        double[] zTrend = smoothnessPriorsDetrend(resampled, 10000.0);
+        double[] detrended = new double[numSamples];
+        for (int i = 0; i < numSamples; i++) {
+            detrended[i] = resampled[i] - zTrend[i];
+        }
+
+        // ==========================================
+        // 5. СПЕКТРАЛЬНЫЙ АНАЛИЗ (WELCH'S PSD, 50% Overlap, Hann Window)
+        // ==========================================
+        int segmentLength = 128; // 32 сек
         if (numSamples < segmentLength) {
             segmentLength = numSamples;
         }
-        int step = 32; // 8 секунд шаг (75% перекрытие для плотного охвата 1-мин записи)
+        int overlap = segmentLength / 2; // 50%
+        int step = segmentLength - overlap;
 
-        int fftSize = 256; // Zero Padding
+        int fftSize = 256;
 
-        // Энергия окна Ханна
         double hannPowerSum = 0;
         double[] hannWindow = new double[segmentLength];
         for (int i = 0; i < segmentLength; i++) {
@@ -158,11 +157,12 @@ public class HrvCalculator {
             double[] imag = new double[fftSize];
 
             for (int i = 0; i < segmentLength; i++) {
-                real[i] = resampled[start + i] * hannWindow[i];
+                real[i] = detrended[start + i] * hannWindow[i];
             }
 
             fft(real, imag);
 
+            // Двусторонняя PSD нормализация
             double norm = 2.0 / (samplingFreq * hannPowerSum);
 
             for (int k = 0; k < fftSize / 2; k++) {
@@ -201,8 +201,8 @@ public class HrvCalculator {
         return new Metrics(rmssd, sdnn, pnn50, lfPower, hfPower, totalPower, lfHfRatio, artifacts, artifactPct);
     }
 
-    // --- Естественная кубическая сплайн-интерполяция (Natural Cubic Spline) ---
-    private static double[] cubicSplineInterpolate(double[] x, double[] y, int numSamples, double dt) {
+    // --- Интерполяция PCHIP (Monotone Piecewise Cubic Hermite) ---
+    private static double[] pchipInterpolate(double[] x, double[] y, int numSamples, double dt) {
         int n = x.length;
         double[] resampled = new double[numSamples];
 
@@ -218,58 +218,62 @@ public class HrvCalculator {
         }
 
         double[] h = new double[n - 1];
+        double[] delta = new double[n - 1];
         for (int i = 0; i < n - 1; i++) {
             h[i] = x[i + 1] - x[i];
+            delta[i] = (y[i + 1] - y[i]) / h[i];
         }
 
-        double[] alpha = new double[n - 1];
+        double[] d = new double[n];
+
+        // Конечные точки
+        d[0] = pchipEndSlope(h[0], h[1], delta[0], delta[1]);
+        d[n - 1] = pchipEndSlope(h[n - 2], h[n - 3], delta[n - 2], delta[n - 3]);
+
+        // Внутренние точки
         for (int i = 1; i < n - 1; i++) {
-            alpha[i] = (3.0 / h[i]) * (y[i + 1] - y[i]) - (3.0 / h[i - 1]) * (y[i] - y[i - 1]);
+            if (delta[i - 1] * delta[i] <= 0) {
+                d[i] = 0;
+            } else {
+                double w1 = 2 * h[i] + h[i - 1];
+                double w2 = h[i] + 2 * h[i - 1];
+                d[i] = (w1 + w2) / (w1 / delta[i - 1] + w2 / delta[i]);
+            }
         }
 
-        double[] l = new double[n];
-        double[] mu = new double[n];
-        double[] z = new double[n];
-
-        l[0] = 1.0;
-        mu[0] = 0.0;
-        z[0] = 0.0;
-
-        for (int i = 1; i < n - 1; i++) {
-            l[i] = 2.0 * (x[i + 1] - x[i - 1]) - h[i - 1] * mu[i - 1];
-            mu[i] = h[i] / l[i];
-            z[i] = (alpha[i] - h[i - 1] * z[i - 1]) / l[i];
-        }
-
-        l[n - 1] = 1.0;
-        z[n - 1] = 0.0;
-
-        double[] c = new double[n];
-        double[] b = new double[n - 1];
-        double[] d = new double[n - 1];
-
-        c[n - 1] = 0.0;
-
-        for (int j = n - 2; j >= 0; j--) {
-            c[j] = z[j] - mu[j] * c[j + 1];
-            b[j] = (y[j + 1] - y[j]) / h[j] - h[j] * (c[j + 1] + 2.0 * c[j]) / 3.0;
-            d[j] = (c[j + 1] - c[j]) / (3.0 * h[j]);
-        }
-
-        int currentSeg = 0;
+        int seg = 0;
         for (int i = 0; i < numSamples; i++) {
             double t = i * dt;
-            while (currentSeg < n - 2 && x[currentSeg + 1] < t) {
-                currentSeg++;
+            while (seg < n - 2 && x[seg + 1] < t) {
+                seg++;
             }
-            double dx = t - x[currentSeg];
-            resampled[i] = y[currentSeg] + b[currentSeg] * dx + c[currentSeg] * dx * dx + d[currentSeg] * dx * dx * dx;
+            double hSeg = h[seg];
+            double s = (t - x[seg]) / hSeg;
+            double s2 = s * s;
+            double s3 = s2 * s;
+
+            double h00 = 2 * s3 - 3 * s2 + 1;
+            double h10 = s3 - 2 * s2 + s;
+            double h01 = -2 * s3 + 3 * s2;
+            double h11 = s3 - s2;
+
+            resampled[i] = h00 * y[seg] + h10 * hSeg * d[seg] + h01 * y[seg + 1] + h11 * hSeg * d[seg + 1];
         }
 
         return resampled;
     }
 
-    // --- Smoothness Priors Detrending (Tarvainen et al., 2002) ---
+    private static double pchipEndSlope(double h1, double h2, double del1, double del2) {
+        double d = ((2 * h1 + h2) * del1 - h1 * del2) / (h1 + h2);
+        if (Math.signum(d) != Math.signum(del1)) {
+            d = 0;
+        } else if ((Math.signum(del1) != Math.signum(del2)) && (Math.abs(d) > Math.abs(3 * del1))) {
+            d = 3 * del1;
+        }
+        return d;
+    }
+
+    // --- Smoothness Priors Detrending ---
     private static double[] smoothnessPriorsDetrend(double[] y, double lambda) {
         int N = y.length;
         double[] zTrend = new double[N];
@@ -350,7 +354,7 @@ public class HrvCalculator {
         return zTrend;
     }
 
-    // --- Быстрое преобразование Фурье (Cooley-Tukey FFT) ---
+    // --- FFT ---
     private static void fft(double[] real, double[] imag) {
         int n = real.length;
         if (n <= 1) return;
@@ -398,7 +402,7 @@ public class HrvCalculator {
         }
     }
 
-    // --- Парсер BLE Heart Rate Measurement Characteristic ---
+    // --- BLE Parser ---
     public static List<Integer> parseRrIntervals(byte[] data) {
         List<Integer> rrList = new ArrayList<>();
         if (data == null || data.length < 2) return rrList;
@@ -420,4 +424,4 @@ public class HrvCalculator {
         }
         return rrList;
     }
-}
+             }
