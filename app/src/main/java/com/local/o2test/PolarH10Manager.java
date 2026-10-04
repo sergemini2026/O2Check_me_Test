@@ -25,8 +25,8 @@ public class PolarH10Manager {
     private static final UUID HR_CHAR_UUID    = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb");
     private static final UUID CCCD_UUID       = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
 
-    private static final long UPDATE_INTERVAL_MS = 30000; // Промежуточные отчеты раз в 30 сек
-    private static final int MAX_RR_COUNT = 300; // Эпоха для расчета HRV
+    private static final long UPDATE_INTERVAL_MS = 30000; 
+    private static final int MAX_RR_COUNT = 300; 
 
     public interface PolarCallback {
         void onPolarLog(String message);
@@ -44,6 +44,9 @@ public class PolarH10Manager {
     private final Queue<Integer> rrBuffer = new LinkedList<>();
     private final List<Integer> hrWindow = new ArrayList<>();
     private long lastReportTime = 0;
+    
+    // Переменная для потоковой фильтрации артефактов
+    private int lastValidRr = 0;
 
     public PolarH10Manager(Context context, PolarCallback callback) {
         this.context = context;
@@ -61,6 +64,7 @@ public class PolarH10Manager {
             rrBuffer.clear();
             hrWindow.clear();
             lastReportTime = 0;
+            lastValidRr = 0;
         }
         gatt = device.connectGatt(context, false, gattCallback);
     }
@@ -71,7 +75,7 @@ public class PolarH10Manager {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 isConnected = true;
                 isConnecting = false;
-                log("Polar H10: Подключен. Накопление данных...");
+                log("Polar H10: Подключен. Накопление чистых данных...");
                 gatt.discoverServices();
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 isConnected = false;
@@ -92,7 +96,7 @@ public class PolarH10Manager {
                         if (descriptor != null) {
                             descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
                             gatt.writeDescriptor(descriptor);
-                            log("Polar H10: Старт записи эпохи (300 стабильных RR-интервалов)...");
+                            log("Polar H10: Старт записи эпохи (300 чистых RR-интервалов)...");
                         }
                     }
                 }
@@ -114,11 +118,25 @@ public class PolarH10Manager {
                         hrWindow.add(currentHr);
 
                         for (int rr : newRrList) {
+                            // 1. Физиологический диапазон (300 - 2000 мс)
+                            if (rr < 300 || rr > 2000) {
+                                continue;
+                            }
+
+                            // 2. Потоковый фильтр артефактов (Malik 20% Threshold на входе)
+                            if (lastValidRr > 0) {
+                                double diffRatio = Math.abs(rr - lastValidRr) / (double) lastValidRr;
+                                if (diffRatio > 0.20) {
+                                    log(String.format(Locale.US, "[Polar H10] Артефакт в потоке: %dмс -> %dмс (исключен)", lastValidRr, rr));
+                                    continue; // Пропускаем мусорный интервал, не добавляем в буфер
+                                }
+                            }
+
+                            lastValidRr = rr;
                             rrBuffer.add(rr);
 
                             final int rrMs = rr;
-                            // Мгновенная ЧСС: 60 секунд / RR (в миллисекундах)
-                            final float instantHr = rrMs > 0 ? (60000.0f / rrMs) : currentHr;
+                            final float instantHr = 60000.0f / rrMs;
 
                             new Handler(Looper.getMainLooper()).post(() -> {
                                 if (callback != null) {
@@ -126,7 +144,7 @@ public class PolarH10Manager {
                                 }
                             });
 
-                            // При достижении 300 интервалов — финальный расчет эпохи и жесткий сброс
+                            // При заполнении эпохи в 300 ЧИСТЫХ интервалов считаем метрики
                             if (rrBuffer.size() == MAX_RR_COUNT) {
                                 List<Integer> snapshot = new ArrayList<>(rrBuffer);
                                 HrvCalculator.Metrics hrv = HrvCalculator.calculate(snapshot);
@@ -146,14 +164,12 @@ public class PolarH10Manager {
                                     }
                                 });
 
-                                // Обнуляем буфер для следующей итерации
                                 rrBuffer.clear();
-                                // Сбрасываем таймер, чтобы 30-секундный промежуточный отчет не сработал сразу после сброса
                                 lastReportTime = now; 
                             }
                         }
 
-                        // Промежуточные отчеты каждые 30 секунд (пока буфер не достиг 300)
+                        // Промежуточные отчеты каждые 30 секунд
                         if (now - lastReportTime >= UPDATE_INTERVAL_MS && !rrBuffer.isEmpty()) {
                             lastReportTime = now;
 
