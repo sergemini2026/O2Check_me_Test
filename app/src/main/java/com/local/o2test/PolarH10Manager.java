@@ -11,6 +11,8 @@ import android.bluetooth.BluetoothProfile;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+import java.util.Locale;
+
 
 import java.util.ArrayList;
 import java.util.LinkedList;
