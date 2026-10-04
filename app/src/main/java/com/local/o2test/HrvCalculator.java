@@ -424,4 +424,4 @@ public class HrvCalculator {
         }
         return rrList;
     }
-             }
+}
