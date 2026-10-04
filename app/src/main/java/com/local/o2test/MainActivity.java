@@ -48,6 +48,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private float currentPi = 0.3f;
     private int currentBattery = 100;
     private int currentPolarHr = 0; // Мгновенная ЧСС от H10
+    private int prevRrMs = 0; // Трекер для фильтрации артефактов на графике
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -195,6 +196,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         sessionStartTime = System.currentTimeMillis();
         sessionData.clear();
         piWindow.clear();
+        prevRrMs = 0; // Сброс трекинга артефактов
         if (chartView != null) {
             chartView.clearData();
         }
@@ -286,23 +288,36 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         @Override
         public void onRrReceived(int rrMs, float instantHr) {
-            // Берем пульс напрямую, без сглаживания, для отображения "пилы" на графике
-            currentPolarHr = Math.round(instantHr); 
-
             if (isRecording) {
-                long now = System.currentTimeMillis();
-                if (sessionStartTime == 0) sessionStartTime = now;
-                int elapsedSec = (int) ((now - sessionStartTime) / 1000);
+                // Жесткая фильтрация артефактов для графика (Malik 20% Threshold)
+                boolean isArtifact = false;
+                if (prevRrMs > 0) {
+                    if (Math.abs(rrMs - prevRrMs) / (float)prevRrMs > 0.20) {
+                        isArtifact = true;
+                        onLog("[АРТЕФАКТ] Скачок RR: " + prevRrMs + "мс -> " + rrMs + "мс. Исключен из графика.");
+                    }
+                }
 
-                String timestamp = timeFormat.format(new Date(now));
-                
-                DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, currentPolarHr, currentPi);
-                sessionData.add(dp);
+                if (!isArtifact) {
+                    prevRrMs = rrMs; // Запоминаем только чистый интервал
+                    currentPolarHr = Math.round(instantHr); 
 
-                runOnUiThread(() -> {
-                    updateStatusHeader(currentSpo2, currentPolarHr, currentPi, currentBattery);
-                    chartView.addDataPoint(dp);
-                });
+                    long now = System.currentTimeMillis();
+                    if (sessionStartTime == 0) sessionStartTime = now;
+                    
+                    // Используем float для миллисекундной точности на графике
+                    float elapsedSec = (now - sessionStartTime) / 1000f; 
+
+                    String timestamp = timeFormat.format(new Date(now));
+                    
+                    DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, currentPolarHr, currentPi);
+                    sessionData.add(dp);
+
+                    runOnUiThread(() -> {
+                        updateStatusHeader(currentSpo2, currentPolarHr, currentPi, currentBattery);
+                        chartView.addDataPoint(dp);
+                    });
+                }
             }
         }
 
@@ -312,13 +327,13 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
             if (rrCount < 60) {
                 String logMsg = String.format(Locale.US,
-                        "[Polar H10] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | (Накопление: %d/300)",
-                        hr, hrv.rmssd, hrv.pnn50, rrCount);
+                        "[Polar H10] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | Арт: %d (Накопление: %d/300)",
+                        hr, hrv.rmssd, hrv.pnn50, hrv.artifactsDetected, rrCount);
                 onLog(logMsg);
             } else {
                 String logMsg = String.format(Locale.US,
-                        "[Polar H10] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms² (RR: %d/300)",
-                        hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower, rrCount);
+                        "[Polar H10] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms² | Арт: %d (RR: %d/300)",
+                        hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower, hrv.artifactsDetected, rrCount);
                 onLog(logMsg);
             }
         }
