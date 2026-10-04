@@ -124,7 +124,7 @@ public class HrvCalculator {
         // 4. ДЕТРЕНДИНГ НА СЕТКЕ 4 Гц (Smoothness Priors, lambda = 10000)
         // ==========================================
         // На 4 Гц сетке lambda = 10000 соответствует cutoff frequency ~0.035 Hz (убирает VLF-дрейф)
-        double[] zTrend = smoothnessPriorsDetrend(resampled, 10000.0);
+        double[] zTrend = smoothnessPriorsDetrend(resampled, 500.0);
         double[] detrended = new double[numSamples];
         for (int i = 0; i < numSamples; i++) {
             detrended[i] = resampled[i] - zTrend[i];
