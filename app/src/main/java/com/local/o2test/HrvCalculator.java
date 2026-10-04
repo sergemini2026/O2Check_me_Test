@@ -66,7 +66,7 @@ public class HrvCalculator {
         double artifactPct = ((double) artifacts / rawRrList.size()) * 100.0;
 
         // ==========================================
-        // 2. ВРЕМЕННОЙ АНАЛИЗ (RMSSD и pNN50)
+        // 2. ВРЕМЕННОЙ АНАЛИЗ (RMSSD, pNN50, SDNN)
         // ==========================================
         double sumDiffSq = 0.0;
         int nn50Count = 0;
@@ -83,8 +83,36 @@ public class HrvCalculator {
         double rmssd = Math.sqrt(sumDiffSq / totalPairs);
         double pnn50 = ((double) nn50Count / totalPairs) * 100.0;
 
+        // SDNN рассчитывается по очищенному ряду RR-интервалов
+        double sumRr = 0.0;
+        for (double rr : cleanRr) {
+            sumRr += rr;
+        }
+        double meanRr = sumRr / N;
+
+        double sumSdnnSq = 0.0;
+        for (double rr : cleanRr) {
+            double diff = rr - meanRr;
+            sumSdnnSq += diff * diff;
+        }
+        double sdnn = Math.sqrt(sumSdnnSq / (N - 1));
+
         // ==========================================
-        // 3. РЕСЕМПЛИРОВАНИЕ В 4 Гц (Равномерная сетка)
+        // 3. ДЕТРЕНДИНГ ИСХОДНОГО РЯДА (Smoothness Priors, lambda = 500)
+        // ==========================================
+        double[] rrArray = new double[N];
+        for (int i = 0; i < N; i++) {
+            rrArray[i] = cleanRr.get(i);
+        }
+
+        double[] zTrend = smoothnessPriorsDetrend(rrArray, 500.0);
+        double[] detrendedRr = new double[N];
+        for (int i = 0; i < N; i++) {
+            detrendedRr[i] = rrArray[i] - zTrend[i];
+        }
+
+        // ==========================================
+        // 4. КУБИЧЕСКАЯ СПЛАЙН-ИНТЕРПОЛЯЦИЯ В 4 Гц
         // ==========================================
         double[] timeStamps = new double[N];
         double currentTime = 0;
@@ -98,43 +126,10 @@ public class HrvCalculator {
         int numSamples = (int) Math.floor(currentTime * samplingFreq);
 
         if (numSamples < 32) {
-            return new Metrics(rmssd, 0, pnn50, 0, 0, 0, 0, artifacts, artifactPct);
+            return new Metrics(rmssd, sdnn, pnn50, 0, 0, 0, 0, artifacts, artifactPct);
         }
 
-        double[] resampled = new double[numSamples];
-        int rrIndex = 0;
-        for (int i = 0; i < numSamples; i++) {
-            double t = i * dt;
-            while (rrIndex < N - 2 && timeStamps[rrIndex + 1] < t) {
-                rrIndex++;
-            }
-            double t0 = timeStamps[rrIndex];
-            double t1 = timeStamps[rrIndex + 1];
-            double v0 = cleanRr.get(rrIndex);
-            double v1 = cleanRr.get(rrIndex + 1);
-
-            resampled[i] = v0 + (v1 - v0) * ((t - t0) / (t1 - t0));
-        }
-
-        // ==========================================
-        // 4. ДЕТРЕНДИНГ (Smoothness Priors, lambda = 500) И SDNN
-        // ==========================================
-        double[] zTrend = smoothnessPriorsDetrend(resampled, 500.0);
-        double[] detrended = new double[numSamples];
-
-        double sumDetrended = 0.0;
-        for (int i = 0; i < numSamples; i++) {
-            detrended[i] = resampled[i] - zTrend[i];
-            sumDetrended += detrended[i];
-        }
-        double meanDetrended = sumDetrended / numSamples;
-
-        double sumSdnnSq = 0.0;
-        for (int i = 0; i < numSamples; i++) {
-            double diff = detrended[i] - meanDetrended;
-            sumSdnnSq += diff * diff;
-        }
-        double sdnn = Math.sqrt(sumSdnnSq / (numSamples - 1));
+        double[] resampled = cubicSplineInterpolate(timeStamps, detrendedRr, numSamples, dt);
 
         // ==========================================
         // 5. СПЕКТРАЛЬНЫЙ АНАЛИЗ ПО МЕТОДУ УЭЛЧА (Welch's PSD)
@@ -143,12 +138,11 @@ public class HrvCalculator {
         if (numSamples < segmentLength) {
             segmentLength = numSamples;
         }
-        int overlap = segmentLength / 2; // 50% перекрытие (16 сек)
-        int step = segmentLength - overlap;
+        int step = 32; // 8 секунд шаг (75% перекрытие для плотного охвата 1-мин записи)
 
-        int fftSize = 256; // Zero Padding для плавности спектра
+        int fftSize = 256; // Zero Padding
 
-        // Энергия окна Ханна для нормализации
+        // Энергия окна Ханна
         double hannPowerSum = 0;
         double[] hannWindow = new double[segmentLength];
         for (int i = 0; i < segmentLength; i++) {
@@ -164,7 +158,7 @@ public class HrvCalculator {
             double[] imag = new double[fftSize];
 
             for (int i = 0; i < segmentLength; i++) {
-                real[i] = detrended[start + i] * hannWindow[i];
+                real[i] = resampled[start + i] * hannWindow[i];
             }
 
             fft(real, imag);
@@ -205,6 +199,74 @@ public class HrvCalculator {
         double lfHfRatio = hfPower > 0 ? lfPower / hfPower : 0;
 
         return new Metrics(rmssd, sdnn, pnn50, lfPower, hfPower, totalPower, lfHfRatio, artifacts, artifactPct);
+    }
+
+    // --- Естественная кубическая сплайн-интерполяция (Natural Cubic Spline) ---
+    private static double[] cubicSplineInterpolate(double[] x, double[] y, int numSamples, double dt) {
+        int n = x.length;
+        double[] resampled = new double[numSamples];
+
+        if (n < 3) {
+            int idx = 0;
+            for (int i = 0; i < numSamples; i++) {
+                double t = i * dt;
+                while (idx < n - 2 && x[idx + 1] < t) idx++;
+                double t0 = x[idx], t1 = x[idx + 1];
+                resampled[i] = y[idx] + (y[idx + 1] - y[idx]) * ((t - t0) / (t1 - t0));
+            }
+            return resampled;
+        }
+
+        double[] h = new double[n - 1];
+        for (int i = 0; i < n - 1; i++) {
+            h[i] = x[i + 1] - x[i];
+        }
+
+        double[] alpha = new double[n - 1];
+        for (int i = 1; i < n - 1; i++) {
+            alpha[i] = (3.0 / h[i]) * (y[i + 1] - y[i]) - (3.0 / h[i - 1]) * (y[i] - y[i - 1]);
+        }
+
+        double[] l = new double[n];
+        double[] mu = new double[n];
+        double[] z = new double[n];
+
+        l[0] = 1.0;
+        mu[0] = 0.0;
+        z[0] = 0.0;
+
+        for (int i = 1; i < n - 1; i++) {
+            l[i] = 2.0 * (x[i + 1] - x[i - 1]) - h[i - 1] * mu[i - 1];
+            mu[i] = h[i] / l[i];
+            z[i] = (alpha[i] - h[i - 1] * z[i - 1]) / l[i];
+        }
+
+        l[n - 1] = 1.0;
+        z[n - 1] = 0.0;
+
+        double[] c = new double[n];
+        double[] b = new double[n - 1];
+        double[] d = new double[n - 1];
+
+        c[n - 1] = 0.0;
+
+        for (int j = n - 2; j >= 0; j--) {
+            c[j] = z[j] - mu[j] * c[j + 1];
+            b[j] = (y[j + 1] - y[j]) / h[j] - h[j] * (c[j + 1] + 2.0 * c[j]) / 3.0;
+            d[j] = (c[j + 1] - c[j]) / (3.0 * h[j]);
+        }
+
+        int currentSeg = 0;
+        for (int i = 0; i < numSamples; i++) {
+            double t = i * dt;
+            while (currentSeg < n - 2 && x[currentSeg + 1] < t) {
+                currentSeg++;
+            }
+            double dx = t - x[currentSeg];
+            resampled[i] = y[currentSeg] + b[currentSeg] * dx + c[currentSeg] * dx * dx + d[currentSeg] * dx * dx * dx;
+        }
+
+        return resampled;
     }
 
     // --- Smoothness Priors Detrending (Tarvainen et al., 2002) ---
