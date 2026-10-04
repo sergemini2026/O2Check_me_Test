@@ -6,217 +6,198 @@ import java.util.List;
 public class HrvCalculator {
 
     public static class Metrics {
-        public double rmssd;
-        public double pnn50;
-        public double lfHfRatio;
-        public double totalPower;
-        public double artifactPct;
-        public int artifactsDetected;
+        public final double rmssd;
+        public final double sdnn;
+        public final double pnn50;
+        public final double lfPower;
+        public final double hfPower;
+        public final double totalPower;
+        public final double lfHfRatio;
+        public final int artifactsDetected;
+        public final double artifactPct;
 
-        public Metrics(double rmssd, double pnn50, double lfHfRatio, double totalPower, double artifactPct, int artifactsDetected) {
+        public Metrics(double rmssd, double sdnn, double pnn50, double lfPower, 
+                       double hfPower, double totalPower, double lfHfRatio, 
+                       int artifactsDetected, double artifactPct) {
             this.rmssd = rmssd;
+            this.sdnn = sdnn;
             this.pnn50 = pnn50;
-            this.lfHfRatio = lfHfRatio;
+            this.lfPower = lfPower;
+            this.hfPower = hfPower;
             this.totalPower = totalPower;
-            this.artifactPct = artifactPct;
+            this.lfHfRatio = lfHfRatio;
             this.artifactsDetected = artifactsDetected;
+            this.artifactPct = artifactPct;
         }
     }
 
-    public static List<Integer> parseRrIntervals(byte[] data) {
-        List<Integer> rrList = new ArrayList<>();
-        if (data == null || data.length < 2) return rrList;
+    public static Metrics calculate(List<Integer> rawRrList) {
+        if (rawRrList == null || rawRrList.size() < 10) {
+            return new Metrics(0, 0, 0, 0, 0, 0, 0, 0, 0);
+        }
 
-        byte flags = data[0];
-        boolean is16Bit = (flags & 0x01) != 0;
-        boolean rrPresent = (flags & 0x10) != 0;
+        // 1. Фильтрация выбросов
+        List<Double> cleanRr = new ArrayList<>();
+        int artifacts = 0;
 
-        if (!rrPresent) return rrList;
-
-        int offset = is16Bit ? 3 : 2;
-        if ((flags & 0x08) != 0) offset += 2;
-
-        while (offset + 1 < data.length) {
-            int rrVal = ((data[offset + 1] & 0xFF) << 8) | (data[offset] & 0xFF);
-            int rrMs = Math.round(rrVal * 1000.0f / 1024.0f);
-            
-            if (rrMs >= 300 && rrMs <= 2000) {
-                rrList.add(rrMs);
+        for (int i = 0; i < rawRrList.size(); i++) {
+            double rr = rawRrList.get(i);
+            if (rr < 300 || rr > 2000) {
+                artifacts++;
+                continue;
             }
-            offset += 2;
-        }
-        return rrList;
-    }
-
-    public static Metrics calculate(List<Integer> rawRrBuffer) {
-        if (rawRrBuffer == null || rawRrBuffer.size() < 12) {
-            return new Metrics(0, 0, 0, 0, 0, 0);
-        }
-
-        // 1. Фильтрация артефактов (Malik 20% Threshold Filter)
-        List<Integer> cleanRr = new ArrayList<>();
-        int artifactsCount = 0;
-        cleanRr.add(rawRrBuffer.get(0));
-
-        for (int i = 1; i < rawRrBuffer.size(); i++) {
-            int prev = cleanRr.get(cleanRr.size() - 1);
-            int curr = rawRrBuffer.get(i);
-
-            double diffRatio = Math.abs(curr - prev) / (double) prev;
-            if (diffRatio > 0.20) {
-                artifactsCount++;
-                cleanRr.add(prev);
-            } else {
-                cleanRr.add(curr);
+            if (i > 0) {
+                double prev = cleanRr.get(cleanRr.size() - 1);
+                if (Math.abs(rr - prev) / prev > 0.25) {
+                    artifacts++;
+                    continue;
+                }
             }
+            cleanRr.add(rr);
         }
 
-        double artifactPct = (artifactsCount * 100.0) / rawRrBuffer.size();
+        if (cleanRr.size() < 10) {
+            return new Metrics(0, 0, 0, 0, 0, 0, 0, artifacts, 100.0);
+        }
 
-        // 2. Временной анализ (RMSSD, pNN50)
+        int N = cleanRr.size();
+        double artifactPct = ((double) artifacts / rawRrList.size()) * 100.0;
+
+        // 2. Временные метрики (Time-Domain)
+        double sum = 0;
+        for (double rr : cleanRr) sum += rr;
+        double meanRr = sum / N;
+
         double sumSqDiff = 0;
         int nn50 = 0;
-        int countDiff = cleanRr.size() - 1;
-
-        for (int i = 0; i < countDiff; i++) {
-            double diff = cleanRr.get(i + 1) - cleanRr.get(i);
+        for (int i = 0; i < N - 1; i++) {
+            double diff = Math.abs(cleanRr.get(i + 1) - cleanRr.get(i));
             sumSqDiff += diff * diff;
-            if (Math.abs(diff) > 50) {
-                nn50++;
-            }
+            if (diff > 50) nn50++;
         }
 
-        double rmssd = Math.sqrt(sumSqDiff / countDiff);
-        double pnn50 = (nn50 * 100.0) / countDiff;
+        double rmssd = Math.sqrt(sumSqDiff / (N - 1));
+        double pnn50 = ((double) nn50 / (N - 1)) * 100.0;
 
-        // 3. Спектральный анализ (Удаление линейного тренда + Ресемплинг 4 Гц)
-        int N = 256; 
-        double fs = 4.0; // Частота дискретизации 4 Гц
+        double sumVar = 0;
+        for (double rr : cleanRr) {
+            sumVar += Math.pow(rr - meanRr, 2);
+        }
+        double sdnn = Math.sqrt(sumVar / (N - 1));
 
-        double[] interpolated = interpolateAndDetrend(cleanRr, N, fs);
-
-        // Окно Ханна (Hanning Window) с нормировкой коэф. энергии
-        double[] re = new double[N];
-        double[] im = new double[N];
-        double winSumSq = 0;
-
+        // 3. Частотный анализ (Frequency-Domain) с 4 Гц ресемплированием
+        double[] timeStamps = new double[N];
+        double currentTime = 0;
         for (int i = 0; i < N; i++) {
-            double w = 0.5 * (1.0 - Math.cos(2.0 * Math.PI * i / (N - 1)));
-            re[i] = interpolated[i] * w;
-            im[i] = 0;
-            winSumSq += w * w;
+            timeStamps[i] = currentTime;
+            currentTime += cleanRr.get(i) / 1000.0;
         }
 
-        fft(re, im, N);
+        double samplingFreq = 4.0;
+        double dt = 1.0 / samplingFreq;
+        int numSamples = (int) Math.floor(currentTime * samplingFreq);
+        
+        int fftSize = 1;
+        while (fftSize < numSamples) fftSize <<= 1;
+        if (fftSize < 256) fftSize = 256;
 
-        double df = fs / N;
-        double vlf = 0, lf = 0, hf = 0;
+        double[] resampled = new double[fftSize];
+        int rrIndex = 0;
+        for (int i = 0; i < numSamples; i++) {
+            double t = i * dt;
+            while (rrIndex < N - 2 && timeStamps[rrIndex + 1] < t) {
+                rrIndex++;
+            }
+            double t0 = timeStamps[rrIndex];
+            double t1 = timeStamps[rrIndex + 1];
+            double v0 = cleanRr.get(rrIndex);
+            double v1 = cleanRr.get(rrIndex + 1);
+            
+            resampled[i] = v0 + (v1 - v0) * ((t - t0) / (t1 - t0));
+        }
+        for (int i = numSamples; i < fftSize; i++) {
+            resampled[i] = meanRr;
+        }
 
-        for (int k = 1; k < N / 2; k++) {
-            double freq = k * df;
-            // Двусторонняя спектральная плотность мощности (PSD)
-            double power = (2.0 * (re[k] * re[k] + im[k] * im[k])) / (fs * winSumSq);
+        // Детрендинг и Окно Ханна
+        double resampledMean = 0;
+        for (int i = 0; i < numSamples; i++) resampledMean += resampled[i];
+        resampledMean /= numSamples;
+
+        double[] detrended = new double[fftSize];
+        for (int i = 0; i < numSamples; i++) {
+            double hann = 0.5 * (1 - Math.cos(2 * Math.PI * i / (numSamples - 1)));
+            detrended[i] = (resampled[i] - resampledMean) * hann;
+        }
+
+        // БПФ
+        double[] real = detrended;
+        double[] imag = new double[fftSize];
+        fft(real, imag);
+
+        double df = samplingFreq / fftSize;
+        double vlfPower = 0;
+        double lfPower = 0;
+        double hfPower = 0;
+
+        double normFactor = 2.0 / (numSamples * samplingFreq * 0.375);
+
+        for (int i = 0; i < fftSize / 2; i++) {
+            double freq = i * df;
+            double power = (real[i] * real[i] + imag[i] * imag[i]) * normFactor * df;
 
             if (freq >= 0.0033 && freq < 0.04) {
-                vlf += power * df;
+                vlfPower += power;
             } else if (freq >= 0.04 && freq < 0.15) {
-                lf += power * df;
+                lfPower += power;
             } else if (freq >= 0.15 && freq <= 0.40) {
-                hf += power * df;
+                hfPower += power;
             }
         }
 
-        double totalPower = vlf + lf + hf;
-        double lfHfRatio = (hf > 0) ? (lf / hf) : 0;
+        double totalPower = vlfPower + lfPower + hfPower;
+        double lfHfRatio = hfPower > 0 ? lfPower / hfPower : 0;
 
-        return new Metrics(rmssd, pnn50, lfHfRatio, totalPower, artifactPct, artifactsCount);
+        return new Metrics(rmssd, sdnn, pnn50, lfPower, hfPower, totalPower, lfHfRatio, artifacts, artifactPct);
     }
 
-    private static double[] interpolateAndDetrend(List<Integer> rrList, int nPoints, double fs) {
-        int sz = rrList.size();
-        double[] time = new double[sz];
-        double[] values = new double[sz];
+    private static void fft(double[] real, double[] imag) {
+        int n = real.length;
+        if (n <= 1) return;
 
-        time[0] = 0;
-        values[0] = rrList.get(0);
-        for (int i = 1; i < sz; i++) {
-            time[i] = time[i - 1] + (rrList.get(i) / 1000.0);
-            values[i] = rrList.get(i);
-        }
+        for (int i = 0; i < n; i++) {
+            int j = Integer.reverse(i) >>> (32 - Integer.numberOfTrailingZeros(n));
+            if (j > i) {
+                double tempR = real[i];
+                real[i] = real[j];
+                real[j] = tempR;
 
-        // Удаление линейного тренда (Linear Detrending)
-        double meanT = 0, meanY = 0;
-        for (int i = 0; i < sz; i++) {
-            meanT += time[i];
-            meanY += values[i];
-        }
-        meanT /= sz;
-        meanY /= sz;
-
-        double num = 0, den = 0;
-        for (int i = 0; i < sz; i++) {
-            num += (time[i] - meanT) * (values[i] - meanY);
-            den += (time[i] - meanT) * (time[i] - meanT);
-        }
-        double slope = (den != 0) ? num / den : 0;
-        double intercept = meanY - slope * meanT;
-
-        double[] resampled = new double[nPoints];
-        double totalDuration = time[sz - 1];
-        double dt = totalDuration / (nPoints - 1);
-
-        int idx = 0;
-        for (int i = 0; i < nPoints; i++) {
-            double t = i * dt;
-            while (idx < sz - 2 && time[idx + 1] < t) {
-                idx++;
+                double tempI = imag[i];
+                imag[i] = imag[j];
+                imag[j] = tempI;
             }
-            double t0 = time[idx];
-            double t1 = time[idx + 1];
-            double y0 = values[idx] - (slope * t0 + intercept);
-            double y1 = values[idx + 1] - (slope * t1 + intercept);
-
-            if (t1 == t0) {
-                resampled[i] = y0;
-            } else {
-                resampled[i] = y0 + (y1 - y0) * (t - t0) / (t1 - t0);
-            }
-        }
-        return resampled;
-    }
-
-    private static void fft(double[] re, double[] im, int n) {
-        int j = 0;
-        for (int i = 0; i < n - 1; i++) {
-            if (i < j) {
-                double tempR = re[i]; re[i] = re[j]; re[j] = tempR;
-                double tempI = im[i]; im[i] = im[j]; im[j] = tempI;
-            }
-            int k = n >> 1;
-            while (k <= j) {
-                j -= k;
-                k >>= 1;
-            }
-            j += k;
         }
 
         for (int len = 2; len <= n; len <<= 1) {
-            double ang = -2.0 * Math.PI / len;
+            double ang = -2 * Math.PI / len;
             double wlenR = Math.cos(ang);
             double wlenI = Math.sin(ang);
-            for (int i = 0; i < n; i += len) {
-                double wR = 1.0;
-                double wI = 0.0;
-                for (int m = 0; m < len / 2; m++) {
-                    int u = i + m;
-                    int v = i + m + len / 2;
-                    double vr = re[v] * wR - im[v] * wI;
-                    double vi = re[v] * wI + im[v] * wR;
 
-                    re[v] = re[u] - vr;
-                    im[v] = im[u] - vi;
-                    re[u] += vr;
-                    im[u] += vi;
+            for (int i = 0; i < n; i += len) {
+                double wR = 1;
+                double wI = 0;
+                for (int j = 0; j < len / 2; j++) {
+                    int u = i + j;
+                    int v = i + j + len / 2;
+
+                    double vR = real[v] * wR - imag[v] * wI;
+                    double vI = real[v] * wI + imag[v] * wR;
+
+                    real[v] = real[u] - vR;
+                    imag[v] = imag[u] - vI;
+
+                    real[u] += vR;
+                    imag[u] += vI;
 
                     double nextWR = wR * wlenR - wI * wlenI;
                     double nextWI = wR * wlenI + wI * wlenR;
@@ -225,5 +206,27 @@ public class HrvCalculator {
                 }
             }
         }
+    }
+
+    public static List<Integer> parseRrIntervals(byte[] data) {
+        List<Integer> rrList = new ArrayList<>();
+        if (data == null || data.length < 2) return rrList;
+
+        byte flags = data[0];
+        boolean is16BitHr = (flags & 0x01) != 0;
+        boolean rrPresent = (flags & 0x10) != 0;
+
+        if (!rrPresent) return rrList;
+
+        int offset = is16BitHr ? 3 : 2;
+        if ((flags & 0x08) != 0) offset += 2;
+
+        while (offset + 1 < data.length) {
+            int rr1024 = ((data[offset + 1] & 0xFF) << 8) | (data[offset] & 0xFF);
+            int rrMs = (int) Math.round((rr1024 / 1024.0) * 1000.0);
+            rrList.add(rrMs);
+            offset += 2;
+        }
+        return rrList;
     }
 }
