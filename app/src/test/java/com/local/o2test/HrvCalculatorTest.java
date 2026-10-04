@@ -20,7 +20,8 @@ public class HrvCalculatorTest {
         999, 1013, 977, 970, 976, 968, 930, 947
     };
 
-    private void runSliceTest(int startIdx, int count, String testName) {
+    private void run3MinSliceTest(int startIdx, String testName) {
+        int count = 180;
         List<Integer> slice = new ArrayList<>();
         for (int i = startIdx; i < startIdx + count && i < RAW_RR_DATASET.length; i++) {
             slice.add(RAW_RR_DATASET[i]);
@@ -29,7 +30,7 @@ public class HrvCalculatorTest {
         HrvCalculator.Metrics metrics = HrvCalculator.calculate(slice);
 
         System.out.println("==========================================");
-        System.out.println("     " + testName + " (" + slice.size() + " RR / ~1 МИН)");
+        System.out.println("   " + testName + " (" + slice.size() + " RR / ~3 МИН)");
         System.out.println("==========================================");
         System.out.printf("RMSSD:         %.2f ms\n", metrics.rmssd);
         System.out.printf("SDNN:          %.2f ms\n", metrics.sdnn);
@@ -45,20 +46,20 @@ public class HrvCalculatorTest {
     }
 
     @Test
-    public void testSlice1_FirstMinute() {
-        // Элементы 0..59 (1-я минута)
-        runSliceTest(0, 60, "ТЕСТ 1: ПЕРВАЯ МИНУТА");
+    public void test3Min_Window1() {
+        // Элементы 0..179 (минуты 1-3)
+        run3MinSliceTest(0, "ОКНО 1: ИНТЕРВАЛЫ 0-179");
     }
 
     @Test
-    public void testSlice2_SecondMinute() {
-        // Элементы 60..119 (2-я минута)
-        runSliceTest(60, 60, "ТЕСТ 2: ВТОРАЯ МИНУТА");
+    public void test3Min_Window2() {
+        // Элементы 60..239 (минуты 2-4)
+        run3MinSliceTest(60, "ОКНО 2: ИНТЕРВАЛЫ 60-239");
     }
 
     @Test
-    public void testSlice3_ThirdMinute() {
-        // Элементы 120..179 (3-я минута)
-        runSliceTest(120, 60, "ТЕСТ 3: ТРЕТЬЯ МИНУТА");
+    public void test3Min_Window3() {
+        // Элементы 120..299 (минуты 3-5)
+        run3MinSliceTest(120, "ОКНО 3: ИНТЕРВАЛЫ 120-299");
     }
 }
