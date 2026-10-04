@@ -20,17 +20,16 @@ public class HrvCalculatorTest {
         999, 1013, 977, 970, 976, 968, 930, 947
     };
 
-    @Test
-    public void testHrvCalibrationAgainstEliteHrv() {
-        List<Integer> rawList = new ArrayList<>();
-        for (int rr : RAW_RR_DATASET) {
-            rawList.add(rr);
+    private void runSliceTest(int startIdx, int count, String testName) {
+        List<Integer> slice = new ArrayList<>();
+        for (int i = startIdx; i < startIdx + count && i < RAW_RR_DATASET.length; i++) {
+            slice.add(RAW_RR_DATASET[i]);
         }
 
-        HrvCalculator.Metrics metrics = HrvCalculator.calculate(rawList);
+        HrvCalculator.Metrics metrics = HrvCalculator.calculate(slice);
 
         System.out.println("==========================================");
-        System.out.println("     РЕЗУЛЬТАТЫ РАСЧЕТА НА MOCK-ДАННЫХ    ");
+        System.out.println("     " + testName + " (" + slice.size() + " RR / ~1 МИН)");
         System.out.println("==========================================");
         System.out.printf("RMSSD:         %.2f ms\n", metrics.rmssd);
         System.out.printf("SDNN:          %.2f ms\n", metrics.sdnn);
@@ -43,5 +42,23 @@ public class HrvCalculatorTest {
         System.out.println("==========================================");
 
         assertTrue("RMSSD должен быть больше 0", metrics.rmssd > 0);
+    }
+
+    @Test
+    public void testSlice1_FirstMinute() {
+        // Элементы 0..59 (1-я минута)
+        runSliceTest(0, 60, "ТЕСТ 1: ПЕРВАЯ МИНУТА");
+    }
+
+    @Test
+    public void testSlice2_SecondMinute() {
+        // Элементы 60..119 (2-я минута)
+        runSliceTest(60, 60, "ТЕСТ 2: ВТОРАЯ МИНУТА");
+    }
+
+    @Test
+    public void testSlice3_ThirdMinute() {
+        // Элементы 120..179 (3-я минута)
+        runSliceTest(120, 60, "ТЕСТ 3: ТРЕТЬЯ МИНУТА");
     }
 }
