@@ -107,7 +107,7 @@ public class HrvCalculator {
         }
 
         // 4. Двухпроходный High-Pass Детрендинг (ФВЧ 2-го порядка, 12 дБ/окт)
-        double fc = 0.035;
+        double fc = 0.042;
         double rc = 1.0 / (2.0 * Math.PI * fc);
         double alpha = rc / (rc + dt);
 
