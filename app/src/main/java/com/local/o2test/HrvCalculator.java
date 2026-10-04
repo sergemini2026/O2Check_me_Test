@@ -64,7 +64,7 @@ public class HrvCalculator {
         double artifactPct = ((double) artifacts / rawRrList.size()) * 100.0;
 
         // ==========================================
-        // 2. ВРЕМЕННОЙ АНАЛИЗ (Time-Domain) по cleanRr
+        // 2. ВРЕМЕННОЙ АНАЛИЗ (Time-Domain) с Linear Detrending
         // ==========================================
         
         // --- Mean RR ---
@@ -74,11 +74,26 @@ public class HrvCalculator {
         }
         double meanRr = sumRr / N;
 
-        // --- SDNN ---
+        // --- Linear Detrending для расчета SDNN ---
+        double meanX = (N - 1) / 2.0;
+        double numSlope = 0.0;
+        double denSlope = 0.0;
+
+        for (int i = 0; i < N; i++) {
+            double xDiff = i - meanX;
+            double yDiff = cleanRr.get(i) - meanRr;
+            numSlope += xDiff * yDiff;
+            denSlope += xDiff * xDiff;
+        }
+
+        double slope = (denSlope != 0.0) ? numSlope / denSlope : 0.0;
+
+        // SDNN по отфильтрованному от линейного тренда ряду
         double sumSdnnSq = 0.0;
-        for (double rr : cleanRr) {
-            double diff = rr - meanRr;
-            sumSdnnSq += diff * diff;
+        for (int i = 0; i < N; i++) {
+            double trendValue = meanRr + slope * (i - meanX);
+            double detrendedRr = cleanRr.get(i) - trendValue;
+            sumSdnnSq += detrendedRr * detrendedRr;
         }
         double sdnn = Math.sqrt(sumSdnnSq / (N - 1));
 
