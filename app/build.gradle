@@ -34,6 +34,14 @@ android {
             outputFileName = "O2test.apk"
         }
     }
+    testOptions {
+        unitTests.all {
+            testLogging {
+                events "passed", "failed", "skipped"
+                showStandardStreams = true // Форсирует вывод System.out в консоль CI
+            }
+        }
+    }
 }
 
 dependencies {
