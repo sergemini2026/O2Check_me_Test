@@ -36,7 +36,7 @@ public class HrvCalculator {
             return new Metrics(0, 0, 0, 0, 0, 0, 0, 0, 0);
         }
 
-        // 1. Фильтрация выбросов
+        // 1. Фильтрация выбросов (артефактов)
         List<Double> cleanRr = new ArrayList<>();
         int artifacts = 0;
 
@@ -64,10 +64,6 @@ public class HrvCalculator {
         double artifactPct = ((double) artifacts / rawRrList.size()) * 100.0;
 
         // 2. Временные метрики (Time-Domain)
-        double sum = 0;
-        for (double rr : cleanRr) sum += rr;
-        double meanRr = sum / N;
-
         double sumSqDiff = 0;
         int nn50 = 0;
         for (int i = 0; i < N - 1; i++) {
@@ -79,27 +75,7 @@ public class HrvCalculator {
         double rmssd = Math.sqrt(sumSqDiff / (N - 1));
         double pnn50 = ((double) nn50 / (N - 1)) * 100.0;
 
-        // Линейный детрендинг для SDNN (метод наименьших квадратов)
-        double xMean = (N - 1) / 2.0;
-        double numSlope = 0;
-        double denSlope = 0;
-        for (int i = 0; i < N; i++) {
-            double xDiff = i - xMean;
-            numSlope += xDiff * (cleanRr.get(i) - meanRr);
-            denSlope += xDiff * xDiff;
-        }
-        double slope = denSlope != 0 ? numSlope / denSlope : 0;
-        double intercept = meanRr - slope * xMean;
-
-        double sumVar = 0;
-        for (int i = 0; i < N; i++) {
-            double trend = slope * i + intercept;
-            double detrendedRr = cleanRr.get(i) - trend; // линейно очищенное значение (среднее = 0)
-            sumVar += detrendedRr * detrendedRr;
-        }
-        double sdnn = Math.sqrt(sumVar / (N - 1));
-
-        // 3. Частотный анализ (Frequency-Domain) с 4 Гц ресемплированием
+        // 3. Ресемплирование 4 Гц
         double[] timeStamps = new double[N];
         double currentTime = 0;
         for (int i = 0; i < N; i++) {
@@ -108,9 +84,9 @@ public class HrvCalculator {
         }
 
         double samplingFreq = 4.0;
-        double dt = 1.0 / samplingFreq;
+        double dt = 1.0 / samplingFreq; // 0.25 сек
         int numSamples = (int) Math.floor(currentTime * samplingFreq);
-        
+
         int fftSize = 1;
         while (fftSize < numSamples) fftSize <<= 1;
         if (fftSize < 256) fftSize = 256;
@@ -126,39 +102,37 @@ public class HrvCalculator {
             double t1 = timeStamps[rrIndex + 1];
             double v0 = cleanRr.get(rrIndex);
             double v1 = cleanRr.get(rrIndex + 1);
-            
+
             resampled[i] = v0 + (v1 - v0) * ((t - t0) / (t1 - t0));
         }
-        for (int i = numSamples; i < fftSize; i++) {
-            resampled[i] = meanRr;
+
+        // 4. High-Pass Детрендинг (ФВЧ с частотой среза fc = 0.035 Гц)
+        // Убирает медленный дрейф, VLF и паразитные волны
+        double fc = 0.035;
+        double rc = 1.0 / (2.0 * Math.PI * fc);
+        double alpha = rc / (rc + dt);
+
+        double[] hpFiltered = new double[numSamples];
+        hpFiltered[0] = 0;
+        for (int i = 1; i < numSamples; i++) {
+            hpFiltered[i] = alpha * (hpFiltered[i - 1] + resampled[i] - resampled[i - 1]);
         }
 
-        // Линейный детрендинг ресемплированного сигнала перед БПФ
-        double resXMean = (numSamples - 1) / 2.0;
-        double resYSum = 0;
-        for (int i = 0; i < numSamples; i++) resYSum += resampled[i];
-        double resYMean = resYSum / numSamples;
-
-        double resNumSlope = 0;
-        double resDenSlope = 0;
+        // Расчет корректного SDNN без влияния дрейфа
+        double sumHpSq = 0;
         for (int i = 0; i < numSamples; i++) {
-            double xDiff = i - resXMean;
-            resNumSlope += xDiff * (resampled[i] - resYMean);
-            resDenSlope += xDiff * xDiff;
+            sumHpSq += hpFiltered[i] * hpFiltered[i];
         }
-        double resSlope = resDenSlope != 0 ? resNumSlope / resDenSlope : 0;
-        double resIntercept = resYMean - resSlope * resXMean;
+        double sdnn = Math.sqrt(sumHpSq / (numSamples - 1));
 
+        // 5. Окно Ханна перед БПФ
         double[] detrended = new double[fftSize];
         for (int i = 0; i < numSamples; i++) {
-            double trend = resSlope * i + resIntercept;
-            double detrendedVal = resampled[i] - trend;
-            // Окно Ханна
             double hann = 0.5 * (1 - Math.cos(2 * Math.PI * i / (numSamples - 1)));
-            detrended[i] = detrendedVal * hann;
+            detrended[i] = hpFiltered[i] * hann;
         }
 
-        // БПФ
+        // 6. БПФ (FFT)
         double[] real = detrended;
         double[] imag = new double[fftSize];
         fft(real, imag);
@@ -168,6 +142,7 @@ public class HrvCalculator {
         double lfPower = 0;
         double hfPower = 0;
 
+        // Нормировочный коэффициент с учетом окна Ханна (0.375)
         double normFactor = 2.0 / (numSamples * samplingFreq * 0.375);
 
         for (int i = 0; i < fftSize / 2; i++) {
@@ -176,9 +151,9 @@ public class HrvCalculator {
 
             if (freq >= 0.0033 && freq < 0.04) {
                 vlfPower += power;
-            } else if (freq >= 0.04 && freq < 0.15) { // Строгий диапазон LF: 0.04–0.15 Hz
+            } else if (freq >= 0.04 && freq < 0.15) {
                 lfPower += power;
-            } else if (freq >= 0.15 && freq <= 0.40) { // Строгий диапазон HF: 0.15–0.40 Hz
+            } else if (freq >= 0.15 && freq <= 0.40) {
                 hfPower += power;
             }
         }
