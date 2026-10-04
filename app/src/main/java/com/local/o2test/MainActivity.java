@@ -266,7 +266,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             int elapsedSec = (int) ((now - sessionStartTime) / 1000);
 
             String timestamp = timeFormat.format(new Date(now));
-            DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, currentPolarHr, currentPi);
+            DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, currentPolarHr, currentPi, 0);
 
             sessionData.add(dp);
             runOnUiThread(() -> chartView.addDataPoint(dp));
@@ -310,7 +310,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
                     String timestamp = timeFormat.format(new Date(now));
                     
-                    DataPoint dp = new DataPoint(timestamp, (int) elapsedSec, currentSpo2, currentPolarHr, currentPi);
+                    DataPoint dp = new DataPoint(timestamp, (int) elapsedSec, currentSpo2, currentPolarHr, currentPi, rrMs);
                     sessionData.add(dp);
 
                     
