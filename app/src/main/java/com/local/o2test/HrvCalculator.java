@@ -64,20 +64,13 @@ public class HrvCalculator {
         double artifactPct = ((double) artifacts / rawRrList.size()) * 100.0;
 
         // ==========================================
-        // 2. ВРЕМЕННОЙ АНАЛИЗ (Time-Domain) + Smoothness Priors Detrending
+        // 2. ВРЕМЕННОЙ АНАЛИЗ (Time-Domain)
         // ==========================================
-        
-        // --- Mean RR ---
-        double sumRr = 0.0;
-        for (double rr : cleanRr) {
-            sumRr += rr;
-        }
-        double meanRr = sumRr / N;
 
         // --- Smoothness Priors Detrending (lambda = 500) ---
         double[] zTrend = smoothnessPriorsDetrend(cleanRr, 500.0);
 
-        // SDNN по отфильтрованному от нелинейного тренда ряду
+        // SDNN по отфильтрованному ряду
         double sumDetrended = 0.0;
         for (int i = 0; i < N; i++) {
             sumDetrended += (cleanRr.get(i) - zTrend[i]);
@@ -107,7 +100,9 @@ public class HrvCalculator {
         double rmssd = Math.sqrt(sumDiffSq / totalPairs);
         double pnn50 = ((double) nn50Count / totalPairs) * 100.0;
 
-        // 3. Ресемплирование 4 Гц
+        // ==========================================
+        // 3. РЕСЕМПЛИРОВАНИЕ И ФВЧ (4 Гц)
+        // ==========================================
         double[] timeStamps = new double[N];
         double currentTime = 0;
         for (int i = 0; i < N; i++) {
@@ -119,11 +114,11 @@ public class HrvCalculator {
         double dt = 1.0 / samplingFreq; // 0.25 сек
         int numSamples = (int) Math.floor(currentTime * samplingFreq);
 
-        int fftSize = 1;
-        while (fftSize < numSamples) fftSize <<= 1;
-        if (fftSize < 256) fftSize = 256;
+        if (numSamples < 32) {
+            return new Metrics(rmssd, sdnn, pnn50, 0, 0, 0, 0, artifacts, artifactPct);
+        }
 
-        double[] resampled = new double[fftSize];
+        double[] resampled = new double[numSamples];
         int rrIndex = 0;
         for (int i = 0; i < numSamples; i++) {
             double t = i * dt;
@@ -138,55 +133,88 @@ public class HrvCalculator {
             resampled[i] = v0 + (v1 - v0) * ((t - t0) / (t1 - t0));
         }
 
-        // 4. Двухпроходный High-Pass Детрендинг (ФВЧ 2-го порядка, 12 дБ/окт)
+        // Двухпроходный ФВЧ (fc = 0.042 Гц)
         double fc = 0.042;
         double rc = 1.0 / (2.0 * Math.PI * fc);
         double alpha = rc / (rc + dt);
 
-        // Первый проход ФВЧ
         double[] hpPass1 = new double[numSamples];
         hpPass1[0] = 0;
         for (int i = 1; i < numSamples; i++) {
             hpPass1[i] = alpha * (hpPass1[i - 1] + resampled[i] - resampled[i - 1]);
         }
 
-        // Второй проход ФВЧ (подавляет утечку VLF с крутизной 12 дБ/окт)
         double[] hpFiltered = new double[numSamples];
         hpFiltered[0] = 0;
         for (int i = 1; i < numSamples; i++) {
             hpFiltered[i] = alpha * (hpFiltered[i - 1] + hpPass1[i] - hpPass1[i - 1]);
         }
 
-        // 5. Окно Ханна перед БПФ
-        double[] detrended = new double[fftSize];
-        for (int i = 0; i < numSamples; i++) {
-            double hann = 0.5 * (1 - Math.cos(2 * Math.PI * i / (numSamples - 1)));
-            detrended[i] = hpFiltered[i] * hann;
+        // ==========================================
+        // 4. СПЕКТРАЛЬНЫЙ АНАЛИЗ ПО МЕТОДУ УЭЛЧА (Welch's Method)
+        // ==========================================
+        int segmentLength = 128; // 32 секунды при 4 Гц
+        if (numSamples < segmentLength) {
+            segmentLength = numSamples;
+        }
+        int overlap = segmentLength / 2; // 50% перекрытие (16 сек)
+        int step = segmentLength - overlap;
+
+        int fftSize = 256; // Нуль-дополнение (Zero Padding) для плавности спектра
+
+        // Мощность окна Ханна для нормализации
+        double hannPowerSum = 0;
+        double[] hannWindow = new double[segmentLength];
+        for (int i = 0; i < segmentLength; i++) {
+            hannWindow[i] = 0.5 * (1.0 - Math.cos(2.0 * Math.PI * i / (segmentLength - 1)));
+            hannPowerSum += hannWindow[i] * hannWindow[i];
         }
 
-        // 6. БПФ (FFT)
-        double[] real = detrended;
-        double[] imag = new double[fftSize];
-        fft(real, imag);
+        double[] avgPsd = new double[fftSize / 2];
+        int segmentCount = 0;
 
+        for (int start = 0; start + segmentLength <= numSamples; start += step) {
+            double[] real = new double[fftSize];
+            double[] imag = new double[fftSize];
+
+            for (int i = 0; i < segmentLength; i++) {
+                real[i] = hpFiltered[start + i] * hannWindow[i];
+            }
+
+            fft(real, imag);
+
+            double df = samplingFreq / fftSize;
+            double norm = 2.0 / (samplingFreq * hannPowerSum);
+
+            for (int k = 0; k < fftSize / 2; k++) {
+                double power = (real[k] * real[k] + imag[k] * imag[k]) * norm;
+                avgPsd[k] += power;
+            }
+            segmentCount++;
+        }
+
+        if (segmentCount == 0) {
+            // Если длина меньше одного окна, берем весь массив
+            segmentCount = 1;
+        }
+
+        // Усреднение спектра по всем сегментам
         double df = samplingFreq / fftSize;
         double vlfPower = 0;
         double lfPower = 0;
         double hfPower = 0;
 
-        // Нормировочный коэффициент с учетом окна Ханна (0.375)
-        double normFactor = 2.0 / (numSamples * samplingFreq * 0.375);
-
-        for (int i = 0; i < fftSize / 2; i++) {
-            double freq = i * df;
-            double power = (real[i] * real[i] + imag[i] * imag[i]) * normFactor * df;
+        for (int k = 0; k < fftSize / 2; k++) {
+            avgPsd[k] /= segmentCount;
+            double freq = k * df;
+            double bandPower = avgPsd[k] * df;
 
             if (freq >= 0.0033 && freq < 0.04) {
-                vlfPower += power;
+                vlfPower += bandPower;
             } else if (freq >= 0.04 && freq < 0.15) {
-                lfPower += power;
+                lfPower += bandPower;
             } else if (freq >= 0.15 && freq <= 0.40) {
-                hfPower += power;
+                hfPower += bandPower;
             }
         }
 
@@ -196,11 +224,6 @@ public class HrvCalculator {
         return new Metrics(rmssd, sdnn, pnn50, lfPower, hfPower, totalPower, lfHfRatio, artifacts, artifactPct);
     }
 
-    /**
-     * Smoothness Priors Detrending (Tarvainen et al., 2002)
-     * Быстрое решение системы (I + lambda^2 * D2^T * D2) * z_trend = y
-     * с помощью LDL^T разложения ленточной (пятидиагональной) матрицы за O(N).
-     */
     private static double[] smoothnessPriorsDetrend(List<Double> y, double lambda) {
         int N = y.size();
         double[] zTrend = new double[N];
@@ -211,10 +234,9 @@ public class HrvCalculator {
 
         double alpha = lambda * lambda;
 
-        // Диагонали матрицы A = I + alpha * D2^T * D2
-        double[] d = new double[N];     // Главная диагональ
-        double[] e = new double[N - 1]; // 1-я побочная диагональ
-        double[] f = new double[N - 2]; // 2-я побочная диагональ
+        double[] d = new double[N];
+        double[] e = new double[N - 1];
+        double[] f = new double[N - 2];
 
         for (int i = 0; i < N; i++) {
             if (i == 0 || i == N - 1) {
@@ -238,36 +260,28 @@ public class HrvCalculator {
             f[i] = alpha;
         }
 
-        // LDL^T разложение пятидиагональной матрицы
         double[] dL = new double[N];
         double[] l1 = new double[N - 1];
         double[] l2 = new double[N - 2];
 
         for (int i = 0; i < N; i++) {
             double sumD = d[i];
-            if (i >= 1) {
-                sumD -= l1[i - 1] * l1[i - 1] * dL[i - 1];
-            }
-            if (i >= 2) {
-                sumD -= l2[i - 2] * l2[i - 2] * dL[i - 2];
-            }
+            if (i >= 1) sumD -= l1[i - 1] * l1[i - 1] * dL[i - 1];
+            if (i >= 2) sumD -= l2[i - 2] * l2[i - 2] * dL[i - 2];
             dL[i] = sumD;
 
             if (i < N - 1) {
                 double sumL1 = e[i];
-                if (i >= 1) {
-                    sumL1 -= l2[i - 1] * l1[i - 1] * dL[i - 1];
-                }
+                if (i >= 1) sumL1 -= l2[i - 1] * l1[i - 1] * dL[i - 1];
                 l1[i] = sumL1 / dL[i];
             }
 
             if (i < N - 2) {
-                double sumL2 = f[i];
-                l2[i] = sumL2 / dL[i];
+                f[i] = f[i];
+                l2[i] = f[i] / dL[i];
             }
         }
 
-        // 1. Прямой ход: L * w = y
         double[] w = new double[N];
         for (int i = 0; i < N; i++) {
             double val = y.get(i);
@@ -276,13 +290,11 @@ public class HrvCalculator {
             w[i] = val;
         }
 
-        // 2. Диагональное деление: D * v = w
         double[] v = new double[N];
         for (int i = 0; i < N; i++) {
             v[i] = w[i] / dL[i];
         }
 
-        // 3. Обратный ход: L^T * z_trend = v
         for (int i = N - 1; i >= 0; i--) {
             double val = v[i];
             if (i < N - 1) val -= l1[i] * zTrend[i + 1];
@@ -332,6 +344,7 @@ public class HrvCalculator {
                     imag[u] += vI;
 
                     double nextWR = wR * wlenR - wI * wlenI;
+                    nextWR = wR * wlenR - wI * wlenI;
                     double nextWI = wR * wlenI + wI * wlenR;
                     wR = nextWR;
                     wI = nextWI;
@@ -361,5 +374,4 @@ public class HrvCalculator {
         }
         return rrList;
     }
-                        }
-                            
+}
