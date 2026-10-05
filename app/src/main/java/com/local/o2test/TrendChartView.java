@@ -15,19 +15,12 @@ import java.util.Locale;
 
 public class TrendChartView extends View {
     private final List<DataPoint> points = new ArrayList<>();
-
-    // Кольцевой буфер для PPG (125 Гц * 4 сек = 500 отсчетов)
-    private static final int PPG_BUFFER_SIZE = 500;
-    private final float[] ppgBuffer = new float[PPG_BUFFER_SIZE];
-    private int ppgCount = 0;
-
     private final Paint paintGrid = new Paint();
     private final Paint paintText = new Paint();
     private final Paint paintSubText = new Paint();
     private final Paint paintSpO2 = new Paint();
     private final Paint paintHR = new Paint();
     private final Paint paintPI = new Paint();
-    private final Paint paintPPG = new Paint();
     private final Paint paintCursor = new Paint();
     private final Paint paintTooltipBg = new Paint();
 
@@ -69,12 +62,6 @@ public class TrendChartView extends View {
         paintPI.setStyle(Paint.Style.STROKE);
         paintPI.setAntiAlias(true);
 
-        // Пурпурный / фиолетовый цвет для PPG волны
-        paintPPG.setColor(Color.parseColor("#E040FB"));
-        paintPPG.setStrokeWidth(3f);
-        paintPPG.setStyle(Paint.Style.STROKE);
-        paintPPG.setAntiAlias(true);
-
         paintCursor.setColor(Color.WHITE);
         paintCursor.setStrokeWidth(2f);
         paintCursor.setAntiAlias(true);
@@ -88,24 +75,8 @@ public class TrendChartView extends View {
         invalidate();
     }
 
-    /**
-     * Добавление пакета сырых отсчетов PPG (125 Гц)
-     */
-    public void addPpgSamples(int[] samples) {
-        for (int sample : samples) {
-            if (ppgCount < PPG_BUFFER_SIZE) {
-                ppgBuffer[ppgCount++] = sample;
-            } else {
-                System.arraycopy(ppgBuffer, 1, ppgBuffer, 0, PPG_BUFFER_SIZE - 1);
-                ppgBuffer[PPG_BUFFER_SIZE - 1] = sample;
-            }
-        }
-        invalidate();
-    }
-
     public void clearData() {
         points.clear();
-        ppgCount = 0;
         touchX = null;
         invalidate();
     }
@@ -141,13 +112,6 @@ public class TrendChartView extends View {
 
         float availableH = h - topPad - bottomPad;
         float zoneH = availableH / 3f;
-
-        // Разделение нижней трети графика на две подзоны (PI и PPG)
-        float subZoneH = zoneH / 2f;
-        float piZoneTop = topPad + 2 * zoneH;
-        float piZoneBottom = piZoneTop + subZoneH;
-        float ppgZoneBottom = topPad + 3 * zoneH;
-
         float plotW = w - leftPad - rightPad;
 
         // СКОЛЬЗЯЩЕЕ ОКНО (Показываем только последние 5 минут = 300 секунд)
@@ -157,7 +121,7 @@ public class TrendChartView extends View {
         float endSec = Math.max(startSec + VIEW_WINDOW_SEC, 60f);
         float timeRange = endSec - startSec;
 
-        // 1. Сетка SpO2 (Верхняя треть)
+        // 1. Сетка SpO2
         int[] o2Ticks = {100, 95, 90, 85, 80};
         for (int val : o2Ticks) {
             float ratio = (val - 80f) / (100f - 80f);
@@ -166,7 +130,7 @@ public class TrendChartView extends View {
             canvas.drawText(val + "%", leftPad + 5f, y + 5f, paintSubText);
         }
 
-        // 2. Расчет ДИНАМИЧЕСКОГО масштаба оси Y для ЧСС только для ВИДИМЫХ точек (Средняя треть)
+        // 2. Расчет ДИНАМИЧЕСКОГО масштаба оси Y для ЧСС только для ВИДИМЫХ точек
         float minHR = Float.MAX_VALUE;
         float maxHR = Float.MIN_VALUE;
 
@@ -197,17 +161,14 @@ public class TrendChartView extends View {
             canvas.drawText(String.format(Locale.US, "%.0f", val), leftPad + 5f, y + 5f, paintSubText);
         }
 
-        // 3. Сетка PI (Сжата в верхнюю половину нижней трети)
+        // 3. Сетка PI
         int[] piTicks = {2, 1, 0};
         for (int val : piTicks) {
             float ratio = (val - 0f) / (2f - 0f);
-            float y = piZoneBottom - ratio * subZoneH;
+            float y = (topPad + 3 * zoneH) - ratio * zoneH;
             canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
             canvas.drawText(val + "%", leftPad + 5f, y + 5f, paintSubText);
         }
-
-        // Линия-разделитель между подзоной PI и подзоной PPG
-        canvas.drawLine(leftPad, piZoneBottom, w - rightPad, piZoneBottom, paintGrid);
 
         // 4. Временная шкала со скользящим окном
         float timeStepSec = 60f; 
@@ -216,116 +177,82 @@ public class TrendChartView extends View {
         for (float t = firstGrid; t <= endSec; t += timeStepSec) {
             float x = leftPad + ((t - startSec) / timeRange) * plotW;
             if (x > w - rightPad) break;
-            canvas.drawLine(x, topPad, x, ppgZoneBottom, paintGrid);
+            canvas.drawLine(x, topPad, x, topPad + 3 * zoneH, paintGrid);
 
             int mins = (int) (t / 60);
             String label = mins + "m";
             canvas.drawText(label, x - 10f, h - 6f, paintSubText);
         }
 
-        // Вывод названий параметров по оси Y
         paintText.setColor(Color.CYAN); canvas.drawText("O2", 15f, topPad + zoneH * 0.55f, paintText);
         paintText.setColor(Color.GREEN); canvas.drawText("Pulse", 15f, topPad + zoneH * 1.55f, paintText);
-        paintText.setColor(Color.YELLOW); canvas.drawText("PI", 15f, piZoneTop + subZoneH * 0.55f, paintText);
-        paintText.setColor(Color.parseColor("#E040FB")); canvas.drawText("PPG", 15f, piZoneBottom + subZoneH * 0.55f, paintText);
+        paintText.setColor(Color.YELLOW); canvas.drawText("PI", 15f, topPad + zoneH * 2.55f, paintText);
 
-        if (points.isEmpty() && ppgCount == 0) return;
+        if (points.isEmpty()) return;
 
-        // Вывод текущих (последних) значений справа
-        if (!points.isEmpty()) {
-            DataPoint last = points.get(points.size() - 1);
-            paintText.setColor(Color.CYAN); canvas.drawText(last.spo2 + "%", w - rightPad + 15f, topPad + zoneH * 0.55f, paintText);
-            paintText.setColor(Color.GREEN); canvas.drawText(last.hr + "", w - rightPad + 15f, topPad + zoneH * 1.55f, paintText);
-            paintText.setColor(Color.YELLOW); canvas.drawText(String.format(Locale.US, "%.1f%%", last.pi), w - rightPad + 15f, piZoneTop + subZoneH * 0.55f, paintText);
-        }
+        DataPoint last = points.get(points.size() - 1);
+        paintText.setColor(Color.CYAN); canvas.drawText(last.spo2 + "%", w - rightPad + 15f, topPad + zoneH * 0.55f, paintText);
+        paintText.setColor(Color.GREEN); canvas.drawText(last.hr + "", w - rightPad + 15f, topPad + zoneH * 1.55f, paintText);
+        paintText.setColor(Color.YELLOW); canvas.drawText(String.format(Locale.US, "%.1f%%", last.pi), w - rightPad + 15f, topPad + zoneH * 2.55f, paintText);
 
-        // Обрезаем холст, чтобы графики не вылезали за пределы координатной сетки
+        if (points.size() < 2) return;
+
+        Path pathSpO2 = new Path();
+        Path pathHR = new Path();
+        Path pathPI = new Path();
+
+        float prevX = 0, prevYSpO2 = 0, prevYPI = 0;
+        boolean firstPoint = true;
+
+        // Обрезаем холст, чтобы график не вылезал на зоны текста при прокрутке окна
         canvas.save();
         canvas.clipRect(leftPad, topPad, w - rightPad, h - bottomPad);
 
-        // A. Отрисовка трендов SpO2, HR, PI
-        if (points.size() >= 2) {
-            Path pathSpO2 = new Path();
-            Path pathHR = new Path();
-            Path pathPI = new Path();
+        for (int i = 0; i < points.size(); i++) {
+            DataPoint dp = points.get(i);
+            if (dp.elapsedSec < startSec) continue; // Пропускаем точки левее экрана
 
-            float prevX = 0, prevYSpO2 = 0, prevYPI = 0;
-            boolean firstPoint = true;
+            float x = leftPad + ((dp.elapsedSec - startSec) / timeRange) * plotW;
+            
+            float normSpO2 = (Math.max(80f, Math.min(100f, (float) dp.spo2)) - 80f) / 20f;
+            float ySpO2 = (topPad + zoneH) - (normSpO2 * zoneH);
 
-            for (int i = 0; i < points.size(); i++) {
-                DataPoint dp = points.get(i);
-                if (dp.elapsedSec < startSec) continue;
+            float normHR = (Math.max(minHR, Math.min(maxHR, (float) dp.hr)) - minHR) / (maxHR - minHR);
+            float yHR = (topPad + 2 * zoneH) - (normHR * zoneH);
 
-                float x = leftPad + ((dp.elapsedSec - startSec) / timeRange) * plotW;
+            float normPI = (Math.max(0f, Math.min(2f, dp.pi)) - 0f) / 2f;
+            float yPI = (topPad + 3 * zoneH) - (normPI * zoneH);
 
-                float normSpO2 = (Math.max(80f, Math.min(100f, (float) dp.spo2)) - 80f) / 20f;
-                float ySpO2 = (topPad + zoneH) - (normSpO2 * zoneH);
+            if (firstPoint) {
+                pathSpO2.moveTo(x, ySpO2);
+                pathHR.moveTo(x, yHR);
+                pathPI.moveTo(x, yPI);
+                firstPoint = false;
+            } else {
+                float midX = (prevX + x) / 2f;
+                float midYSpO2 = (prevYSpO2 + ySpO2) / 2f;
+                float midYPI = (prevYPI + yPI) / 2f;
 
-                float normHR = (Math.max(minHR, Math.min(maxHR, (float) dp.hr)) - minHR) / (maxHR - minHR);
-                float yHR = (topPad + 2 * zoneH) - (normHR * zoneH);
-
-                float normPI = (Math.max(0f, Math.min(2f, dp.pi)) - 0f) / 2f;
-                float yPI = piZoneBottom - (normPI * subZoneH);
-
-                if (firstPoint) {
-                    pathSpO2.moveTo(x, ySpO2);
-                    pathHR.moveTo(x, yHR);
-                    pathPI.moveTo(x, yPI);
-                    firstPoint = false;
-                } else {
-                    float midX = (prevX + x) / 2f;
-                    float midYSpO2 = (prevYSpO2 + ySpO2) / 2f;
-                    float midYPI = (prevYPI + yPI) / 2f;
-
-                    pathSpO2.quadTo(prevX, prevYSpO2, midX, midYSpO2);
-                    pathPI.quadTo(prevX, prevYPI, midX, midYPI);
-                    pathHR.lineTo(x, yHR);
-                }
-                prevX = x; prevYSpO2 = ySpO2; prevYPI = yPI;
+                pathSpO2.quadTo(prevX, prevYSpO2, midX, midYSpO2);
+                pathPI.quadTo(prevX, prevYPI, midX, midYPI);
+                pathHR.lineTo(x, yHR); // Пульс прямыми линиями
             }
-
-            if (!firstPoint) {
-                pathSpO2.lineTo(prevX, prevYSpO2);
-                pathPI.lineTo(prevX, prevYPI);
-            }
-
-            canvas.drawPath(pathSpO2, paintSpO2);
-            canvas.drawPath(pathHR, paintHR);
-            canvas.drawPath(pathPI, paintPI);
+            prevX = x; prevYSpO2 = ySpO2; prevYPI = yPI;
         }
 
-        // B. Отрисовка сырой PPG-волны с Авто-Усилением (Auto-Gain)
-        if (ppgCount > 1) {
-            Path pathPPG = new Path();
-            float minPpg = Float.MAX_VALUE;
-            float maxPpg = -Float.MAX_VALUE;
-
-            for (int i = 0; i < ppgCount; i++) {
-                if (ppgBuffer[i] < minPpg) minPpg = ppgBuffer[i];
-                if (ppgBuffer[i] > maxPpg) maxPpg = ppgBuffer[i];
-            }
-
-            float ppgRange = (maxPpg - minPpg < 1f) ? 1f : (maxPpg - minPpg);
-            float stepX = plotW / (PPG_BUFFER_SIZE - 1);
-
-            for (int i = 0; i < ppgCount; i++) {
-                float x = leftPad + (i * stepX);
-                float normVal = (ppgBuffer[i] - minPpg) / ppgRange;
-
-                float y = (ppgZoneBottom - 0.05f * subZoneH) - (normVal * 0.90f * subZoneH);
-
-                if (i == 0) pathPPG.moveTo(x, y);
-                else pathPPG.lineTo(x, y);
-            }
-
-            canvas.drawPath(pathPPG, paintPPG);
+        if (!firstPoint) {
+            pathSpO2.lineTo(prevX, prevYSpO2);
+            pathPI.lineTo(prevX, prevYPI);
         }
 
+        canvas.drawPath(pathSpO2, paintSpO2);
+        canvas.drawPath(pathHR, paintHR);
+        canvas.drawPath(pathPI, paintPI);
+        
         canvas.restore(); // Снимаем обрезку холста
 
-        // Интерактивный курсор касания
         if (touchX != null && touchX >= leftPad && touchX <= w - rightPad) {
-            canvas.drawLine(touchX, topPad, touchX, ppgZoneBottom, paintCursor);
+            canvas.drawLine(touchX, topPad, touchX, topPad + 3 * zoneH, paintCursor);
 
             float touchRatio = (touchX - leftPad) / plotW;
             float targetSec = startSec + (touchRatio * timeRange);
@@ -356,4 +283,4 @@ public class TrendChartView extends View {
             }
         }
     }
-            }
+}
