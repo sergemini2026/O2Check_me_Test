@@ -44,9 +44,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
 
-    private int currentSpo2 = 95;
-    private float currentPi = 0.3f;
-    private int currentBattery = 100;
+    private int currentSpo2 = 0;
+    private float currentPi = 0.0f;
+    private int currentBattery = 0;
     private int currentPolarHr = 0; // Мгновенная ЧСС от H10
     private int prevRrMs = 0; // Трекер для фильтрации артефактов на графике
 
@@ -194,9 +194,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private void startMonitoringPanel() {
         isRecording = true;
         sessionStartTime = System.currentTimeMillis();
-        sessionData.clear();
+        synchronized (sessionData) {
+            sessionData.clear();
+        }
         piWindow.clear();
-        prevRrMs = 0; // Сброс трекинга артефактов
+        prevRrMs = 0;
         if (chartView != null) {
             chartView.clearData();
         }
@@ -211,7 +213,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private void saveData() {
         onLog("Сохранение данных...");
-        CsvExporter.saveSessionToCsv(this, sessionData, new CsvExporter.ExportCallback() {
+        List<DataPoint> copyForExport;
+        synchronized (sessionData) {
+            copyForExport = new ArrayList<>(sessionData);
+        }
+        CsvExporter.saveSessionToCsv(this, copyForExport, new CsvExporter.ExportCallback() {
             @Override
             public void onSuccess(String filePath, String fileName) {
                 onLog("Успешно сохранено: " + fileName);
@@ -259,16 +265,22 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         currentPi = smoothedPi;
         currentBattery = res.battery;
 
-        runOnUiThread(() -> updateStatusHeader(currentSpo2, currentPolarHr, currentPi, currentBattery));
+        boolean isPolarActive = polarManager != null && polarManager.isConnected();
+        int hrToDisplay = isPolarActive ? currentPolarHr : res.hr;
 
-        if (res.isFingerOn && isRecording) {
+        runOnUiThread(() -> updateStatusHeader(currentSpo2, hrToDisplay, currentPi, currentBattery));
+
+        // Если Polar H10 НЕ подключен, драйвером записи становится O2-датчик
+        if (!isPolarActive && res.isFingerOn && isRecording) {
             if (sessionStartTime == 0) sessionStartTime = now;
             int elapsedSec = (int) ((now - sessionStartTime) / 1000);
 
             String timestamp = timeFormat.format(new Date(now));
-            DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, currentPolarHr, currentPi, 0);
+            DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, res.hr, currentPi, 0);
 
-            sessionData.add(dp);
+            synchronized (sessionData) {
+                sessionData.add(dp);
+            }
             runOnUiThread(() -> chartView.addDataPoint(dp));
         }
     }
@@ -289,32 +301,30 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         @Override
         public void onRrReceived(int rrMs, float instantHr) {
             if (isRecording) {
-                // Жесткая фильтрация артефактов для графика (Malik 20% Threshold)
+                // Фильтрация артефактов для графика (Malik 20% Threshold)
                 boolean isArtifact = false;
                 if (prevRrMs > 0) {
-                    if (Math.abs(rrMs - prevRrMs) / (float)prevRrMs > 0.20) {
+                    if (Math.abs(rrMs - prevRrMs) / (float) prevRrMs > 0.20) {
                         isArtifact = true;
                         onLog("[АРТЕФАКТ] Скачок RR: " + prevRrMs + "мс -> " + rrMs + "мс. Исключен из графика.");
                     }
                 }
 
                 if (!isArtifact) {
-                    prevRrMs = rrMs; // Запоминаем только чистый интервал
-                    currentPolarHr = Math.round(instantHr); 
+                    prevRrMs = rrMs;
+                    currentPolarHr = Math.round(instantHr);
 
                     long now = System.currentTimeMillis();
                     if (sessionStartTime == 0) sessionStartTime = now;
-                    
-                    // Используем float для миллисекундной точности на графике
-                    float elapsedSec = (now - sessionStartTime) / 1000f; 
 
+                    float elapsedSec = (now - sessionStartTime) / 1000f;
                     String timestamp = timeFormat.format(new Date(now));
-                    
-                    DataPoint dp = new DataPoint(timestamp, (int) elapsedSec, currentSpo2, currentPolarHr, currentPi, rrMs);
-                    sessionData.add(dp);
 
-                    
-                    
+                    DataPoint dp = new DataPoint(timestamp, (int) elapsedSec, currentSpo2, currentPolarHr, currentPi, rrMs);
+
+                    synchronized (sessionData) {
+                        sessionData.add(dp);
+                    }
 
                     runOnUiThread(() -> {
                         updateStatusHeader(currentSpo2, currentPolarHr, currentPi, currentBattery);
