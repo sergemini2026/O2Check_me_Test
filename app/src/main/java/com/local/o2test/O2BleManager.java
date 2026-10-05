@@ -42,7 +42,7 @@ public class O2BleManager {
     private BluetoothLeScanner scanner;
     private BluetoothGatt bluetoothGatt;
     private BluetoothGattCharacteristic writeChar;
-
+    
     private final Set<String> discoveredDevices = new HashSet<>();
     private final Set<String> discoveredPolarDevices = new HashSet<>();
     private boolean isConnecting = false;
@@ -96,19 +96,24 @@ public class O2BleManager {
                     boolean isO2 = name.contains("O2") || name.contains("Viatom") || name.contains("Checkme");
                     boolean isPolar = name.contains("Polar") || name.contains("H10");
 
+                    // 1. Игнорируем сторонние устройства (Xiaomi, SmartTV и т.д.)
                     if (!isO2 && !isPolar) {
                         return;
                     }
 
+                    // 2. Логируем только наши целевые устройства при первичном обнаружении
                     if (discoveredDevices.add(address)) {
                         listener.onLog("Найдено целевое устройство: " + name + " [" + address + "]");
                     }
 
+                    // 3. Подключение к датчику O2
                     if (isO2 && !isConnecting) {
                         isConnecting = true;
                         listener.onLog(">>> ДАТЧИК O2 ОБНАРУЖЕН: " + name + " <<<");
                         connectToDevice(device);
-                    } else if (isPolar) {
+                    } 
+                    // 4. Передача Polar H10 (СТРОГО ОДИН РАЗ на каждый MAC-адрес)
+                    else if (isPolar) {
                         if (discoveredPolarDevices.add(address)) {
                             listener.onLog("Найден Polar H10 [" + address + "]. Инициализация подключения...");
                             listener.onPolarDeviceFound(device);
@@ -185,22 +190,12 @@ public class O2BleManager {
     private synchronized void handleIncomingChunk(byte[] chunk) {
         if (chunk == null || chunk.length == 0) return;
 
-        int header = chunk[0] & 0xFF;
-        if (header == 0x55 || header == 0xAA) {
+        if ((chunk[0] & 0xFF) == 0x55) {
             packetBuffer.reset();
         }
 
         packetBuffer.write(chunk, 0, chunk.length);
         byte[] fullData = packetBuffer.toByteArray();
-
-        // Проверка на входящий PPG пакет (команда 0x14)
-        if (fullData.length >= 2 && (fullData[1] & 0xFF) == 0x14) {
-            if (fullData.length >= 8) {
-                listener.onDataReceived(fullData);
-                packetBuffer.reset();
-            }
-            return;
-        }
 
         if (fullData.length >= 21) {
             listener.onDataReceived(fullData);
@@ -215,8 +210,7 @@ public class O2BleManager {
             @Override
             public void run() {
                 sendRtDataRequest();
-                sendPpgRequest();
-                timerHandler.postDelayed(this, 1000);
+                timerHandler.postDelayed(this, 3000);
             }
         };
         timerHandler.post(timerRunnable);
@@ -243,6 +237,7 @@ public class O2BleManager {
             byte[] cmd = new byte[]{(byte) 0xAA, 0x14, (byte) 0xEB, 0x00, 0x00, 0x00, 0x00, 0x18};
             writeChar.setValue(cmd);
             bluetoothGatt.writeCharacteristic(writeChar);
+            listener.onLog(">>> Отправлен запрос PPG (0x14) <<<");
         } catch (SecurityException ignored) {}
     }
 
