@@ -15,7 +15,7 @@ import java.util.Locale;
 
 public class TrendChartView extends View {
     private final List<DataPoint> points = new ArrayList<>();
-    
+
     // Кольцевой буфер для PPG (125 Гц * 4 сек = 500 отсчетов)
     private static final int PPG_BUFFER_SIZE = 500;
     private final float[] ppgBuffer = new float[PPG_BUFFER_SIZE];
@@ -69,7 +69,7 @@ public class TrendChartView extends View {
         paintPI.setStyle(Paint.Style.STROKE);
         paintPI.setAntiAlias(true);
 
-        // Пурпурный/Фиолетовый цвет для PPG волны
+        // Пурпурный / фиолетовый цвет для PPG волны
         paintPPG.setColor(Color.parseColor("#E040FB"));
         paintPPG.setStrokeWidth(3f);
         paintPPG.setStyle(Paint.Style.STROKE);
@@ -96,7 +96,6 @@ public class TrendChartView extends View {
             if (ppgCount < PPG_BUFFER_SIZE) {
                 ppgBuffer[ppgCount++] = sample;
             } else {
-                // Сдвиг кольцевого буфера
                 System.arraycopy(ppgBuffer, 1, ppgBuffer, 0, PPG_BUFFER_SIZE - 1);
                 ppgBuffer[PPG_BUFFER_SIZE - 1] = sample;
             }
@@ -142,7 +141,7 @@ public class TrendChartView extends View {
 
         float availableH = h - topPad - bottomPad;
         float zoneH = availableH / 3f;
-        
+
         // Разделение нижней трети графика на две подзоны (PI и PPG)
         float subZoneH = zoneH / 2f;
         float piZoneTop = topPad + 2 * zoneH;
@@ -207,7 +206,7 @@ public class TrendChartView extends View {
             canvas.drawText(val + "%", leftPad + 5f, y + 5f, paintSubText);
         }
 
-        // Линия-разделитель между PI и PPG
+        // Линия-разделитель между подзоной PI и подзоной PPG
         canvas.drawLine(leftPad, piZoneBottom, w - rightPad, piZoneBottom, paintGrid);
 
         // 4. Временная шкала со скользящим окном
@@ -228,10 +227,7 @@ public class TrendChartView extends View {
         paintText.setColor(Color.CYAN); canvas.drawText("O2", 15f, topPad + zoneH * 0.55f, paintText);
         paintText.setColor(Color.GREEN); canvas.drawText("Pulse", 15f, topPad + zoneH * 1.55f, paintText);
         paintText.setColor(Color.YELLOW); canvas.drawText("PI", 15f, piZoneTop + subZoneH * 0.55f, paintText);
-        
-        // Метка PPG в фиолетовом цвете
-        paintText.setColor(Color.parseColor("#E040FB")); 
-        canvas.drawText("PPG", 15f, piZoneBottom + subZoneH * 0.55f, paintText);
+        paintText.setColor(Color.parseColor("#E040FB")); canvas.drawText("PPG", 15f, piZoneBottom + subZoneH * 0.55f, paintText);
 
         if (points.isEmpty() && ppgCount == 0) return;
 
@@ -243,11 +239,11 @@ public class TrendChartView extends View {
             paintText.setColor(Color.YELLOW); canvas.drawText(String.format(Locale.US, "%.1f%%", last.pi), w - rightPad + 15f, piZoneTop + subZoneH * 0.55f, paintText);
         }
 
-        // --- ОБРЕЗКА ХОЛСТА ДЛЯ ТРЕНДОВ И PPG ---
+        // Обрезаем холст, чтобы графики не вылезали за пределы координатной сетки
         canvas.save();
         canvas.clipRect(leftPad, topPad, w - rightPad, h - bottomPad);
 
-        // A. Отрисовка трендов SpO2, HR, PI (5 минут)
+        // A. Отрисовка трендов SpO2, HR, PI
         if (points.size() >= 2) {
             Path pathSpO2 = new Path();
             Path pathHR = new Path();
@@ -261,7 +257,7 @@ public class TrendChartView extends View {
                 if (dp.elapsedSec < startSec) continue;
 
                 float x = leftPad + ((dp.elapsedSec - startSec) / timeRange) * plotW;
-                
+
                 float normSpO2 = (Math.max(80f, Math.min(100f, (float) dp.spo2)) - 80f) / 20f;
                 float ySpO2 = (topPad + zoneH) - (normSpO2 * zoneH);
 
@@ -298,7 +294,7 @@ public class TrendChartView extends View {
             canvas.drawPath(pathPI, paintPI);
         }
 
-        // B. Отрисовка сырой PPG-волны с Авто-Усилением (4 секунды)
+        // B. Отрисовка сырой PPG-волны с Авто-Усилением (Auto-Gain)
         if (ppgCount > 1) {
             Path pathPPG = new Path();
             float minPpg = Float.MAX_VALUE;
@@ -315,8 +311,7 @@ public class TrendChartView extends View {
             for (int i = 0; i < ppgCount; i++) {
                 float x = leftPad + (i * stepX);
                 float normVal = (ppgBuffer[i] - minPpg) / ppgRange;
-                
-                // 5% отступа сверху и снизу подзоны для предотвращения среза пиков
+
                 float y = (ppgZoneBottom - 0.05f * subZoneH) - (normVal * 0.90f * subZoneH);
 
                 if (i == 0) pathPPG.moveTo(x, y);
@@ -361,5 +356,4 @@ public class TrendChartView extends View {
             }
         }
     }
-    }
-    
+            }
