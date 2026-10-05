@@ -49,6 +49,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private int currentBattery = 0;
     private int currentPolarHr = 0; // Мгновенная ЧСС от H10
     private int prevRrMs = 0; // Трекер для фильтрации артефактов на графике
+    private int consecutiveArtifactsCount = 0; // Счетчик подряд идущих артефактов
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -199,6 +200,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
         piWindow.clear();
         prevRrMs = 0;
+        consecutiveArtifactsCount = 0;
         if (chartView != null) {
             chartView.clearData();
         }
@@ -301,16 +303,21 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         @Override
         public void onRrReceived(int rrMs, float instantHr) {
             if (isRecording) {
-                // Фильтрация артефактов для графика (Malik 20% Threshold)
+                // Фильтрация артефактов для графика (Malik 20% Threshold + защита от застревания)
                 boolean isArtifact = false;
                 if (prevRrMs > 0) {
                     if (Math.abs(rrMs - prevRrMs) / (float) prevRrMs > 0.20) {
-                        isArtifact = true;
-                        onLog("[АРТЕФАКТ] Скачок RR: " + prevRrMs + "мс -> " + rrMs + "мс. Исключен из графика.");
+                        consecutiveArtifactsCount++;
+                        // Если подряд идет менее 3 скачков — считаем артефактом. Если 3 и более — принимаем новую ЧСС.
+                        if (consecutiveArtifactsCount < 3) {
+                            isArtifact = true;
+                            onLog("[АРТЕФАКТ] Скачок RR: " + prevRrMs + "мс -> " + rrMs + "мс. Исключен из графика.");
+                        }
                     }
                 }
 
                 if (!isArtifact) {
+                    consecutiveArtifactsCount = 0;
                     prevRrMs = rrMs;
                     currentPolarHr = Math.round(instantHr);
 
@@ -375,4 +382,4 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             polarManager.disconnect();
         }
     }
-}
+    }
