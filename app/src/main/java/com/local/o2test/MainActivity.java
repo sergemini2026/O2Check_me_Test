@@ -336,17 +336,30 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         @Override
         public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
-            if (hrv == null) return;
+            int totalTarget = 300;
+            float percent = Math.min(100.0f, (rrCount / (float) totalTarget) * 100.0f);
+            int remainingBeats = Math.max(0, totalTarget - rrCount);
 
-            if (rrCount < 60) {
+            // Расчет оставшегося времени до конца дампа (на основе пульса)
+            int remainingSec = 0;
+            if (hr > 0 && remainingBeats > 0) {
+                remainingSec = (int) Math.round((remainingBeats * 60.0) / hr);
+            }
+            int remMin = remainingSec / 60;
+            int remSec = remainingSec % 60;
+
+            if (rrCount < totalTarget) {
+                // Промежуточный вывод процента и обратного отсчета
+                String rmssdStr = (hrv != null) ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--";
                 String logMsg = String.format(Locale.US,
-                        "[Polar H10] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | Арт: %d (Накопление: %d/300)",
-                        hr, hrv.rmssd, hrv.pnn50, hrv.artifactsDetected, rrCount);
+                        "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
+                        percent, rrCount, totalTarget, remMin, remSec, hr, rmssdStr);
                 onLog(logMsg);
             } else {
+                // Итоговый вывод при 100% заполнении
                 String logMsg = String.format(Locale.US,
-                        "[Polar H10] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms² | Арт: %d (RR: %d/300)",
-                        hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower, hrv.artifactsDetected, rrCount);
+                        "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms²",
+                        hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
                 onLog(logMsg);
             }
         }
