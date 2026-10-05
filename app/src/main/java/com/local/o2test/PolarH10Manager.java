@@ -15,7 +15,6 @@ import android.os.Looper;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Queue;
 import java.util.UUID;
 
@@ -45,7 +44,6 @@ public class PolarH10Manager {
     private boolean isConnecting = false;
     
     private final Queue<Integer> rrBuffer = new LinkedList<>();
-    private final List<Integer> rawGoldenBuffer = new ArrayList<>(); // Буфер для Golden Dataset
     private final List<Integer> hrWindow = new ArrayList<>();
 
     public PolarH10Manager(Context context, PolarCallback callback) {
@@ -62,7 +60,6 @@ public class PolarH10Manager {
         isConnecting = true;
         synchronized (rrBuffer) {
             rrBuffer.clear();
-            rawGoldenBuffer.clear();
             hrWindow.clear();
         }
         gatt = device.connectGatt(context, false, gattCallback);
@@ -74,7 +71,7 @@ public class PolarH10Manager {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 isConnected = true;
                 isConnecting = false;
-                log("Polar H10: Подключен. Запись сырого датасета (300 RR)...");
+                log("Polar H10: Подключен. Старт накопления данных (300 RR)...");
                 gatt.discoverServices();
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 isConnected = false;
@@ -116,16 +113,6 @@ public class PolarH10Manager {
                             if (rr < 300 || rr > 2000) continue;
 
                             rrBuffer.add(rr);
-                            
-                            // Сохраняем сырой интервал для сборки Golden Dataset
-                            if (rawGoldenBuffer.size() < MAX_RR_COUNT) {
-                                rawGoldenBuffer.add(rr);
-                                
-                                // Когда накопилось ровно 300 сырых RR — печатаем готовый массив в лог
-                                if (rawGoldenBuffer.size() == MAX_RR_COUNT) {
-                                    dumpGoldenDataset();
-                                }
-                            }
 
                             final int rrMs = rr;
                             final float instantHr = 60000.0f / rrMs;
@@ -136,27 +123,35 @@ public class PolarH10Manager {
                                 }
                             });
 
-                            // При достижении 300 интервалов считаем итоговые метрики
-                            if (rrBuffer.size() == MAX_RR_COUNT) {
+                            int currentCount = rrBuffer.size();
+
+                            // 1. При полном заполнении (300) — полный расчет и сброс
+                            if (currentCount == MAX_RR_COUNT) {
                                 List<Integer> snapshot = new ArrayList<>(rrBuffer);
                                 HrvCalculator.Metrics hrv = HrvCalculator.calculate(snapshot);
                                 
-                                int avgHr = currentHr;
-                                if (!hrWindow.isEmpty()) {
-                                    int sumHr = 0;
-                                    for (int hr : hrWindow) sumHr += hr;
-                                    avgHr = Math.round((float) sumHr / hrWindow.size());
-                                    hrWindow.clear();
-                                }
-
-                                final int finalAvgHr = avgHr;
+                                int avgHr = getAverageHr();
                                 new Handler(Looper.getMainLooper()).post(() -> {
                                     if (callback != null) {
-                                        callback.onPolarHrReceived(finalAvgHr, hrv, MAX_RR_COUNT);
+                                        callback.onPolarHrReceived(avgHr, hrv, MAX_RR_COUNT);
                                     }
                                 });
 
                                 rrBuffer.clear();
+                                hrWindow.clear();
+
+                            // 2. В процессе сбора (каждые 10 ударов) — отправляем промежуточный статус
+                            } else if (currentCount % 10 == 0) {
+                                List<Integer> snapshot = new ArrayList<>(rrBuffer);
+                                // Промежуточный расчет быстрых метрик, если набралось хотя бы 30 ударов
+                                HrvCalculator.Metrics hrv = currentCount >= 30 ? HrvCalculator.calculate(snapshot) : null;
+                                int avgHr = getAverageHr();
+                                
+                                new Handler(Looper.getMainLooper()).post(() -> {
+                                    if (callback != null) {
+                                        callback.onPolarHrReceived(avgHr, hrv, currentCount);
+                                    }
+                                });
                             }
                         }
                     }
@@ -165,18 +160,13 @@ public class PolarH10Manager {
         }
     };
 
-    private void dumpGoldenDataset() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("GOLDEN_DATASET = new int[]{");
-        for (int i = 0; i < rawGoldenBuffer.size(); i++) {
-            sb.append(rawGoldenBuffer.get(i));
-            if (i < rawGoldenBuffer.size() - 1) sb.append(", ");
+    private int getAverageHr() {
+        if (hrWindow.isEmpty()) return 0;
+        int sum = 0;
+        for (int hr : hrWindow) {
+            sum += hr;
         }
-        sb.append("};");
-
-        log("=== СКОПИРУЙТЕ ЭТОТ МАССИВ В JUNIT ТЕСТ ===");
-        log(sb.toString());
-        log("==========================================");
+        return Math.round((float) sum / hrWindow.size());
     }
 
     private int parseHeartRate(byte[] data) {
