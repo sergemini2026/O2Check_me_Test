@@ -1,4 +1,4 @@
-@package com.local.o2test;
+package com.local.o2test;
 
 import java.util.ArrayList;
 import java.util.List;
