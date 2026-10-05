@@ -1,9 +1,6 @@
 package com.local.o2test;
 
 import android.Manifest;
-import android.animation.ObjectAnimator;
-import android.animation.PropertyValuesHolder;
-import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.bluetooth.BluetoothDevice;
 import android.content.pm.PackageManager;
@@ -14,7 +11,6 @@ import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
-import android.view.View;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -42,6 +38,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private TextView tvHrvMetrics;
     private TextView tvLog;
     private ScrollView logScrollView;
+    private ImageButton btnHeart;
 
     private boolean isRecording = false;
     private long sessionStartTime = 0;
@@ -75,18 +72,19 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateStatusHeader(0, 0, 0f, 0);
         mainLayout.addView(tvLiveMetrics);
 
+        // --- ВЕРХНЯЯ ПАНЕЛЬ КНОПОК ---
         LinearLayout btnBar = new LinearLayout(this);
         btnBar.setOrientation(LinearLayout.HORIZONTAL);
         btnBar.setPadding(0, 10, 0, 10);
 
-        Button btnMonitor = createButton("Панель монитора");
-        Button btnStop = createButton("Стоп");
+        Button btnReconnect = createButton("Обновить подключение");
         Button btnSave = createButton("Сохранение данных");
+        Button btnSettings = createButton("Настройки");
         Button btnExit = createButton("Выход");
 
-        btnBar.addView(btnMonitor);
-        btnBar.addView(btnStop);
+        btnBar.addView(btnReconnect);
         btnBar.addView(btnSave);
+        btnBar.addView(btnSettings);
         btnBar.addView(btnExit);
         mainLayout.addView(btnBar);
 
@@ -109,35 +107,47 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
         mainLayout.addView(tvHrvMetrics);
 
-        // --- КНОПКА ПУЛЬСИРУЮЩЕГО СЕРДЦА (Справа под блоком ВСР) ---
+        // --- БЛОК УПРАВЛЕНИЯ МОНИТОРИНГОМ (Надпись + Кнопка Сердце) ---
         LinearLayout heartContainer = new LinearLayout(this);
         heartContainer.setOrientation(LinearLayout.HORIZONTAL);
-        heartContainer.setGravity(Gravity.END);
+        heartContainer.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams heartContainerParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         heartContainerParams.setMargins(0, 0, 12, 4);
         heartContainer.setLayoutParams(heartContainerParams);
 
-        ImageButton btnHeart = new ImageButton(this);
+        TextView tvMonitorLabel = new TextView(this);
+        tvMonitorLabel.setText("Панель монитора");
+        tvMonitorLabel.setTextSize(13);
+        tvMonitorLabel.setTextColor(Color.WHITE);
+        tvMonitorLabel.setGravity(Gravity.CENTER_VERTICAL);
+        
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        labelParams.setMargins(0, 0, 10, 0);
+        tvMonitorLabel.setLayoutParams(labelParams);
+
+        btnHeart = new ImageButton(this);
         btnHeart.setBackgroundColor(Color.TRANSPARENT);
         btnHeart.setImageResource(R.drawable.ic_heart_pulse);
         btnHeart.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        btnHeart.setAlpha(0.5f); // Исходно неактивное состояние
 
-        int heartSizePx = (int) (40 * getResources().getDisplayMetrics().density);
+        // Размер увеличен в 1,5 раза (с 40dp до 60dp)
+        int heartSizePx = (int) (60 * getResources().getDisplayMetrics().density);
         LinearLayout.LayoutParams heartParams = new LinearLayout.LayoutParams(heartSizePx, heartSizePx);
         btnHeart.setLayoutParams(heartParams);
 
-        // Анимация пульсации
-        PropertyValuesHolder pvhX = PropertyValuesHolder.ofFloat(View.SCALE_X, 1.0f, 1.20f);
-        PropertyValuesHolder pvhY = PropertyValuesHolder.ofFloat(View.SCALE_Y, 1.0f, 1.20f);
-        ObjectAnimator pulseAnim = ObjectAnimator.ofPropertyValuesHolder(btnHeart, pvhX, pvhY);
-        pulseAnim.setDuration(600);
-        pulseAnim.setRepeatCount(ValueAnimator.INFINITE);
-        pulseAnim.setRepeatMode(ValueAnimator.REVERSE);
-        pulseAnim.start();
+        // Переключение панели монитора по нажатию на сердце
+        btnHeart.setOnClickListener(v -> {
+            if (!isRecording) {
+                startMonitoringPanel();
+            } else {
+                stopMonitoring();
+            }
+        });
 
-        btnHeart.setOnClickListener(v -> onLog("Индикатор пульса активен"));
-
+        heartContainer.addView(tvMonitorLabel);
         heartContainer.addView(btnHeart);
         mainLayout.addView(heartContainer);
 
@@ -154,9 +164,13 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         setContentView(mainLayout);
 
-        btnMonitor.setOnClickListener(v -> startMonitoringPanel());
-        btnStop.setOnClickListener(v -> stopMonitoring());
+        // Назначение обработчиков для верхней панели
+        btnReconnect.setOnClickListener(v -> {
+            onLog("Переподключение BLE устройств...");
+            checkAndRequestPermissions();
+        });
         btnSave.setOnClickListener(v -> saveData());
+        btnSettings.setOnClickListener(v -> onLog("Открытие настроек..."));
         btnExit.setOnClickListener(v -> finish());
 
         checkAndRequestPermissions();
@@ -259,12 +273,18 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (tvHrvMetrics != null) {
             tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
         }
+        if (btnHeart != null) {
+            btnHeart.setAlpha(1.0f); // Яркое активное состояние
+        }
         onLog("Панель монитора активна");
     }
 
     private void stopMonitoring() {
         isRecording = false;
         piWindow.clear();
+        if (btnHeart != null) {
+            btnHeart.setAlpha(0.5f); // Полупрозрачное неактивное состояние
+        }
         onLog("Мониторинг остановлен");
     }
 
@@ -443,4 +463,4 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             polarManager.disconnect();
         }
     }
-                        }
+}
