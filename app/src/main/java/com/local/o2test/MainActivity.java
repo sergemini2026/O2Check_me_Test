@@ -1,6 +1,9 @@
 package com.local.o2test;
 
 import android.Manifest;
+import android.animation.ObjectAnimator;
+import android.animation.PropertyValuesHolder;
+import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.bluetooth.BluetoothDevice;
 import android.content.pm.PackageManager;
@@ -11,7 +14,10 @@ import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
+import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -90,7 +96,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         chartView.setLayoutParams(chartParams);
         mainLayout.addView(chartView);
 
-        // --- БЛОК ВСР: Белый цвет, размер 16sp ---
+        // --- БЛОК ВСР ---
         tvHrvMetrics = new TextView(this);
         tvHrvMetrics.setTextSize(16);
         tvHrvMetrics.setTextColor(Color.WHITE);
@@ -98,10 +104,42 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         
         LinearLayout.LayoutParams hrvParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        hrvParams.setMargins(0, 8, 0, 8);
+        hrvParams.setMargins(0, 8, 0, 4);
         tvHrvMetrics.setLayoutParams(hrvParams);
         tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
         mainLayout.addView(tvHrvMetrics);
+
+        // --- КНОПКА ПУЛЬСИРУЮЩЕГО СЕРДЦА (Справа под блоком ВСР) ---
+        LinearLayout heartContainer = new LinearLayout(this);
+        heartContainer.setOrientation(LinearLayout.HORIZONTAL);
+        heartContainer.setGravity(Gravity.END);
+        LinearLayout.LayoutParams heartContainerParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        heartContainerParams.setMargins(0, 0, 12, 4);
+        heartContainer.setLayoutParams(heartContainerParams);
+
+        ImageButton btnHeart = new ImageButton(this);
+        btnHeart.setBackgroundColor(Color.TRANSPARENT);
+        btnHeart.setImageResource(R.drawable.ic_heart_pulse);
+        btnHeart.setScaleType(ImageView.ScaleType.FIT_CENTER);
+
+        int heartSizePx = (int) (40 * getResources().getDisplayMetrics().density);
+        LinearLayout.LayoutParams heartParams = new LinearLayout.LayoutParams(heartSizePx, heartSizePx);
+        btnHeart.setLayoutParams(heartParams);
+
+        // Анимация пульсации
+        PropertyValuesHolder pvhX = PropertyValuesHolder.ofFloat(View.SCALE_X, 1.0f, 1.20f);
+        PropertyValuesHolder pvhY = PropertyValuesHolder.ofFloat(View.SCALE_Y, 1.0f, 1.20f);
+        ObjectAnimator pulseAnim = ObjectAnimator.ofPropertyValuesHolder(btnHeart, pvhX, pvhY);
+        pulseAnim.setDuration(600);
+        pulseAnim.setRepeatCount(ValueAnimator.INFINITE);
+        pulseAnim.setRepeatMode(ValueAnimator.REVERSE);
+        pulseAnim.start();
+
+        btnHeart.setOnClickListener(v -> onLog("Индикатор пульса активен"));
+
+        heartContainer.addView(btnHeart);
+        mainLayout.addView(heartContainer);
 
         tvLog = new TextView(this);
         tvLog.setTextSize(11);
@@ -109,7 +147,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         logScrollView = new ScrollView(this);
         LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        logParams.topMargin = 8;
+        logParams.topMargin = 4;
         logScrollView.setLayoutParams(logParams);
         logScrollView.addView(tvLog);
         mainLayout.addView(logScrollView);
@@ -405,4 +443,4 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             polarManager.disconnect();
         }
     }
-}
+                        }
