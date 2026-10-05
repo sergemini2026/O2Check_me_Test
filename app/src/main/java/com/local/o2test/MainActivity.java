@@ -39,17 +39,17 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private boolean isRecording = false;
     private long sessionStartTime = 0;
     private final List<DataPoint> sessionData = new ArrayList<>();
-    
+
     private final Queue<Float> piWindow = new LinkedList<>();
-    
+
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
 
     private int currentSpo2 = 0;
     private float currentPi = 0.0f;
     private int currentBattery = 0;
-    private int currentPolarHr = 0; // Мгновенная ЧСС от H10
-    private int prevRrMs = 0; // Трекер для фильтрации артефактов на графике
-    private int consecutiveArtifactsCount = 0; // Счетчик подряд идущих артефактов
+    private int currentPolarHr = 0;
+    private int prevRrMs = 0;
+    private int consecutiveArtifactsCount = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -258,6 +258,16 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     @Override
     public void onDataReceived(byte[] data) {
+        // 1. Проверка на пакет PPG отсчетов
+        if (O2Parser.isPpgPacket(data)) {
+            int[] ppgSamples = O2Parser.parsePpgPacket(data);
+            if (ppgSamples.length > 0 && chartView != null) {
+                runOnUiThread(() -> chartView.addPpgSamples(ppgSamples));
+            }
+            return;
+        }
+
+        // 2. Обработка стандартного пакета параметров
         O2Parser.ParseResult res = O2Parser.parse(data);
 
         long now = System.currentTimeMillis();
@@ -272,7 +282,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         runOnUiThread(() -> updateStatusHeader(currentSpo2, hrToDisplay, currentPi, currentBattery));
 
-        // Если Polar H10 НЕ подключен, драйвером записи становится O2-датчик
         if (!isPolarActive && res.isFingerOn && isRecording) {
             if (sessionStartTime == 0) sessionStartTime = now;
             int elapsedSec = (int) ((now - sessionStartTime) / 1000);
@@ -303,12 +312,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         @Override
         public void onRrReceived(int rrMs, float instantHr) {
             if (isRecording) {
-                // Фильтрация артефактов для графика (Malik 20% Threshold + защита от застревания)
                 boolean isArtifact = false;
                 if (prevRrMs > 0) {
                     if (Math.abs(rrMs - prevRrMs) / (float) prevRrMs > 0.20) {
                         consecutiveArtifactsCount++;
-                        // Если подряд идет менее 3 скачков — считаем артефактом. Если 3 и более — принимаем новую ЧСС.
                         if (consecutiveArtifactsCount < 3) {
                             isArtifact = true;
                             onLog("[АРТЕФАКТ] Скачок RR: " + prevRrMs + "мс -> " + rrMs + "мс. Исключен из графика.");
@@ -347,7 +354,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             float percent = Math.min(100.0f, (rrCount / (float) totalTarget) * 100.0f);
             int remainingBeats = Math.max(0, totalTarget - rrCount);
 
-            // Расчет оставшегося времени до конца дампа (на основе пульса)
             int remainingSec = 0;
             if (hr > 0 && remainingBeats > 0) {
                 remainingSec = (int) Math.round((remainingBeats * 60.0) / hr);
@@ -356,14 +362,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             int remSec = remainingSec % 60;
 
             if (rrCount < totalTarget) {
-                // Промежуточный вывод процента и обратного отсчета
                 String rmssdStr = (hrv != null) ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--";
                 String logMsg = String.format(Locale.US,
                         "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
                         percent, rrCount, totalTarget, remMin, remSec, hr, rmssdStr);
                 onLog(logMsg);
             } else {
-                // Итоговый вывод при 100% заполнении
                 String logMsg = String.format(Locale.US,
                         "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms²",
                         hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
@@ -382,4 +386,4 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             polarManager.disconnect();
         }
     }
-    }
+}
