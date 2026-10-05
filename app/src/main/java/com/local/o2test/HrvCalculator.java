@@ -121,7 +121,7 @@ public class HrvCalculator {
         double[] resampled = pchipInterpolate(timeStamps, rrArray, numSamples, dt);
 
         // ==========================================
-        // 4. ДЕТРЕНДИНГ НА СЕТКЕ 4 Гц (Smoothness Priors, lambda = 10000)
+        // 4. ДЕТРЕНДИНГ НА СЕТКЕ 4 Гц (Smoothness Priors, lambda = 500)
         // ==========================================
         // На 4 Гц сетке lambda = 500 соответствует cutoff frequency ~0.035 Hz (убирает VLF-дрейф)
         double[] zTrend = smoothnessPriorsDetrend(resampled, 500.0);
