@@ -33,7 +33,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private PolarH10Manager polarManager;
     private TextView tvLiveMetrics;
     private TrendChartView chartView;
-    private TextView tvHrvMetrics; // Новый TextView для крупного вывода ВСР
+    private TextView tvHrvMetrics;
     private TextView tvLog;
     private ScrollView logScrollView;
 
@@ -90,15 +90,15 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         chartView.setLayoutParams(chartParams);
         mainLayout.addView(chartView);
 
-        // --- БЛОК ВСР: Вывод под графиком ---
+        // --- БЛОК ВСР: Белый цвет, размер 24sp ---
         tvHrvMetrics = new TextView(this);
-        tvHrvMetrics.setTextSize(33); // В 3 раза больше размера шрифта лога (11 * 3)
-        tvHrvMetrics.setTextColor(Color.CYAN);
+        tvHrvMetrics.setTextSize(24);
+        tvHrvMetrics.setTextColor(Color.WHITE);
         tvHrvMetrics.setGravity(Gravity.CENTER);
         
         LinearLayout.LayoutParams hrvParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        hrvParams.setMargins(0, 12, 0, 12);
+        hrvParams.setMargins(0, 8, 0, 8);
         tvHrvMetrics.setLayoutParams(hrvParams);
         tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
         mainLayout.addView(tvHrvMetrics);
@@ -109,7 +109,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         logScrollView = new ScrollView(this);
         LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        logParams.topMargin = 10;
+        logParams.topMargin = 8;
         logScrollView.setLayoutParams(logParams);
         logScrollView.addView(tvLog);
         mainLayout.addView(logScrollView);
@@ -375,13 +375,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         percent, rrCount, totalTarget, remMin, remSec, hr, rmssdStr);
                 onLog(logMsg);
             } else {
-                // Итоговый вывод в лог
                 String logMsg = String.format(Locale.US,
                         "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms²",
                         hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
                 onLog(logMsg);
 
-                // Вывод в крупную новую панель над логом
                 if (hrv != null) {
                     String hrvDisplay = String.format(Locale.US,
                             "RMSSD: %.1f ms  |  pNN50: %.1f%%  |  LF/HF: %.2f  |  TP: %.0f ms²",
