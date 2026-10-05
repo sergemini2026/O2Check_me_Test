@@ -41,6 +41,7 @@ public class HrvCalculator {
         // ==========================================
         List<Double> cleanRr = new ArrayList<>();
         int artifacts = 0;
+        int consecutiveArtifacts = 0;
 
         for (int i = 0; i < rawRrList.size(); i++) {
             double rr = rawRrList.get(i);
@@ -52,9 +53,14 @@ public class HrvCalculator {
                 double prev = cleanRr.get(cleanRr.size() - 1);
                 if (Math.abs(rr - prev) / prev > 0.25) {
                     artifacts++;
-                    continue;
+                    consecutiveArtifacts++;
+                    // Если подряд идет 3 и более "выбросов", сбрасываем счетчик и принимаем новый ритм
+                    if (consecutiveArtifacts < 3) {
+                        continue;
+                    }
                 }
             }
+            consecutiveArtifacts = 0;
             cleanRr.add(rr);
         }
 
@@ -424,4 +430,4 @@ public class HrvCalculator {
         }
         return rrList;
     }
-}
+                       }
