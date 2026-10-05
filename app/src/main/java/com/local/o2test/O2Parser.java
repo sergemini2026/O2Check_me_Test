@@ -43,36 +43,6 @@ public class O2Parser {
         return new ParseResult(0, 0, 0f, 0, false);
     }
 
-    /**
-     * Проверка, является ли входящий пакет ответом с данными PPG (команда 0x14)
-     */
-    public static boolean isPpgPacket(byte[] data) {
-        return data != null && data.length >= 4 
-                && ((data[0] & 0xFF) == 0x55 || (data[0] & 0xFF) == 0xAA)
-                && (data[1] & 0xFF) == 0x14;
-    }
-
-    /**
-     * Парсинг 16-битных отсчетов PPG волны
-     */
-    public static int[] parsePpgPacket(byte[] data) {
-        if (!isPpgPacket(data)) return new int[0];
-
-        int startIdx = ((data[0] & 0xFF) == 0x55 && data.length >= 8) ? 7 : 3;
-        int sampleCount = (data.length - startIdx - 1) / 2;
-        if (sampleCount <= 0) return new int[0];
-
-        int[] samples = new int[sampleCount];
-        int idx = 0;
-
-        for (int i = startIdx; i < data.length - 1; i += 2) {
-            int sample = ((data[i] & 0xFF) << 8) | (data[i + 1] & 0xFF);
-            samples[idx++] = sample;
-        }
-
-        return samples;
-    }
-
     public static String bytesToHex(byte[] bytes) {
         if (bytes == null) return "";
         StringBuilder sb = new StringBuilder();
