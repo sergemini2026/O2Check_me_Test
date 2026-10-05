@@ -90,9 +90,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         chartView.setLayoutParams(chartParams);
         mainLayout.addView(chartView);
 
-        // --- БЛОК ВСР: Белый цвет, размер 24sp ---
+        // --- БЛОК ВСР: Белый цвет, размер 16sp ---
         tvHrvMetrics = new TextView(this);
-        tvHrvMetrics.setTextSize(24);
+        tvHrvMetrics.setTextSize(16);
         tvHrvMetrics.setTextColor(Color.WHITE);
         tvHrvMetrics.setGravity(Gravity.CENTER);
         
