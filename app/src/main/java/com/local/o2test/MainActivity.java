@@ -33,6 +33,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private PolarH10Manager polarManager;
     private TextView tvLiveMetrics;
     private TrendChartView chartView;
+    private TextView tvHrvMetrics; // Новый TextView для крупного вывода ВСР
     private TextView tvLog;
     private ScrollView logScrollView;
 
@@ -47,9 +48,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private int currentSpo2 = 0;
     private float currentPi = 0.0f;
     private int currentBattery = 0;
-    private int currentPolarHr = 0; // Мгновенная ЧСС от H10
-    private int prevRrMs = 0; // Трекер для фильтрации артефактов на графике
-    private int consecutiveArtifactsCount = 0; // Счетчик подряд идущих артефактов
+    private int currentPolarHr = 0;
+    private int prevRrMs = 0;
+    private int consecutiveArtifactsCount = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -89,13 +90,26 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         chartView.setLayoutParams(chartParams);
         mainLayout.addView(chartView);
 
+        // --- БЛОК ВСР: Вывод под графиком ---
+        tvHrvMetrics = new TextView(this);
+        tvHrvMetrics.setTextSize(33); // В 3 раза больше размера шрифта лога (11 * 3)
+        tvHrvMetrics.setTextColor(Color.CYAN);
+        tvHrvMetrics.setGravity(Gravity.CENTER);
+        
+        LinearLayout.LayoutParams hrvParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        hrvParams.setMargins(0, 12, 0, 12);
+        tvHrvMetrics.setLayoutParams(hrvParams);
+        tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
+        mainLayout.addView(tvHrvMetrics);
+
         tvLog = new TextView(this);
         tvLog.setTextSize(11);
 
         logScrollView = new ScrollView(this);
         LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        logParams.topMargin = 24;
+        logParams.topMargin = 10;
         logScrollView.setLayoutParams(logParams);
         logScrollView.addView(tvLog);
         mainLayout.addView(logScrollView);
@@ -204,6 +218,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (chartView != null) {
             chartView.clearData();
         }
+        if (tvHrvMetrics != null) {
+            tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
+        }
         onLog("Панель монитора активна");
     }
 
@@ -272,7 +289,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         runOnUiThread(() -> updateStatusHeader(currentSpo2, hrToDisplay, currentPi, currentBattery));
 
-        // Если Polar H10 НЕ подключен, драйвером записи становится O2-датчик
         if (!isPolarActive && res.isFingerOn && isRecording) {
             if (sessionStartTime == 0) sessionStartTime = now;
             int elapsedSec = (int) ((now - sessionStartTime) / 1000);
@@ -303,12 +319,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         @Override
         public void onRrReceived(int rrMs, float instantHr) {
             if (isRecording) {
-                // Фильтрация артефактов для графика (Malik 20% Threshold + защита от застревания)
                 boolean isArtifact = false;
                 if (prevRrMs > 0) {
                     if (Math.abs(rrMs - prevRrMs) / (float) prevRrMs > 0.20) {
                         consecutiveArtifactsCount++;
-                        // Если подряд идет менее 3 скачков — считаем артефактом. Если 3 и более — принимаем новую ЧСС.
                         if (consecutiveArtifactsCount < 3) {
                             isArtifact = true;
                             onLog("[АРТЕФАКТ] Скачок RR: " + prevRrMs + "мс -> " + rrMs + "мс. Исключен из графика.");
@@ -347,7 +361,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             float percent = Math.min(100.0f, (rrCount / (float) totalTarget) * 100.0f);
             int remainingBeats = Math.max(0, totalTarget - rrCount);
 
-            // Расчет оставшегося времени до конца дампа (на основе пульса)
             int remainingSec = 0;
             if (hr > 0 && remainingBeats > 0) {
                 remainingSec = (int) Math.round((remainingBeats * 60.0) / hr);
@@ -356,18 +369,30 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             int remSec = remainingSec % 60;
 
             if (rrCount < totalTarget) {
-                // Промежуточный вывод процента и обратного отсчета
                 String rmssdStr = (hrv != null) ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--";
                 String logMsg = String.format(Locale.US,
                         "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
                         percent, rrCount, totalTarget, remMin, remSec, hr, rmssdStr);
                 onLog(logMsg);
             } else {
-                // Итоговый вывод при 100% заполнении
+                // Итоговый вывод в лог
                 String logMsg = String.format(Locale.US,
                         "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms²",
                         hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
                 onLog(logMsg);
+
+                // Вывод в крупную новую панель над логом
+                if (hrv != null) {
+                    String hrvDisplay = String.format(Locale.US,
+                            "RMSSD: %.1f ms  |  pNN50: %.1f%%  |  LF/HF: %.2f  |  TP: %.0f ms²",
+                            hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
+
+                    runOnUiThread(() -> {
+                        if (tvHrvMetrics != null) {
+                            tvHrvMetrics.setText(hrvDisplay);
+                        }
+                    });
+                }
             }
         }
     };
@@ -382,4 +407,4 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             polarManager.disconnect();
         }
     }
-                }
+}
