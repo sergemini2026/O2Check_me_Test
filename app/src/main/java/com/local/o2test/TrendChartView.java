@@ -171,7 +171,7 @@ public class TrendChartView extends View {
         }
 
         // 4. Временная шкала со скользящим окном
-        float timeStepSec = 60f; 
+        float timeStepSec = 60f;
         float firstGrid = (float) Math.ceil(startSec / timeStepSec) * timeStepSec;
 
         for (float t = firstGrid; t <= endSec; t += timeStepSec) {
@@ -201,55 +201,70 @@ public class TrendChartView extends View {
         Path pathHR = new Path();
         Path pathPI = new Path();
 
-        float prevX = 0, prevYSpO2 = 0, prevYPI = 0;
-        boolean firstPoint = true;
-
-        // Обрезаем холст, чтобы график не вылезал на зоны текста при прокрутке окна
         canvas.save();
         canvas.clipRect(leftPad, topPad, w - rightPad, h - bottomPad);
 
-        for (int i = 0; i < points.size(); i++) {
-            DataPoint dp = points.get(i);
-            if (dp.elapsedSec < startSec) continue; // Пропускаем точки левее экрана
+        int count = 0;
+        for (DataPoint dp : points) {
+            if (dp.elapsedSec >= startSec) count++;
+        }
 
-            float x = leftPad + ((dp.elapsedSec - startSec) / timeRange) * plotW;
-            
-            float normSpO2 = (Math.max(80f, Math.min(100f, (float) dp.spo2)) - 80f) / 20f;
-            float ySpO2 = (topPad + zoneH) - (normSpO2 * zoneH);
+        if (count >= 2) {
+            float[] xVec = new float[count];
+            float[] ySpO2Vec = new float[count];
+            float[] yHRVec = new float[count];
+            float[] yPIVec = new float[count];
 
-            float normHR = (Math.max(minHR, Math.min(maxHR, (float) dp.hr)) - minHR) / (maxHR - minHR);
-            float yHR = (topPad + 2 * zoneH) - (normHR * zoneH);
+            int idx = 0;
+            for (DataPoint dp : points) {
+                if (dp.elapsedSec < startSec) continue;
 
-            float normPI = (Math.max(0f, Math.min(2f, dp.pi)) - 0f) / 2f;
-            float yPI = (topPad + 3 * zoneH) - (normPI * zoneH);
+                float x = leftPad + ((dp.elapsedSec - startSec) / timeRange) * plotW;
 
-            if (firstPoint) {
-                pathSpO2.moveTo(x, ySpO2);
-                pathHR.moveTo(x, yHR);
-                pathPI.moveTo(x, yPI);
-                firstPoint = false;
-            } else {
-                float midX = (prevX + x) / 2f;
-                float midYSpO2 = (prevYSpO2 + ySpO2) / 2f;
-                float midYPI = (prevYPI + yPI) / 2f;
+                float normSpO2 = (Math.max(80f, Math.min(100f, (float) dp.spo2)) - 80f) / 20f;
+                float ySpO2 = (topPad + zoneH) - (normSpO2 * zoneH);
 
-                pathSpO2.quadTo(prevX, prevYSpO2, midX, midYSpO2);
-                pathPI.quadTo(prevX, prevYPI, midX, midYPI);
-                pathHR.lineTo(x, yHR); // Пульс прямыми линиями
+                float normHR = (Math.max(minHR, Math.min(maxHR, (float) dp.hr)) - minHR) / (maxHR - minHR);
+                float yHR = (topPad + 2 * zoneH) - (normHR * zoneH);
+
+                float normPI = (Math.max(0f, Math.min(2f, dp.pi)) - 0f) / 2f;
+                float yPI = (topPad + 3 * zoneH) - (normPI * zoneH);
+
+                xVec[idx] = x;
+                ySpO2Vec[idx] = ySpO2;
+                yHRVec[idx] = yHR;
+                yPIVec[idx] = yPI;
+                idx++;
             }
-            prevX = x; prevYSpO2 = ySpO2; prevYPI = yPI;
+
+            buildCubicSplinePath(xVec, ySpO2Vec, pathSpO2);
+            buildCubicSplinePath(xVec, yHRVec, pathHR);
+            buildCubicSplinePath(xVec, yPIVec, pathPI);
+
+            canvas.drawPath(pathSpO2, paintSpO2);
+            canvas.drawPath(pathHR, paintHR);
+            canvas.drawPath(pathPI, paintPI);
+        } else if (count == 1) {
+            for (DataPoint dp : points) {
+                if (dp.elapsedSec < startSec) continue;
+                float x = leftPad + ((dp.elapsedSec - startSec) / timeRange) * plotW;
+
+                float normSpO2 = (Math.max(80f, Math.min(100f, (float) dp.spo2)) - 80f) / 20f;
+                float ySpO2 = (topPad + zoneH) - (normSpO2 * zoneH);
+
+                float normHR = (Math.max(minHR, Math.min(maxHR, (float) dp.hr)) - minHR) / (maxHR - minHR);
+                float yHR = (topPad + 2 * zoneH) - (normHR * zoneH);
+
+                float normPI = (Math.max(0f, Math.min(2f, dp.pi)) - 0f) / 2f;
+                float yPI = (topPad + 3 * zoneH) - (normPI * zoneH);
+
+                canvas.drawPoint(x, ySpO2, paintSpO2);
+                canvas.drawPoint(x, yHR, paintHR);
+                canvas.drawPoint(x, yPI, paintPI);
+            }
         }
 
-        if (!firstPoint) {
-            pathSpO2.lineTo(prevX, prevYSpO2);
-            pathPI.lineTo(prevX, prevYPI);
-        }
-
-        canvas.drawPath(pathSpO2, paintSpO2);
-        canvas.drawPath(pathHR, paintHR);
-        canvas.drawPath(pathPI, paintPI);
-        
-        canvas.restore(); // Снимаем обрезку холста
+        canvas.restore();
 
         if (touchX != null && touchX >= leftPad && touchX <= w - rightPad) {
             canvas.drawLine(touchX, topPad, touchX, topPad + 3 * zoneH, paintCursor);
@@ -269,10 +284,11 @@ public class TrendChartView extends View {
 
             if (closest != null) {
                 String info = String.format(Locale.US, "[%dm%ds] O2:%d%% | HR:%d | PI:%.1f%%",
-                        (int)closest.elapsedSec / 60, (int)closest.elapsedSec % 60,
+                        (int) closest.elapsedSec / 60, (int) closest.elapsedSec % 60,
                         closest.spo2, closest.hr, closest.pi);
 
-                float boxW = 390f; float boxH = 36f;
+                float boxW = 390f;
+                float boxH = 36f;
                 float boxX = Math.min(Math.max(touchX - boxW / 2f, leftPad), w - rightPad - boxW);
                 float boxY = topPad + 2f;
 
@@ -283,4 +299,45 @@ public class TrendChartView extends View {
             }
         }
     }
-            }
+
+    private void buildCubicSplinePath(float[] x, float[] y, Path path) {
+        path.reset();
+        int n = x.length;
+        if (n == 0) return;
+
+        if (n == 1) {
+            path.moveTo(x[0], y[0]);
+            return;
+        }
+
+        if (n == 2) {
+            path.moveTo(x[0], y[0]);
+            path.lineTo(x[1], y[1]);
+            return;
+        }
+
+        path.moveTo(x[0], y[0]);
+
+        for (int i = 0; i < n - 1; i++) {
+            float p0x = (i == 0) ? (2 * x[0] - x[1]) : x[i - 1];
+            float p0y = (i == 0) ? (2 * y[0] - y[1]) : y[i - 1];
+
+            float p1x = x[i];
+            float p1y = y[i];
+
+            float p2x = x[i + 1];
+            float p2y = y[i + 1];
+
+            float p3x = (i + 2 < n) ? x[i + 2] : (2 * x[n - 1] - x[n - 2]);
+            float p3y = (i + 2 < n) ? y[i + 2] : (2 * y[n - 1] - y[n - 2]);
+
+            float ctrl1x = p1x + (p2x - p0x) / 6.0f;
+            float ctrl1y = p1y + (p2y - p0y) / 6.0f;
+
+            float ctrl2x = p2x - (p3x - p1x) / 6.0f;
+            float ctrl2y = p2y - (p3y - p1y) / 6.0f;
+
+            path.cubicTo(ctrl1x, ctrl1y, ctrl2x, ctrl2y, p2x, p2y);
+        }
+    }
+}
