@@ -72,7 +72,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateStatusHeader(0, 0, 0f, 0);
         mainLayout.addView(tvLiveMetrics);
 
-        // --- ВЕРХНЯЯ ПАНЕЛЬ КНОПОК ---
+        // --- ВЕРХНЯЯ ПАНЕЛЬ КНОПОК С ИНФОГРАФИКОЙ ---
         LinearLayout btnBar = new LinearLayout(this);
         btnBar.setOrientation(LinearLayout.HORIZONTAL);
         btnBar.setPadding(0, 10, 0, 10);
@@ -82,10 +82,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         btnBar.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, btnBarHeightPx));
 
-        Button btnReconnect = createButton("Обновить подключение");
-        Button btnSave = createButton("Сохранение данных");
-        Button btnSettings = createButton("Настройки");
-        Button btnExit = createButton("Выход");
+        Button btnReconnect = createButton("Обновить подключение", android.R.drawable.ic_popup_sync);
+        Button btnSave = createButton("Сохранение данных", android.R.drawable.ic_menu_save);
+        Button btnSettings = createButton("Настройки", android.R.drawable.ic_menu_preferences);
+        Button btnExit = createButton("Выход", android.R.drawable.ic_menu_close_clear_cancel);
 
         btnBar.addView(btnReconnect);
         btnBar.addView(btnSave);
@@ -138,12 +138,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         btnHeart.setScaleType(ImageView.ScaleType.FIT_CENTER);
         btnHeart.setAlpha(0.5f); // Исходно неактивное состояние
 
-        // Размер увеличен в 1,5 раза (с 40dp до 60dp)
         int heartSizePx = (int) (60 * getResources().getDisplayMetrics().density);
         LinearLayout.LayoutParams heartParams = new LinearLayout.LayoutParams(heartSizePx, heartSizePx);
         btnHeart.setLayoutParams(heartParams);
 
-        // Переключение панели монитора по нажатию на сердце
         btnHeart.setOnClickListener(v -> {
             if (!isRecording) {
                 startMonitoringPanel();
@@ -169,7 +167,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         setContentView(mainLayout);
 
-        // Назначение обработчиков для верхней панели
         btnReconnect.setOnClickListener(v -> {
             onLog("Переподключение BLE устройств...");
             checkAndRequestPermissions();
@@ -224,24 +221,28 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     }
 
-    private Button createButton(String text) {
+    private Button createButton(String text, int iconRes) {
         Button btn = new Button(this);
         btn.setText(text);
         btn.setGravity(Gravity.CENTER);
         
-        // Увеличен размер шрифта ТОЛЬКО для кнопок верхней панели
-        btn.setTextSize(14); 
+        // Размер шрифта уменьшен на 1п (с 14 до 13)
+        btn.setTextSize(13); 
+
+        // Возвращена иконографика на кнопку
+        if (iconRes != 0) {
+            btn.setCompoundDrawablesWithIntrinsicBounds(0, iconRes, 0, 0);
+        }
 
         // Отступы внутри кнопки от граней
         int paddingHorizPx = (int) (8 * getResources().getDisplayMetrics().density);
         int paddingVertPx = (int) (4 * getResources().getDisplayMetrics().density);
         btn.setPadding(paddingHorizPx, paddingVertPx, paddingHorizPx, paddingVertPx);
 
-        // Отступ между текстом и иконками/графикой внутри кнопки
+        // Отступ между текстом и иконкой
         int drawablePaddingPx = (int) (6 * getResources().getDisplayMetrics().density);
         btn.setCompoundDrawablePadding(drawablePaddingPx);
 
-        // Растягиваем кнопки по всей высоте панели btnBar (MATCH_PARENT)
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f);
         params.setMargins(4, 0, 4, 0);
@@ -313,7 +314,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
         }
         if (btnHeart != null) {
-            btnHeart.setAlpha(1.0f); // Яркое активное состояние
+            btnHeart.setAlpha(1.0f);
         }
         onLog("Панель монитора активна");
     }
@@ -322,7 +323,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = false;
         piWindow.clear();
         if (btnHeart != null) {
-            btnHeart.setAlpha(0.5f); // Полупрозрачное неактивное состояние
+            btnHeart.setAlpha(0.5f);
         }
         onLog("Мониторинг остановлен");
     }
@@ -503,4 +504,4 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             polarManager.disconnect();
         }
     }
-            }
+}
