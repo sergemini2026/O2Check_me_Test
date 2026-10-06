@@ -77,6 +77,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         btnBar.setOrientation(LinearLayout.HORIZONTAL);
         btnBar.setPadding(0, 10, 0, 10);
 
+        // Фиксируем высоту панели кнопок (52dp)
+        int btnBarHeightPx = (int) (52 * getResources().getDisplayMetrics().density);
+        btnBar.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, btnBarHeightPx));
+
         Button btnReconnect = createButton("Обновить подключение");
         Button btnSave = createButton("Сохранение данных");
         Button btnSettings = createButton("Настройки");
@@ -222,11 +227,34 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private Button createButton(String text) {
         Button btn = new Button(this);
         btn.setText(text);
+        btn.setGravity(Gravity.CENTER);
+        btn.setPadding(2, 2, 2, 2);
+
+        // Растягиваем кнопки по всей высоте панели btnBar (MATCH_PARENT)
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f);
         params.setMargins(4, 0, 4, 0);
         btn.setLayoutParams(params);
         return btn;
+    }
+
+    private void animateHeartPulse() {
+        if (btnHeart == null || !isRecording) return;
+
+        btnHeart.animate()
+            .scaleX(1.18f)
+            .scaleY(1.18f)
+            .setDuration(110)
+            .withEndAction(() -> {
+                if (btnHeart != null) {
+                    btnHeart.animate()
+                        .scaleX(1.0f)
+                        .scaleY(1.0f)
+                        .setDuration(110)
+                        .start();
+                }
+            })
+            .start();
     }
 
     private void updateStatusHeader(int spo2, int hr, float pi, int battery) {
@@ -408,6 +436,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     runOnUiThread(() -> {
                         updateStatusHeader(currentSpo2, currentPolarHr, currentPi, currentBattery);
                         chartView.addDataPoint(dp);
+                        animateHeartPulse();
                     });
                 }
             }
