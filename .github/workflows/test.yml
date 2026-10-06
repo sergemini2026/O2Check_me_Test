@@ -1,13 +1,13 @@
 name: Run HRV Unit Tests
 
- on:
-   push:
-     branches: [ "main" ]
-  pull_request:
-  branches: [ main, master ]
+ #on:
+   #push:
+     #branches: [ "main" ]
+  #pull_request:
+  #branches: [ main, master ]
 
 # Только ручной запуск:
-#on: workflow_dispatch
+on: workflow_dispatch
 
 
 
