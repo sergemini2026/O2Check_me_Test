@@ -12,16 +12,13 @@ import android.bluetooth.BluetoothManager;
 import android.bluetooth.BluetoothProfile;
 import android.bluetooth.le.BluetoothLeScanner;
 import android.bluetooth.le.ScanCallback;
-import android.bluetooth.le.ScanRecord;
 import android.bluetooth.le.ScanResult;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.ParcelUuid;
 
 import java.io.ByteArrayOutputStream;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -85,8 +82,6 @@ public class O2BleManager {
     private void startScanning() {
         discoveredDevices.clear();
         discoveredPolarDevices.clear();
-        isConnecting = false;
-        listener.onLog("Сканирование BLE запущено...");
         try {
             scanner.startScan(new ScanCallback() {
                 @Override
@@ -96,63 +91,34 @@ public class O2BleManager {
 
                     String address = device.getAddress();
                     String name = device.getName();
-                    
-                    ScanRecord record = result.getScanRecord();
-                    if (name == null && record != null) {
-                        name = record.getDeviceName();
-                    }
+                    if (name == null || name.trim().isEmpty()) return;
 
-                    boolean isO2ByName = false;
-                    boolean isPolarByName = false;
+                    boolean isO2 = name.contains("O2") || name.contains("Viatom") || name.contains("Checkme");
+                    boolean isPolar = name.contains("Polar") || name.contains("H10");
 
-                    if (name != null) {
-                        String upperName = name.toUpperCase();
-                        isO2ByName = upperName.contains("O2") || upperName.contains("VIATOM") || upperName.contains("CHECKME") || upperName.contains("SLEEPO2") || upperName.contains("O2RING");
-                        isPolarByName = upperName.contains("POLAR") || upperName.contains("H10");
-                    }
-
-                    boolean isO2ByUuid = false;
-                    if (record != null) {
-                        List<ParcelUuid> serviceUuids = record.getServiceUuids();
-                        if (serviceUuids != null) {
-                            for (ParcelUuid pUuid : serviceUuids) {
-                                if (SERVICE_UUID.equals(pUuid.getUuid())) {
-                                    isO2ByUuid = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    boolean isO2 = isO2ByName || isO2ByUuid;
-                    boolean isPolar = isPolarByName;
-
+                    // 1. Игнорируем сторонние устройства (Xiaomi, SmartTV и т.д.)
                     if (!isO2 && !isPolar) {
                         return;
                     }
 
-                    String displayName = (name != null && !name.trim().isEmpty()) ? name : "Неизвестное устройство";
-
+                    // 2. Логируем только наши целевые устройства при первичном обнаружении
                     if (discoveredDevices.add(address)) {
-                        listener.onLog("Найдено целевое устройство: " + displayName + " [" + address + "]");
+                        listener.onLog("Найдено целевое устройство: " + name + " [" + address + "]");
                     }
 
+                    // 3. Подключение к датчику O2
                     if (isO2 && !isConnecting) {
                         isConnecting = true;
-                        listener.onLog(">>> ДАТЧИК O2 ОБНАРУЖЕН: " + displayName + " <<<");
+                        listener.onLog(">>> ДАТЧИК O2 ОБНАРУЖЕН: " + name + " <<<");
                         connectToDevice(device);
                     } 
+                    // 4. Передача Polar H10 (СТРОГО ОДИН РАЗ на каждый MAC-адрес)
                     else if (isPolar) {
                         if (discoveredPolarDevices.add(address)) {
                             listener.onLog("Найден Polar H10 [" + address + "]. Инициализация подключения...");
                             listener.onPolarDeviceFound(device);
                         }
                     }
-                }
-
-                @Override
-                public void onScanFailed(int errorCode) {
-                    listener.onLog("Ошибка BLE-сканирования: код " + errorCode);
                 }
             });
         } catch (SecurityException e) {
@@ -194,8 +160,6 @@ public class O2BleManager {
                                     gatt.writeDescriptor(descriptor);
                                 }
                             }
-                        } else {
-                            listener.onLog("O2: Target Service UUID не найден у подключенного устройства.");
                         }
                     }
                 }
