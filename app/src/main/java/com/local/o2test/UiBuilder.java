@@ -139,22 +139,58 @@ public class UiBuilder {
         btn.setTextSize(11);
         btn.setMaxLines(2);
 
+        int drawablePaddingPx = (int) TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_MM, 5, context.getResources().getDisplayMetrics());
+
         if (iconRes != 0) {
             btn.setCompoundDrawablesWithIntrinsicBounds(iconRes, 0, 0, 0);
+            btn.setCompoundDrawablePadding(drawablePaddingPx);
         }
 
         int paddingHorizPx = (int) (2 * context.getResources().getDisplayMetrics().density);
         int paddingVertPx = (int) (2 * context.getResources().getDisplayMetrics().density);
         btn.setPadding(paddingHorizPx, paddingVertPx, paddingHorizPx, paddingVertPx);
 
-        int drawablePaddingPx = (int) TypedValue.applyDimension(
-                TypedValue.COMPLEX_UNIT_MM, 5, context.getResources().getDisplayMetrics());
-        btn.setCompoundDrawablePadding(drawablePaddingPx);
-
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f);
         params.setMargins(2, 0, 2, 0);
         btn.setLayoutParams(params);
+
+        if (iconRes != 0) {
+            btn.post(() -> {
+                boolean materialSuccess = false;
+                try {
+                    java.lang.reflect.Method setIconResourceMethod = btn.getClass().getMethod("setIconResource", int.class);
+                    java.lang.reflect.Method setIconGravityMethod = btn.getClass().getMethod("setIconGravity", int.class);
+                    java.lang.reflect.Method setIconPaddingMethod = btn.getClass().getMethod("setIconPadding", int.class);
+
+                    setIconResourceMethod.invoke(btn, iconRes);
+                    setIconGravityMethod.invoke(btn, 0x03); // ICON_GRAVITY_TEXT_START
+                    setIconPaddingMethod.invoke(btn, drawablePaddingPx);
+                    materialSuccess = true;
+                } catch (Exception ignored) {
+                }
+
+                if (!materialSuccess) {
+                    int width = btn.getWidth();
+                    if (width > 0) {
+                        android.graphics.drawable.Drawable[] drawables = btn.getCompoundDrawables();
+                        int iconWidth = (drawables[0] != null) ? drawables[0].getIntrinsicWidth() : 0;
+
+                        float maxTextWidth = 0;
+                        for (String line : text.split("\n")) {
+                            float lineWidth = btn.getPaint().measureText(line);
+                            if (lineWidth > maxTextWidth) maxTextWidth = lineWidth;
+                        }
+
+                        float contentWidth = iconWidth + drawablePaddingPx + maxTextWidth;
+                        int pad = Math.max(0, (int) ((width - contentWidth) / 2f));
+                        btn.setPadding(pad, paddingVertPx, pad, paddingVertPx);
+                    }
+                }
+            });
+        }
+
         return btn;
     }
 
