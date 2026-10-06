@@ -1,7 +1,11 @@
 package com.local.o2test;
 
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
@@ -49,12 +53,12 @@ public class UiBuilder {
         btnBar.setOrientation(LinearLayout.HORIZONTAL);
         btnBar.setPadding(0, 2, 0, 2);
 
-        int btnBarHeightPx = (int) (56 * context.getResources().getDisplayMetrics().density);
+        int btnBarHeightPx = (int) (52 * context.getResources().getDisplayMetrics().density);
         btnBar.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, btnBarHeightPx));
 
-        v.btnReconnect = createButton(context, "Обновить\nподключение", android.R.drawable.ic_popup_sync);
-        v.btnSave = createButton(context, "Сохранение\nданных", android.R.drawable.ic_menu_save);
+        v.btnReconnect = createButton(context, "Связь", android.R.drawable.ic_popup_sync);
+        v.btnSave = createButton(context, "Сохранить", android.R.drawable.ic_menu_save);
         v.btnSettings = createButton(context, "Настройки", android.R.drawable.ic_menu_preferences);
         v.btnExit = createButton(context, "Выход", android.R.drawable.ic_menu_close_clear_cancel);
 
@@ -137,17 +141,18 @@ public class UiBuilder {
         btn.setGravity(Gravity.CENTER);
         btn.setTextColor(Color.WHITE);
         btn.setTextSize(11);
-        btn.setMaxLines(2);
+        btn.setSingleLine(true);
 
-        int drawablePaddingPx = (int) TypedValue.applyDimension(
-                TypedValue.COMPLEX_UNIT_MM, 5, context.getResources().getDisplayMetrics());
+        int iconPaddingPx = (int) TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_MM, 3, context.getResources().getDisplayMetrics());
 
         if (iconRes != 0) {
-            btn.setCompoundDrawablesWithIntrinsicBounds(iconRes, 0, 0, 0);
-            btn.setCompoundDrawablePadding(drawablePaddingPx);
+            Drawable scaledIcon = getScaledDrawable(context, iconRes, 18);
+            btn.setCompoundDrawablesWithIntrinsicBounds(scaledIcon, null, null, null);
+            btn.setCompoundDrawablePadding(iconPaddingPx);
         }
 
-        int paddingHorizPx = (int) (2 * context.getResources().getDisplayMetrics().density);
+        int paddingHorizPx = (int) (1 * context.getResources().getDisplayMetrics().density);
         int paddingVertPx = (int) (2 * context.getResources().getDisplayMetrics().density);
         btn.setPadding(paddingHorizPx, paddingVertPx, paddingHorizPx, paddingVertPx);
 
@@ -166,7 +171,7 @@ public class UiBuilder {
 
                     setIconResourceMethod.invoke(btn, iconRes);
                     setIconGravityMethod.invoke(btn, 0x03); // ICON_GRAVITY_TEXT_START
-                    setIconPaddingMethod.invoke(btn, drawablePaddingPx);
+                    setIconPaddingMethod.invoke(btn, iconPaddingPx);
                     materialSuccess = true;
                 } catch (Exception ignored) {
                 }
@@ -174,16 +179,11 @@ public class UiBuilder {
                 if (!materialSuccess) {
                     int width = btn.getWidth();
                     if (width > 0) {
-                        android.graphics.drawable.Drawable[] drawables = btn.getCompoundDrawables();
+                        Drawable[] drawables = btn.getCompoundDrawables();
                         int iconWidth = (drawables[0] != null) ? drawables[0].getIntrinsicWidth() : 0;
+                        float textWidth = btn.getPaint().measureText(text);
 
-                        float maxTextWidth = 0;
-                        for (String line : text.split("\n")) {
-                            float lineWidth = btn.getPaint().measureText(line);
-                            if (lineWidth > maxTextWidth) maxTextWidth = lineWidth;
-                        }
-
-                        float contentWidth = iconWidth + drawablePaddingPx + maxTextWidth;
+                        float contentWidth = iconWidth + iconPaddingPx + textWidth;
                         int pad = Math.max(0, (int) ((width - contentWidth) / 2f));
                         btn.setPadding(pad, paddingVertPx, pad, paddingVertPx);
                     }
@@ -192,6 +192,24 @@ public class UiBuilder {
         }
 
         return btn;
+    }
+
+    private static Drawable getScaledDrawable(Context context, int resId, int sizeDp) {
+        Drawable d = context.getResources().getDrawable(resId, context.getTheme());
+        int sizePx = (int) (sizeDp * context.getResources().getDisplayMetrics().density);
+
+        if (d instanceof BitmapDrawable) {
+            Bitmap bitmap = ((BitmapDrawable) d).getBitmap();
+            return new BitmapDrawable(context.getResources(),
+                    Bitmap.createScaledBitmap(bitmap, sizePx, sizePx, true));
+        }
+
+        Bitmap bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        d.setBounds(0, 0, canvas.getWidth(), canvas.getHeight());
+        d.draw(canvas);
+
+        return new BitmapDrawable(context.getResources(), bitmap);
     }
 
     public static void updateStatusHeader(TextView tvLiveMetrics, int spo2, int hr, float pi, int battery) {
