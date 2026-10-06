@@ -77,15 +77,16 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         btnBar.setOrientation(LinearLayout.HORIZONTAL);
         btnBar.setPadding(0, 10, 0, 10);
 
-        // Фиксируем высоту панели кнопок (52dp)
-        int btnBarHeightPx = (int) (52 * getResources().getDisplayMetrics().density);
+        // Увеличиваем высоту панели кнопок до 68dp для размещения 2 строк текста и иконок
+        int btnBarHeightPx = (int) (68 * getResources().getDisplayMetrics().density);
         btnBar.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, btnBarHeightPx));
 
-        Button btnReconnect = createButton("Обновить подключение");
-        Button btnSave = createButton("Сохранение данных");
-        Button btnSettings = createButton("Настройки");
-        Button btnExit = createButton("Выход");
+        // Создаем кнопки с системными иконками и принудительным переносом текста
+        Button btnReconnect = createButton("Обновить\nподключение", android.R.drawable.ic_menu_rotate);
+        Button btnSave = createButton("Сохранение\nданных", android.R.drawable.ic_menu_save);
+        Button btnSettings = createButton("Настройки", android.R.drawable.ic_menu_preferences);
+        Button btnExit = createButton("Выход", android.R.drawable.ic_lock_power_off);
 
         btnBar.addView(btnReconnect);
         btnBar.addView(btnSave);
@@ -138,7 +139,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         btnHeart.setScaleType(ImageView.ScaleType.FIT_CENTER);
         btnHeart.setAlpha(0.5f); // Исходно неактивное состояние
 
-        // Размер увеличен в 1,5 раза (с 40dp до 60dp)
+        // Размер увеличен в 1,5 раза (до 60dp)
         int heartSizePx = (int) (60 * getResources().getDisplayMetrics().density);
         LinearLayout.LayoutParams heartParams = new LinearLayout.LayoutParams(heartSizePx, heartSizePx);
         btnHeart.setLayoutParams(heartParams);
@@ -224,16 +225,24 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     }
 
-    private Button createButton(String text) {
+    private Button createButton(String text, int iconResId) {
         Button btn = new Button(this);
         btn.setText(text);
+        btn.setTextSize(11);
         btn.setGravity(Gravity.CENTER);
         btn.setPadding(2, 2, 2, 2);
+        btn.setSingleLine(false);
+        btn.setMaxLines(2);
+
+        // Устанавливаем системную иконку слева от текста
+        if (iconResId != 0) {
+            btn.setCompoundDrawablesWithIntrinsicBounds(iconResId, 0, 0, 0);
+        }
 
         // Растягиваем кнопки по всей высоте панели btnBar (MATCH_PARENT)
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f);
-        params.setMargins(4, 0, 4, 0);
+        params.setMargins(3, 0, 3, 0);
         btn.setLayoutParams(params);
         return btn;
     }
@@ -492,4 +501,4 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             polarManager.disconnect();
         }
     }
-}
+                        }
