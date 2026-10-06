@@ -379,3 +379,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             }
         });
     }
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (bleManager != null) {
+            bleManager.close();
+        }
+        if (polarManager != null) {
+            polarManager.disconnect();
+        }
+    }
+}
