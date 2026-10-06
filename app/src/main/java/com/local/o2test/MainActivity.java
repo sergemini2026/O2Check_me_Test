@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.ImageButton;
@@ -240,13 +241,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             btn.setCompoundDrawablesWithIntrinsicBounds(iconRes, 0, 0, 0);
         }
 
-        // Увеличен горизонтальный отступ от краев кнопки до 8dp (~2.5–3 мм)
-        int paddingHorizPx = (int) (8 * getResources().getDisplayMetrics().density);
+        // Компактные внешние отступы от краев кнопки
+        int paddingHorizPx = (int) (2 * getResources().getDisplayMetrics().density);
         int paddingVertPx = (int) (2 * getResources().getDisplayMetrics().density);
         btn.setPadding(paddingHorizPx, paddingVertPx, paddingHorizPx, paddingVertPx);
 
-        // Отступ между иконкой и текстом
-        int drawablePaddingPx = (int) (2 * getResources().getDisplayMetrics().density);
+        // Физический отступ ровно 5 мм между текстом и иконкой
+        int drawablePaddingPx = (int) TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_MM, 5, getResources().getDisplayMetrics());
         btn.setCompoundDrawablePadding(drawablePaddingPx);
 
         // Растягиваем кнопки по всей высоте панели btnBar (MATCH_PARENT)
@@ -377,138 +379,3 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             }
         });
     }
-
-    @Override
-    public void onDataReceived(byte[] data) {
-        O2Parser.ParseResult res = O2Parser.parse(data);
-
-        long now = System.currentTimeMillis();
-        float smoothedPi = getSmoothedPi(res.pi);
-
-        currentSpo2 = res.spo2;
-        currentPi = smoothedPi;
-        currentBattery = res.battery;
-
-        boolean isPolarActive = polarManager != null && polarManager.isConnected();
-        int hrToDisplay = isPolarActive ? currentPolarHr : res.hr;
-
-        runOnUiThread(() -> updateStatusHeader(currentSpo2, hrToDisplay, currentPi, currentBattery));
-
-        if (!isPolarActive && res.isFingerOn && isRecording) {
-            if (sessionStartTime == 0) sessionStartTime = now;
-            int elapsedSec = (int) ((now - sessionStartTime) / 1000);
-
-            String timestamp = timeFormat.format(new Date(now));
-            DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, res.hr, currentPi, 0);
-
-            synchronized (sessionData) {
-                sessionData.add(dp);
-            }
-            runOnUiThread(() -> chartView.addDataPoint(dp));
-        }
-    }
-
-    @Override
-    public void onPolarDeviceFound(BluetoothDevice device) {
-        if (polarManager != null) {
-            polarManager.connect(device);
-        }
-    }
-
-    private final PolarH10Manager.PolarCallback polarCallback = new PolarH10Manager.PolarCallback() {
-        @Override
-        public void onPolarLog(String message) {
-            onLog(message);
-        }
-
-        @Override
-        public void onRrReceived(int rrMs, float instantHr) {
-            if (isRecording) {
-                boolean isArtifact = false;
-                if (prevRrMs > 0) {
-                    if (Math.abs(rrMs - prevRrMs) / (float) prevRrMs > 0.20) {
-                        consecutiveArtifactsCount++;
-                        if (consecutiveArtifactsCount < 3) {
-                            isArtifact = true;
-                            onLog("[АРТЕФАКТ] Скачок RR: " + prevRrMs + "мс -> " + rrMs + "мс. Исключен из графика.");
-                        }
-                    }
-                }
-
-                if (!isArtifact) {
-                    consecutiveArtifactsCount = 0;
-                    prevRrMs = rrMs;
-                    currentPolarHr = Math.round(instantHr);
-
-                    long now = System.currentTimeMillis();
-                    if (sessionStartTime == 0) sessionStartTime = now;
-
-                    float elapsedSec = (now - sessionStartTime) / 1000f;
-                    String timestamp = timeFormat.format(new Date(now));
-
-                    DataPoint dp = new DataPoint(timestamp, (int) elapsedSec, currentSpo2, currentPolarHr, currentPi, rrMs);
-
-                    synchronized (sessionData) {
-                        sessionData.add(dp);
-                    }
-
-                    runOnUiThread(() -> {
-                        updateStatusHeader(currentSpo2, currentPolarHr, currentPi, currentBattery);
-                        chartView.addDataPoint(dp);
-                        animateHeartPulse();
-                    });
-                }
-            }
-        }
-
-        @Override
-        public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
-            int totalTarget = 300;
-            float percent = Math.min(100.0f, (rrCount / (float) totalTarget) * 100.0f);
-            int remainingBeats = Math.max(0, totalTarget - rrCount);
-
-            int remainingSec = 0;
-            if (hr > 0 && remainingBeats > 0) {
-                remainingSec = (int) Math.round((remainingBeats * 60.0) / hr);
-            }
-            int remMin = remainingSec / 60;
-            int remSec = remainingSec % 60;
-
-            if (rrCount < totalTarget) {
-                String rmssdStr = (hrv != null) ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--";
-                String logMsg = String.format(Locale.US,
-                        "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
-                        percent, rrCount, totalTarget, remMin, remSec, hr, rmssdStr);
-                onLog(logMsg);
-            } else {
-                String logMsg = String.format(Locale.US,
-                        "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms²",
-                        hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
-                onLog(logMsg);
-
-                if (hrv != null) {
-                    String hrvDisplay = String.format(Locale.US,
-                            "RMSSD: %.1f ms  |  pNN50: %.1f%%  |  LF/HF: %.2f  |  TP: %.0f ms²",
-                            hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
-
-                    runOnUiThread(() -> {
-                        if (tvHrvMetrics != null) {
-                            tvHrvMetrics.setText(hrvDisplay);
-                        }
-                    });
-                }
-            }
-        }
-    };
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (bleManager != null) {
-            bleManager.close();
-        }
-        if (polarManager != null) {
-            polarManager.disconnect();
-        }
-    }
-}
