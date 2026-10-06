@@ -12,8 +12,6 @@ import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
 import android.widget.Button;
-import android.widget.ImageButton;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -35,10 +33,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private PolarH10Manager polarManager;
     private TextView tvLiveMetrics;
     private TrendChartView chartView;
-    private TextView tvHrvMetrics;
     private TextView tvLog;
     private ScrollView logScrollView;
-    private ImageButton btnHeart;
 
     private boolean isRecording = false;
     private long sessionStartTime = 0;
@@ -51,9 +47,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private int currentSpo2 = 0;
     private float currentPi = 0.0f;
     private int currentBattery = 0;
-    private int currentPolarHr = 0;
-    private int prevRrMs = 0;
-    private int consecutiveArtifactsCount = 0;
+    private int currentPolarHr = 0; // Мгновенная ЧСС от H10
+    private int prevRrMs = 0; // Трекер для фильтрации артефактов на графике
+    private int consecutiveArtifactsCount = 0; // Счетчик подряд идущих артефактов
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -72,25 +68,18 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateStatusHeader(0, 0, 0f, 0);
         mainLayout.addView(tvLiveMetrics);
 
-        // --- ВЕРХНЯЯ ПАНЕЛЬ КНОПОК ---
         LinearLayout btnBar = new LinearLayout(this);
         btnBar.setOrientation(LinearLayout.HORIZONTAL);
-        btnBar.setPadding(0, 2, 0, 2);
+        btnBar.setPadding(0, 10, 0, 10);
 
-        // Фиксированная одинаковая высота для всей панели кнопок (56dp)
-        int btnBarHeightPx = (int) (56 * getResources().getDisplayMetrics().density);
-        btnBar.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, btnBarHeightPx));
+        Button btnMonitor = createButton("Панель монитора");
+        Button btnStop = createButton("Стоп");
+        Button btnSave = createButton("Сохранение данных");
+        Button btnExit = createButton("Выход");
 
-        // Текст из двух слов явно разделен переносом строки \n
-        Button btnReconnect = createButton("Обновить\nподключение", android.R.drawable.ic_popup_sync);
-        Button btnSave = createButton("Сохранение\nданных", android.R.drawable.ic_menu_save);
-        Button btnSettings = createButton("Настройки", android.R.drawable.ic_menu_preferences);
-        Button btnExit = createButton("Выход", android.R.drawable.ic_menu_close_clear_cancel);
-
-        btnBar.addView(btnReconnect);
+        btnBar.addView(btnMonitor);
+        btnBar.addView(btnStop);
         btnBar.addView(btnSave);
-        btnBar.addView(btnSettings);
         btnBar.addView(btnExit);
         mainLayout.addView(btnBar);
 
@@ -100,83 +89,22 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         chartView.setLayoutParams(chartParams);
         mainLayout.addView(chartView);
 
-        // --- БЛОК ВСР ---
-        tvHrvMetrics = new TextView(this);
-        tvHrvMetrics.setTextSize(16);
-        tvHrvMetrics.setTextColor(Color.WHITE);
-        tvHrvMetrics.setGravity(Gravity.CENTER);
-        
-        LinearLayout.LayoutParams hrvParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        hrvParams.setMargins(0, 8, 0, 4);
-        tvHrvMetrics.setLayoutParams(hrvParams);
-        tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
-        mainLayout.addView(tvHrvMetrics);
-
-        // --- БЛОК УПРАВЛЕНИЯ МОНИТОРИНГОМ (Надпись + Кнопка Сердце) ---
-        LinearLayout heartContainer = new LinearLayout(this);
-        heartContainer.setOrientation(LinearLayout.HORIZONTAL);
-        heartContainer.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams heartContainerParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        heartContainerParams.setMargins(0, 0, 12, 4);
-        heartContainer.setLayoutParams(heartContainerParams);
-
-        TextView tvMonitorLabel = new TextView(this);
-        tvMonitorLabel.setText("Панель монитора");
-        tvMonitorLabel.setTextSize(13);
-        tvMonitorLabel.setTextColor(Color.WHITE);
-        tvMonitorLabel.setGravity(Gravity.CENTER_VERTICAL);
-        
-        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        labelParams.setMargins(0, 0, 10, 0);
-        tvMonitorLabel.setLayoutParams(labelParams);
-
-        btnHeart = new ImageButton(this);
-        btnHeart.setBackgroundColor(Color.TRANSPARENT);
-        btnHeart.setImageResource(R.drawable.ic_heart_pulse);
-        btnHeart.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        btnHeart.setAlpha(0.5f); // Исходно неактивное состояние
-
-        // Размер увеличен в 1,5 раза (с 40dp до 60dp)
-        int heartSizePx = (int) (60 * getResources().getDisplayMetrics().density);
-        LinearLayout.LayoutParams heartParams = new LinearLayout.LayoutParams(heartSizePx, heartSizePx);
-        btnHeart.setLayoutParams(heartParams);
-
-        // Переключение панели монитора по нажатию на сердце
-        btnHeart.setOnClickListener(v -> {
-            if (!isRecording) {
-                startMonitoringPanel();
-            } else {
-                stopMonitoring();
-            }
-        });
-
-        heartContainer.addView(tvMonitorLabel);
-        heartContainer.addView(btnHeart);
-        mainLayout.addView(heartContainer);
-
         tvLog = new TextView(this);
         tvLog.setTextSize(11);
 
         logScrollView = new ScrollView(this);
         LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        logParams.topMargin = 4;
+        logParams.topMargin = 24;
         logScrollView.setLayoutParams(logParams);
         logScrollView.addView(tvLog);
         mainLayout.addView(logScrollView);
 
         setContentView(mainLayout);
 
-        // Назначение обработчиков для верхней панели
-        btnReconnect.setOnClickListener(v -> {
-            onLog("Переподключение BLE устройств...");
-            checkAndRequestPermissions();
-        });
+        btnMonitor.setOnClickListener(v -> startMonitoringPanel());
+        btnStop.setOnClickListener(v -> stopMonitoring());
         btnSave.setOnClickListener(v -> saveData());
-        btnSettings.setOnClickListener(v -> onLog("Открытие настроек..."));
         btnExit.setOnClickListener(v -> finish());
 
         checkAndRequestPermissions();
@@ -225,55 +153,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     }
 
-    private Button createButton(String text, int iconRes) {
+    private Button createButton(String text) {
         Button btn = new Button(this);
         btn.setText(text);
-        btn.setGravity(Gravity.CENTER);
-        
-        // Цвет и компактный размер шрифта для гарантии вместимости
-        btn.setTextColor(Color.WHITE);
-        btn.setTextSize(11);
-        btn.setMaxLines(2);
-
-        // Иконка размещается СЛЕВА от текста (первый аргумент)
-        if (iconRes != 0) {
-            btn.setCompoundDrawablesWithIntrinsicBounds(iconRes, 0, 0, 0);
-        }
-
-        // Увеличен горизонтальный отступ от краев кнопки до 8dp (~2.5–3 мм)
-        int paddingHorizPx = (int) (8 * getResources().getDisplayMetrics().density);
-        int paddingVertPx = (int) (2 * getResources().getDisplayMetrics().density);
-        btn.setPadding(paddingHorizPx, paddingVertPx, paddingHorizPx, paddingVertPx);
-
-        // Отступ между иконкой и текстом
-        int drawablePaddingPx = (int) (2 * getResources().getDisplayMetrics().density);
-        btn.setCompoundDrawablePadding(drawablePaddingPx);
-
-        // Растягиваем кнопки по всей высоте панели btnBar (MATCH_PARENT)
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f);
-        params.setMargins(2, 0, 2, 0);
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+        params.setMargins(4, 0, 4, 0);
         btn.setLayoutParams(params);
         return btn;
-    }
-
-    private void animateHeartPulse() {
-        if (btnHeart == null || !isRecording) return;
-
-        btnHeart.animate()
-            .scaleX(1.18f)
-            .scaleY(1.18f)
-            .setDuration(110)
-            .withEndAction(() -> {
-                if (btnHeart != null) {
-                    btnHeart.animate()
-                        .scaleX(1.0f)
-                        .scaleY(1.0f)
-                        .setDuration(110)
-                        .start();
-                }
-            })
-            .start();
     }
 
     private void updateStatusHeader(int spo2, int hr, float pi, int battery) {
@@ -317,21 +204,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (chartView != null) {
             chartView.clearData();
         }
-        if (tvHrvMetrics != null) {
-            tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
-        }
-        if (btnHeart != null) {
-            btnHeart.setAlpha(1.0f); // Яркое активное состояние
-        }
         onLog("Панель монитора активна");
     }
 
     private void stopMonitoring() {
         isRecording = false;
         piWindow.clear();
-        if (btnHeart != null) {
-            btnHeart.setAlpha(0.5f); // Полупрозрачное неактивное состояние
-        }
         onLog("Мониторинг остановлен");
     }
 
@@ -394,6 +272,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         runOnUiThread(() -> updateStatusHeader(currentSpo2, hrToDisplay, currentPi, currentBattery));
 
+        // Если Polar H10 НЕ подключен, драйвером записи становится O2-датчик
         if (!isPolarActive && res.isFingerOn && isRecording) {
             if (sessionStartTime == 0) sessionStartTime = now;
             int elapsedSec = (int) ((now - sessionStartTime) / 1000);
@@ -424,10 +303,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         @Override
         public void onRrReceived(int rrMs, float instantHr) {
             if (isRecording) {
+                // Фильтрация артефактов для графика (Malik 20% Threshold + защита от застревания)
                 boolean isArtifact = false;
                 if (prevRrMs > 0) {
                     if (Math.abs(rrMs - prevRrMs) / (float) prevRrMs > 0.20) {
                         consecutiveArtifactsCount++;
+                        // Если подряд идет менее 3 скачков — считаем артефактом. Если 3 и более — принимаем новую ЧСС.
                         if (consecutiveArtifactsCount < 3) {
                             isArtifact = true;
                             onLog("[АРТЕФАКТ] Скачок RR: " + prevRrMs + "мс -> " + rrMs + "мс. Исключен из графика.");
@@ -455,7 +336,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     runOnUiThread(() -> {
                         updateStatusHeader(currentSpo2, currentPolarHr, currentPi, currentBattery);
                         chartView.addDataPoint(dp);
-                        animateHeartPulse();
                     });
                 }
             }
@@ -467,6 +347,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             float percent = Math.min(100.0f, (rrCount / (float) totalTarget) * 100.0f);
             int remainingBeats = Math.max(0, totalTarget - rrCount);
 
+            // Расчет оставшегося времени до конца дампа (на основе пульса)
             int remainingSec = 0;
             if (hr > 0 && remainingBeats > 0) {
                 remainingSec = (int) Math.round((remainingBeats * 60.0) / hr);
@@ -475,28 +356,18 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             int remSec = remainingSec % 60;
 
             if (rrCount < totalTarget) {
+                // Промежуточный вывод процента и обратного отсчета
                 String rmssdStr = (hrv != null) ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--";
                 String logMsg = String.format(Locale.US,
                         "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
                         percent, rrCount, totalTarget, remMin, remSec, hr, rmssdStr);
                 onLog(logMsg);
             } else {
+                // Итоговый вывод при 100% заполнении
                 String logMsg = String.format(Locale.US,
                         "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms²",
                         hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
                 onLog(logMsg);
-
-                if (hrv != null) {
-                    String hrvDisplay = String.format(Locale.US,
-                            "RMSSD: %.1f ms  |  pNN50: %.1f%%  |  LF/HF: %.2f  |  TP: %.0f ms²",
-                            hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
-
-                    runOnUiThread(() -> {
-                        if (tvHrvMetrics != null) {
-                            tvHrvMetrics.setText(hrvDisplay);
-                        }
-                    });
-                }
             }
         }
     };
