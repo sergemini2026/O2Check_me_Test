@@ -1,23 +1,10 @@
 package com.local.o2test;
 
-import android.Manifest;
 import android.app.Activity;
 import android.bluetooth.BluetoothDevice;
 import android.content.pm.PackageManager;
-import android.graphics.Color;
-import android.os.Build;
 import android.os.Bundle;
-import android.text.SpannableStringBuilder;
-import android.text.Spanned;
-import android.text.style.ForegroundColorSpan;
-import android.util.TypedValue;
-import android.view.Gravity;
-import android.widget.Button;
-import android.widget.ImageButton;
-import android.widget.ImageView;
-import android.widget.LinearLayout;
 import android.widget.ScrollView;
-import android.widget.TextView;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -29,24 +16,16 @@ import java.util.Queue;
 
 public class MainActivity extends Activity implements O2BleManager.BleListener {
 
-    private static final int PERMISSION_REQUEST_CODE = 101;
     private static final int PI_SMOOTHING_WINDOW = 5;
 
     private O2BleManager bleManager;
     private PolarH10Manager polarManager;
-    private TextView tvLiveMetrics;
-    private TrendChartView chartView;
-    private TextView tvHrvMetrics;
-    private TextView tvLog;
-    private ScrollView logScrollView;
-    private ImageButton btnHeart;
+    private UiBuilder.Views ui;
 
     private boolean isRecording = false;
     private long sessionStartTime = 0;
     private final List<DataPoint> sessionData = new ArrayList<>();
-    
     private final Queue<Float> piWindow = new LinkedList<>();
-    
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
 
     private int currentSpo2 = 0;
@@ -63,90 +42,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         bleManager = new O2BleManager(this, this);
         polarManager = new PolarH10Manager(this, polarCallback);
 
-        LinearLayout mainLayout = new LinearLayout(this);
-        mainLayout.setOrientation(LinearLayout.VERTICAL);
-        mainLayout.setPadding(20, 20, 20, 20);
+        ui = UiBuilder.buildUi(this);
+        UiBuilder.updateStatusHeader(ui.tvLiveMetrics, 0, 0, 0f, 0);
 
-        tvLiveMetrics = new TextView(this);
-        tvLiveMetrics.setTextSize(18);
-        tvLiveMetrics.setGravity(Gravity.CENTER);
-        updateStatusHeader(0, 0, 0f, 0);
-        mainLayout.addView(tvLiveMetrics);
-
-        // --- ВЕРХНЯЯ ПАНЕЛЬ КНОПОК ---
-        LinearLayout btnBar = new LinearLayout(this);
-        btnBar.setOrientation(LinearLayout.HORIZONTAL);
-        btnBar.setPadding(0, 2, 0, 2);
-
-        // Фиксированная одинаковая высота для всей панели кнопок (56dp)
-        int btnBarHeightPx = (int) (56 * getResources().getDisplayMetrics().density);
-        btnBar.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, btnBarHeightPx));
-
-        // Текст из двух слов явно разделен переносом строки \n
-        Button btnReconnect = createButton("Обновить\nподключение", android.R.drawable.ic_popup_sync);
-        Button btnSave = createButton("Сохранение\nданных", android.R.drawable.ic_menu_save);
-        Button btnSettings = createButton("Настройки", android.R.drawable.ic_menu_preferences);
-        Button btnExit = createButton("Выход", android.R.drawable.ic_menu_close_clear_cancel);
-
-        btnBar.addView(btnReconnect);
-        btnBar.addView(btnSave);
-        btnBar.addView(btnSettings);
-        btnBar.addView(btnExit);
-        mainLayout.addView(btnBar);
-
-        chartView = new TrendChartView(this);
-        LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 2.0f);
-        chartView.setLayoutParams(chartParams);
-        mainLayout.addView(chartView);
-
-        // --- БЛОК ВСР ---
-        tvHrvMetrics = new TextView(this);
-        tvHrvMetrics.setTextSize(16);
-        tvHrvMetrics.setTextColor(Color.WHITE);
-        tvHrvMetrics.setGravity(Gravity.CENTER);
-        
-        LinearLayout.LayoutParams hrvParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        hrvParams.setMargins(0, 8, 0, 4);
-        tvHrvMetrics.setLayoutParams(hrvParams);
-        tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
-        mainLayout.addView(tvHrvMetrics);
-
-        // --- БЛОК УПРАВЛЕНИЯ МОНИТОРИНГОМ (Надпись + Кнопка Сердце) ---
-        LinearLayout heartContainer = new LinearLayout(this);
-        heartContainer.setOrientation(LinearLayout.HORIZONTAL);
-        heartContainer.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams heartContainerParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        heartContainerParams.setMargins(0, 0, 12, 4);
-        heartContainer.setLayoutParams(heartContainerParams);
-
-        TextView tvMonitorLabel = new TextView(this);
-        tvMonitorLabel.setText("Панель монитора");
-        tvMonitorLabel.setTextSize(13);
-        tvMonitorLabel.setTextColor(Color.WHITE);
-        tvMonitorLabel.setGravity(Gravity.CENTER_VERTICAL);
-        
-        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        labelParams.setMargins(0, 0, 10, 0);
-        tvMonitorLabel.setLayoutParams(labelParams);
-
-        btnHeart = new ImageButton(this);
-        btnHeart.setBackgroundColor(Color.TRANSPARENT);
-        btnHeart.setImageResource(R.drawable.ic_heart_pulse);
-        btnHeart.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        btnHeart.setAlpha(0.5f); // Исходно неактивное состояние
-
-        // Размер увеличен в 1,5 раза (с 40dp до 60dp)
-        int heartSizePx = (int) (60 * getResources().getDisplayMetrics().density);
-        LinearLayout.LayoutParams heartParams = new LinearLayout.LayoutParams(heartSizePx, heartSizePx);
-        btnHeart.setLayoutParams(heartParams);
-
-        // Переключение панели монитора по нажатию на сердце
-        btnHeart.setOnClickListener(v -> {
+        ui.btnHeart.setOnClickListener(v -> {
             if (!isRecording) {
                 startMonitoringPanel();
             } else {
@@ -154,62 +53,30 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             }
         });
 
-        heartContainer.addView(tvMonitorLabel);
-        heartContainer.addView(btnHeart);
-        mainLayout.addView(heartContainer);
-
-        tvLog = new TextView(this);
-        tvLog.setTextSize(11);
-
-        logScrollView = new ScrollView(this);
-        LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        logParams.topMargin = 4;
-        logScrollView.setLayoutParams(logParams);
-        logScrollView.addView(tvLog);
-        mainLayout.addView(logScrollView);
-
-        setContentView(mainLayout);
-
-        // Назначение обработчиков для верхней панели
-        btnReconnect.setOnClickListener(v -> {
+        ui.btnReconnect.setOnClickListener(v -> {
             onLog("Переподключение BLE устройств...");
             checkAndRequestPermissions();
         });
-        btnSave.setOnClickListener(v -> saveData());
-        btnSettings.setOnClickListener(v -> onLog("Открытие настроек..."));
-        btnExit.setOnClickListener(v -> finish());
+        ui.btnSave.setOnClickListener(v -> saveData());
+        ui.btnSettings.setOnClickListener(v -> onLog("Открытие настроек..."));
+        ui.btnExit.setOnClickListener(v -> finish());
 
+        setContentView(ui.mainLayout);
         checkAndRequestPermissions();
     }
 
     private void checkAndRequestPermissions() {
-        List<String> permissions = new ArrayList<>();
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                permissions.add(Manifest.permission.BLUETOOTH_SCAN);
-            }
-            if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-                permissions.add(Manifest.permission.BLUETOOTH_CONNECT);
-            }
-        }
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
-        }
-
-        if (!permissions.isEmpty()) {
-            onLog("Запрос разрешений BLE...");
-            requestPermissions(permissions.toArray(new String[0]), PERMISSION_REQUEST_CODE);
-        } else {
+        if (PermissionHelper.checkAndRequestPermissions(this)) {
             bleManager.initAndStartScan();
+        } else {
+            onLog("Запрос разрешений BLE...");
         }
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == PERMISSION_REQUEST_CODE) {
+        if (requestCode == PermissionHelper.PERMISSION_REQUEST_CODE) {
             boolean allGranted = true;
             for (int result : grantResults) {
                 if (result != PackageManager.PERMISSION_GRANTED) {
@@ -226,49 +93,16 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     }
 
-    private Button createButton(String text, int iconRes) {
-        Button btn = new Button(this);
-        btn.setText(text);
-        btn.setGravity(Gravity.CENTER);
-        
-        // Цвет и компактный размер шрифта для гарантии вместимости
-        btn.setTextColor(Color.WHITE);
-        btn.setTextSize(11);
-        btn.setMaxLines(2);
-
-        // Иконка размещается СЛЕВА от текста (первый аргумент)
-        if (iconRes != 0) {
-            btn.setCompoundDrawablesWithIntrinsicBounds(iconRes, 0, 0, 0);
-        }
-
-        // Компактные внешние отступы от краев кнопки
-        int paddingHorizPx = (int) (2 * getResources().getDisplayMetrics().density);
-        int paddingVertPx = (int) (2 * getResources().getDisplayMetrics().density);
-        btn.setPadding(paddingHorizPx, paddingVertPx, paddingHorizPx, paddingVertPx);
-
-        // Физический отступ ровно 5 мм между текстом и иконкой
-        int drawablePaddingPx = (int) TypedValue.applyDimension(
-                TypedValue.COMPLEX_UNIT_MM, 5, getResources().getDisplayMetrics());
-        btn.setCompoundDrawablePadding(drawablePaddingPx);
-
-        // Растягиваем кнопки по всей высоте панели btnBar (MATCH_PARENT)
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f);
-        params.setMargins(2, 0, 2, 0);
-        btn.setLayoutParams(params);
-        return btn;
-    }
-
     private void animateHeartPulse() {
-        if (btnHeart == null || !isRecording) return;
+        if (ui.btnHeart == null || !isRecording) return;
 
-        btnHeart.animate()
+        ui.btnHeart.animate()
             .scaleX(1.18f)
             .scaleY(1.18f)
             .setDuration(110)
             .withEndAction(() -> {
-                if (btnHeart != null) {
-                    btnHeart.animate()
+                if (ui.btnHeart != null) {
+                    ui.btnHeart.animate()
                         .scaleX(1.0f)
                         .scaleY(1.0f)
                         .setDuration(110)
@@ -276,35 +110,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 }
             })
             .start();
-    }
-
-    private void updateStatusHeader(int spo2, int hr, float pi, int battery) {
-        if (tvLiveMetrics == null) return;
-
-        String partO2 = String.format(Locale.US, "SpO2: %d%%", spo2);
-        String partHR = String.format(Locale.US, "  |  HR: %d bpm", hr);
-        String partPI = String.format(Locale.US, "  |  PI: %.1f%%", pi);
-        String partPower = String.format(Locale.US, "  |  Power: %d%%", battery);
-
-        SpannableStringBuilder builder = new SpannableStringBuilder();
-
-        int start = 0;
-        builder.append(partO2);
-        builder.setSpan(new ForegroundColorSpan(Color.CYAN), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-
-        start = builder.length();
-        builder.append(partHR);
-        builder.setSpan(new ForegroundColorSpan(Color.GREEN), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-
-        start = builder.length();
-        builder.append(partPI);
-        builder.setSpan(new ForegroundColorSpan(Color.YELLOW), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-
-        start = builder.length();
-        builder.append(partPower);
-        builder.setSpan(new ForegroundColorSpan(Color.RED), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-
-        tvLiveMetrics.setText(builder);
     }
 
     private void startMonitoringPanel() {
@@ -316,14 +121,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         piWindow.clear();
         prevRrMs = 0;
         consecutiveArtifactsCount = 0;
-        if (chartView != null) {
-            chartView.clearData();
+        if (ui.chartView != null) {
+            ui.chartView.clearData();
         }
-        if (tvHrvMetrics != null) {
-            tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
+        if (ui.tvHrvMetrics != null) {
+            ui.tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
         }
-        if (btnHeart != null) {
-            btnHeart.setAlpha(1.0f); // Яркое активное состояние
+        if (ui.btnHeart != null) {
+            ui.btnHeart.setAlpha(1.0f);
         }
         onLog("Панель монитора активна");
     }
@@ -331,8 +136,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private void stopMonitoring() {
         isRecording = false;
         piWindow.clear();
-        if (btnHeart != null) {
-            btnHeart.setAlpha(0.5f); // Полупрозрачное неактивное состояние
+        if (ui.btnHeart != null) {
+            ui.btnHeart.setAlpha(0.5f);
         }
         onLog("Мониторинг остановлен");
     }
@@ -371,14 +176,138 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     @Override
     public void onLog(String message) {
         runOnUiThread(() -> {
-            if (tvLog != null) {
-                tvLog.append(message + "\n");
-                if (logScrollView != null) {
-                    logScrollView.post(() -> logScrollView.fullScroll(ScrollView.FOCUS_DOWN));
+            if (ui.tvLog != null) {
+                ui.tvLog.append(message + "\n");
+                if (ui.logScrollView != null) {
+                    ui.logScrollView.post(() -> ui.logScrollView.fullScroll(ScrollView.FOCUS_DOWN));
                 }
             }
         });
     }
+
+    @Override
+    public void onDataReceived(byte[] data) {
+        O2Parser.ParseResult res = O2Parser.parse(data);
+
+        long now = System.currentTimeMillis();
+        float smoothedPi = getSmoothedPi(res.pi);
+
+        currentSpo2 = res.spo2;
+        currentPi = smoothedPi;
+        currentBattery = res.battery;
+
+        boolean isPolarActive = polarManager != null && polarManager.isConnected();
+        int hrToDisplay = isPolarActive ? currentPolarHr : res.hr;
+
+        runOnUiThread(() -> UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery));
+
+        if (!isPolarActive && res.isFingerOn && isRecording) {
+            if (sessionStartTime == 0) sessionStartTime = now;
+            int elapsedSec = (int) ((now - sessionStartTime) / 1000);
+
+            String timestamp = timeFormat.format(new Date(now));
+            DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, res.hr, currentPi, 0);
+
+            synchronized (sessionData) {
+                sessionData.add(dp);
+            }
+            runOnUiThread(() -> ui.chartView.addDataPoint(dp));
+        }
+    }
+
+    @Override
+    public void onPolarDeviceFound(BluetoothDevice device) {
+        if (polarManager != null) {
+            polarManager.connect(device);
+        }
+    }
+
+    private final PolarH10Manager.PolarCallback polarCallback = new PolarH10Manager.PolarCallback() {
+        @Override
+        public void onPolarLog(String message) {
+            onLog(message);
+        }
+
+        @Override
+        public void onRrReceived(int rrMs, float instantHr) {
+            if (isRecording) {
+                boolean isArtifact = false;
+                if (prevRrMs > 0) {
+                    if (Math.abs(rrMs - prevRrMs) / (float) prevRrMs > 0.20) {
+                        consecutiveArtifactsCount++;
+                        if (consecutiveArtifactsCount < 3) {
+                            isArtifact = true;
+                            onLog("[АРТЕФАКТ] Скачок RR: " + prevRrMs + "мс -> " + rrMs + "мс. Исключен из графика.");
+                        }
+                    }
+                }
+
+                if (!isArtifact) {
+                    consecutiveArtifactsCount = 0;
+                    prevRrMs = rrMs;
+                    currentPolarHr = Math.round(instantHr);
+
+                    long now = System.currentTimeMillis();
+                    if (sessionStartTime == 0) sessionStartTime = now;
+
+                    float elapsedSec = (now - sessionStartTime) / 1000f;
+                    String timestamp = timeFormat.format(new Date(now));
+
+                    DataPoint dp = new DataPoint(timestamp, (int) elapsedSec, currentSpo2, currentPolarHr, currentPi, rrMs);
+
+                    synchronized (sessionData) {
+                        sessionData.add(dp);
+                    }
+
+                    runOnUiThread(() -> {
+                        UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, currentPolarHr, currentPi, currentBattery);
+                        ui.chartView.addDataPoint(dp);
+                        animateHeartPulse();
+                    });
+                }
+            }
+        }
+
+        @Override
+        public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
+            int totalTarget = 300;
+            float percent = Math.min(100.0f, (rrCount / (float) totalTarget) * 100.0f);
+            int remainingBeats = Math.max(0, totalTarget - rrCount);
+
+            int remainingSec = 0;
+            if (hr > 0 && remainingBeats > 0) {
+                remainingSec = (int) Math.round((remainingBeats * 60.0) / hr);
+            }
+            int remMin = remainingSec / 60;
+            int remSec = remainingSec % 60;
+
+            if (rrCount < totalTarget) {
+                String rmssdStr = (hrv != null) ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--";
+                String logMsg = String.format(Locale.US,
+                        "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
+                        percent, rrCount, totalTarget, remMin, remSec, hr, rmssdStr);
+                onLog(logMsg);
+            } else {
+                String logMsg = String.format(Locale.US,
+                        "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms²",
+                        hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
+                onLog(logMsg);
+
+                if (hrv != null) {
+                    String hrvDisplay = String.format(Locale.US,
+                            "RMSSD: %.1f ms  |  pNN50: %.1f%%  |  LF/HF: %.2f  |  TP: %.0f ms²",
+                            hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
+
+                    runOnUiThread(() -> {
+                        if (ui.tvHrvMetrics != null) {
+                            ui.tvHrvMetrics.setText(hrvDisplay);
+                        }
+                    });
+                }
+            }
+        }
+    };
+
     @Override
     protected void onDestroy() {
         super.onDestroy();
