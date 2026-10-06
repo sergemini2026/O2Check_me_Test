@@ -1,8 +1,14 @@
 name: Run HRV Unit Tests
 
-on:
-  push:
-    branches: [ main, master ]
+# Закомментированный автозапуск:
+# on:
+#   push:
+#     branches: [ "main" ]
+
+# Только ручной запуск:
+on: workflow_dispatch
+
+
   pull_request:
     branches: [ main, master ]
 
