@@ -77,13 +77,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         btnBar.setOrientation(LinearLayout.HORIZONTAL);
         btnBar.setPadding(0, 2, 0, 2);
 
-        // Увеличена высота панели кнопок до 68dp для размещения иконки + 2 строк текста
-        int btnBarHeightPx = (int) (68 * getResources().getDisplayMetrics().density);
+        // Фиксированная одинаковая высота для всей панели кнопок (56dp)
+        int btnBarHeightPx = (int) (56 * getResources().getDisplayMetrics().density);
         btnBar.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, btnBarHeightPx));
 
-        Button btnReconnect = createButton("Обновить подключение", android.R.drawable.ic_popup_sync);
-        Button btnSave = createButton("Сохранение данных", android.R.drawable.ic_menu_save);
+        // Текст из двух слов явно разделен переносом строки \n
+        Button btnReconnect = createButton("Обновить\nподключение", android.R.drawable.ic_popup_sync);
+        Button btnSave = createButton("Сохранение\nданных", android.R.drawable.ic_menu_save);
         Button btnSettings = createButton("Настройки", android.R.drawable.ic_menu_preferences);
         Button btnExit = createButton("Выход", android.R.drawable.ic_menu_close_clear_cancel);
 
@@ -229,22 +230,22 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         btn.setText(text);
         btn.setGravity(Gravity.CENTER);
         
-        // Цвет и параметры отображения текста
+        // Цвет и компактный размер шрифта для гарантии вместимости
         btn.setTextColor(Color.WHITE);
-        btn.setTextSize(13);
-        btn.setMaxLines(2); // Гарантирует перенос на 2 строки для длинных надписей
+        btn.setTextSize(11);
+        btn.setMaxLines(2);
 
-        // Отображение системной иконки над текстом кнопки
+        // Иконка размещается СЛЕВА от текста (первый аргумент)
         if (iconRes != 0) {
-            btn.setCompoundDrawablesWithIntrinsicBounds(0, iconRes, 0, 0);
+            btn.setCompoundDrawablesWithIntrinsicBounds(iconRes, 0, 0, 0);
         }
 
-        // Компактные отступы внутри кнопки для точного размещения
-        int paddingHorizPx = (int) (4 * getResources().getDisplayMetrics().density);
+        // Минимальные отступы внутри кнопки
+        int paddingHorizPx = (int) (2 * getResources().getDisplayMetrics().density);
         int paddingVertPx = (int) (2 * getResources().getDisplayMetrics().density);
         btn.setPadding(paddingHorizPx, paddingVertPx, paddingHorizPx, paddingVertPx);
 
-        // Минимальный отступ между иконкой и текстом
+        // Отступ между иконкой и текстом
         int drawablePaddingPx = (int) (2 * getResources().getDisplayMetrics().density);
         btn.setCompoundDrawablePadding(drawablePaddingPx);
 
