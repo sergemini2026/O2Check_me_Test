@@ -283,4 +283,4 @@ public class TrendChartView extends View {
             }
         }
     }
-}
+                        }
