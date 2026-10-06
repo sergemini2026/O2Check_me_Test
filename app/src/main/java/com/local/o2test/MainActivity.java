@@ -75,10 +75,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         // --- ВЕРХНЯЯ ПАНЕЛЬ КНОПОК ---
         LinearLayout btnBar = new LinearLayout(this);
         btnBar.setOrientation(LinearLayout.HORIZONTAL);
-        btnBar.setPadding(0, 10, 0, 10);
+        btnBar.setPadding(0, 2, 0, 2);
 
-        // Фиксируем высоту панели кнопок (52dp)
-        int btnBarHeightPx = (int) (52 * getResources().getDisplayMetrics().density);
+        // Увеличена высота панели кнопок до 68dp для размещения иконки + 2 строк текста
+        int btnBarHeightPx = (int) (68 * getResources().getDisplayMetrics().density);
         btnBar.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, btnBarHeightPx));
 
@@ -229,27 +229,29 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         btn.setText(text);
         btn.setGravity(Gravity.CENTER);
         
-        // Размер шрифта уменьшен до 13pt
-        btn.setTextSize(13); 
+        // Цвет и параметры отображения текста
+        btn.setTextColor(Color.WHITE);
+        btn.setTextSize(13);
+        btn.setMaxLines(2); // Гарантирует перенос на 2 строки для длинных надписей
 
         // Отображение системной иконки над текстом кнопки
         if (iconRes != 0) {
             btn.setCompoundDrawablesWithIntrinsicBounds(0, iconRes, 0, 0);
         }
 
-        // Отступы внутри кнопки от граней
-        int paddingHorizPx = (int) (8 * getResources().getDisplayMetrics().density);
-        int paddingVertPx = (int) (4 * getResources().getDisplayMetrics().density);
+        // Компактные отступы внутри кнопки для точного размещения
+        int paddingHorizPx = (int) (4 * getResources().getDisplayMetrics().density);
+        int paddingVertPx = (int) (2 * getResources().getDisplayMetrics().density);
         btn.setPadding(paddingHorizPx, paddingVertPx, paddingHorizPx, paddingVertPx);
 
-        // Отступ между текстом и иконкой
-        int drawablePaddingPx = (int) (6 * getResources().getDisplayMetrics().density);
+        // Минимальный отступ между иконкой и текстом
+        int drawablePaddingPx = (int) (2 * getResources().getDisplayMetrics().density);
         btn.setCompoundDrawablePadding(drawablePaddingPx);
 
         // Растягиваем кнопки по всей высоте панели btnBar (MATCH_PARENT)
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f);
-        params.setMargins(4, 0, 4, 0);
+        params.setMargins(2, 0, 2, 0);
         btn.setLayoutParams(params);
         return btn;
     }
@@ -508,4 +510,4 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             polarManager.disconnect();
         }
     }
-    }
+}
