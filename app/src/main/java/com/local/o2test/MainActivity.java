@@ -32,6 +32,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private float currentPi = 0.0f;
     private int currentBattery = 0;
     private int currentPolarHr = 0;
+    private int currentPolarBattery = 0;
     private int prevRrMs = 0;
     private int consecutiveArtifactsCount = 0;
 
@@ -43,7 +44,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         polarManager = new PolarH10Manager(this, polarCallback);
 
         ui = UiBuilder.buildUi(this);
-        UiBuilder.updateStatusHeader(ui.tvLiveMetrics, 0, 0, 0f, 0);
+        UiBuilder.updateStatusHeader(ui.tvLiveMetrics, 0, 0, 0f, 0, 0);
 
         ui.btnHeart.setOnClickListener(v -> {
             if (!isRecording) {
@@ -198,8 +199,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         boolean isPolarActive = polarManager != null && polarManager.isConnected();
         int hrToDisplay = isPolarActive ? currentPolarHr : res.hr;
+        int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
 
-        runOnUiThread(() -> UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery));
+        runOnUiThread(() -> UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery, polarBatt));
 
         if (!isPolarActive && res.isFingerOn && isRecording) {
             if (sessionStartTime == 0) sessionStartTime = now;
@@ -226,6 +228,15 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         @Override
         public void onPolarLog(String message) {
             onLog(message);
+        }
+
+        @Override
+        public void onPolarBatteryReceived(int battery) {
+            currentPolarBattery = battery;
+            int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
+            boolean isPolarActive = polarManager != null && polarManager.isConnected();
+            int hrToDisplay = isPolarActive ? currentPolarHr : 0;
+            runOnUiThread(() -> UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery, polarBatt));
         }
 
         @Override
@@ -259,8 +270,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         sessionData.add(dp);
                     }
 
+                    int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
+
                     runOnUiThread(() -> {
-                        UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, currentPolarHr, currentPi, currentBattery);
+                        UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, currentPolarHr, currentPi, currentBattery, polarBatt);
                         ui.chartView.addDataPoint(dp);
                         animateHeartPulse();
                     });
