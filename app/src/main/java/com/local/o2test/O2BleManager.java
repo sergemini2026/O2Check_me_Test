@@ -250,4 +250,4 @@ public class O2BleManager {
             bluetoothGatt = null;
         }
     }
-            }
+}
