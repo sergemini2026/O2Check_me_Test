@@ -213,12 +213,16 @@ public class UiBuilder {
     }
 
     public static void updateStatusHeader(TextView tvLiveMetrics, int spo2, int hr, float pi, int battery) {
+        updateStatusHeader(tvLiveMetrics, spo2, hr, pi, battery, 0);
+    }
+
+    public static void updateStatusHeader(TextView tvLiveMetrics, int spo2, int hr, float pi, int batteryO2, int batteryH10) {
         if (tvLiveMetrics == null) return;
 
         String partO2 = String.format(Locale.US, "SpO2: %d%%", spo2);
         String partHR = String.format(Locale.US, "  |  HR: %d bpm", hr);
         String partPI = String.format(Locale.US, "  |  PI: %.1f%%", pi);
-        String partPower = String.format(Locale.US, "  |  Power: %d%%", battery);
+        String partPower = String.format(Locale.US, "  |  Power O2 %d%% / H10 %d%%", batteryO2, batteryH10);
 
         SpannableStringBuilder builder = new SpannableStringBuilder();
 
@@ -240,4 +244,4 @@ public class UiBuilder {
 
         tvLiveMetrics.setText(builder);
     }
-          }
+}
