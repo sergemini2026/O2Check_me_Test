@@ -28,12 +28,16 @@ public class PolarH10Manager {
     private static final UUID HR_CHAR_UUID    = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb");
     private static final UUID CCCD_UUID       = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb");
 
+    private static final UUID BATTERY_SERVICE_UUID = UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb");
+    private static final UUID BATTERY_CHAR_UUID    = UUID.fromString("00002a19-0000-1000-8000-00805f9b34fb");
+
     private static final int MAX_RR_COUNT = 300; 
 
     public interface PolarCallback {
         void onPolarLog(String message);
         void onPolarHrReceived(int avgHr, HrvCalculator.Metrics hrv, int rrCount);
         void onRrReceived(int rrMs, float instantHr);
+        default void onPolarBatteryReceived(int battery) {}
     }
 
     private final Context context;
@@ -42,6 +46,7 @@ public class PolarH10Manager {
     
     private boolean isConnected = false;
     private boolean isConnecting = false;
+    private int batteryLevel = 0;
     
     private final Queue<Integer> rrBuffer = new LinkedList<>();
     private final List<Integer> hrWindow = new ArrayList<>();
@@ -53,6 +58,10 @@ public class PolarH10Manager {
 
     public boolean isConnected() {
         return isConnected;
+    }
+
+    public int getBatteryLevel() {
+        return batteryLevel;
     }
 
     public void connect(BluetoothDevice device) {
@@ -99,7 +108,49 @@ public class PolarH10Manager {
         }
 
         @Override
+        public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                BluetoothGattService batteryService = gatt.getService(BATTERY_SERVICE_UUID);
+                if (batteryService != null) {
+                    BluetoothGattCharacteristic batteryChar = batteryService.getCharacteristic(BATTERY_CHAR_UUID);
+                    if (batteryChar != null) {
+                        gatt.readCharacteristic(batteryChar);
+                        gatt.setCharacteristicNotification(batteryChar, true);
+                    }
+                }
+            }
+        }
+
+        @Override
+        public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
+            if (status == BluetoothGatt.GATT_SUCCESS && BATTERY_CHAR_UUID.equals(characteristic.getUuid())) {
+                byte[] data = characteristic.getValue();
+                if (data != null && data.length > 0) {
+                    batteryLevel = data[0] & 0xFF;
+                    new Handler(Looper.getMainLooper()).post(() -> {
+                        if (callback != null) {
+                            callback.onPolarBatteryReceived(batteryLevel);
+                        }
+                    });
+                }
+            }
+        }
+
+        @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
+            if (BATTERY_CHAR_UUID.equals(characteristic.getUuid())) {
+                byte[] data = characteristic.getValue();
+                if (data != null && data.length > 0) {
+                    batteryLevel = data[0] & 0xFF;
+                    new Handler(Looper.getMainLooper()).post(() -> {
+                        if (callback != null) {
+                            callback.onPolarBatteryReceived(batteryLevel);
+                        }
+                    });
+                }
+                return;
+            }
+
             if (HR_CHAR_UUID.equals(characteristic.getUuid())) {
                 byte[] data = characteristic.getValue();
                 if (data != null && data.length > 1) {
