@@ -1,6 +1,5 @@
 name: Run HRV Unit Tests
 
-# Закомментированный автозапуск:
  on:
    push:
      branches: [ "main" ]
