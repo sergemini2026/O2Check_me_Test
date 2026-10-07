@@ -2,7 +2,9 @@ package com.local.o2test;
 
 import android.app.Activity;
 import android.bluetooth.BluetoothDevice;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.widget.ScrollView;
 
@@ -26,7 +28,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private long sessionStartTime = 0;
     private final List<DataPoint> sessionData = new ArrayList<>();
     private final Queue<Float> piWindow = new LinkedList<>();
-    private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
+    private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
 
     private int currentSpo2 = 0;
     private float currentPi = 0.0f;
@@ -35,6 +37,28 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private int currentPolarBattery = 0;
     private int prevRrMs = 0;
     private int consecutiveArtifactsCount = 0;
+
+    private final PolarH10Manager.PolarCallback polarCallback = new PolarH10Manager.PolarCallback() {
+        @Override
+        public void onHrDataReceived(int hr, int rrMs) {
+            currentPolarHr = hr;
+            if (rrMs > 0) {
+                prevRrMs = rrMs;
+            }
+            updateUiMetrics();
+        }
+
+        @Override
+        public void onBatteryReceived(int batteryLevel) {
+            currentPolarBattery = batteryLevel;
+            updateUiMetrics();
+        }
+
+        @Override
+        public void onLog(String message) {
+            MainActivity.this.onLog(message);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -58,277 +82,93 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             onLog("Переподключение BLE устройств...");
             checkAndRequestPermissions();
         });
+
         ui.btnSave.setOnClickListener(v -> saveData());
         ui.btnSettings.setOnClickListener(v -> onLog("Открытие настроек..."));
         ui.btnExit.setOnClickListener(v -> finish());
-
-        setContentView(ui.mainLayout);
-        checkAndRequestPermissions();
-    }
-
-    private void checkAndRequestPermissions() {
-        if (PermissionHelper.checkAndRequestPermissions(this)) {
-            bleManager.initAndStartScan();
-        } else {
-            onLog("Запрос разрешений BLE...");
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == PermissionHelper.PERMISSION_REQUEST_CODE) {
-            boolean allGranted = true;
-            for (int result : grantResults) {
-                if (result != PackageManager.PERMISSION_GRANTED) {
-                    allGranted = false;
-                    break;
-                }
-            }
-            if (allGranted) {
-                onLog("Разрешения получены, запуск сканирования...");
-                bleManager.initAndStartScan();
-            } else {
-                onLog("Ошибка: разрешения Bluetooth не предоставлены!");
-            }
-        }
-    }
-
-    private void animateHeartPulse() {
-        if (ui.btnHeart == null || !isRecording) return;
-
-        ui.btnHeart.animate()
-            .scaleX(1.18f)
-            .scaleY(1.18f)
-            .setDuration(110)
-            .withEndAction(() -> {
-                if (ui.btnHeart != null) {
-                    ui.btnHeart.animate()
-                        .scaleX(1.0f)
-                        .scaleY(1.0f)
-                        .setDuration(110)
-                        .start();
-                }
-            })
-            .start();
     }
 
     private void startMonitoringPanel() {
         isRecording = true;
         sessionStartTime = System.currentTimeMillis();
-        synchronized (sessionData) {
-            sessionData.clear();
+        sessionData.clear();
+        onLog("Мониторинг запущен");
+
+        // Запуск передней службы (Foreground Service)
+        Intent serviceIntent = new Intent(this, HrvForegroundService.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent);
+        } else {
+            startService(serviceIntent);
         }
-        piWindow.clear();
-        prevRrMs = 0;
-        consecutiveArtifactsCount = 0;
-        if (ui.chartView != null) {
-            ui.chartView.clearData();
-        }
-        if (ui.tvHrvMetrics != null) {
-            ui.tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
-        }
-        if (ui.btnHeart != null) {
-            ui.btnHeart.setAlpha(1.0f);
-        }
-        onLog("Панель монитора активна");
     }
 
     private void stopMonitoring() {
         isRecording = false;
-        piWindow.clear();
-        if (ui.btnHeart != null) {
-            ui.btnHeart.setAlpha(0.5f);
-        }
         onLog("Мониторинг остановлен");
+
+        // Остановка передней службы
+        Intent serviceIntent = new Intent(this, HrvForegroundService.class);
+        stopService(serviceIntent);
     }
 
     private void saveData() {
-        onLog("Сохранение данных...");
-        List<DataPoint> copyForExport;
-        synchronized (sessionData) {
-            copyForExport = new ArrayList<>(sessionData);
+        if (sessionData.isEmpty()) {
+            onLog("Нет данных для сохранения");
+            return;
         }
-        CsvExporter.saveSessionToCsv(this, copyForExport, new CsvExporter.ExportCallback() {
-            @Override
-            public void onSuccess(String filePath, String fileName) {
-                onLog("Успешно сохранено: " + fileName);
-            }
+        CsvExporter.exportToCsv(this, sessionData);
+    }
 
-            @Override
-            public void onError(String errorMessage) {
-                onLog("Ошибка: " + errorMessage);
-            }
+    private void checkAndRequestPermissions() {
+        if (PermissionHelper.hasPermissions(this)) {
+            bleManager.startScan();
+            polarManager.connect();
+        } else {
+            PermissionHelper.requestPermissions(this);
+        }
+    }
+
+    private void updateUiMetrics() {
+        runOnUiThread(() -> {
+            UiBuilder.updateStatusHeader(
+                    ui.tvLiveMetrics,
+                    currentSpo2,
+                    currentBattery,
+                    currentPi,
+                    currentPolarHr,
+                    currentPolarBattery
+            );
         });
     }
 
-    private float getSmoothedPi(float rawPi) {
-        piWindow.add(rawPi);
-        if (piWindow.size() > PI_SMOOTHING_WINDOW) {
-            piWindow.poll();
-        }
-        float sum = 0f;
-        for (float val : piWindow) {
-            sum += val;
-        }
-        return sum / piWindow.size();
-    }
-
-    @Override
     public void onLog(String message) {
         runOnUiThread(() -> {
-            if (ui.tvLog != null) {
-                ui.tvLog.append(message + "\n");
-                if (ui.logScrollView != null) {
-                    ui.logScrollView.post(() -> ui.logScrollView.fullScroll(ScrollView.FOCUS_DOWN));
+            if (ui != null && ui.tvLog != null) {
+                String time = timeFormat.format(new Date());
+                ui.tvLog.append("[" + time + "] " + message + "\n");
+                if (ui.scrollLog != null) {
+                    ui.scrollLog.fullScroll(ScrollView.FOCUS_DOWN);
                 }
             }
         });
     }
 
     @Override
-    public void onDataReceived(byte[] data) {
-        O2Parser.ParseResult res = O2Parser.parse(data);
-
-        long now = System.currentTimeMillis();
-        float smoothedPi = getSmoothedPi(res.pi);
-
-        currentSpo2 = res.spo2;
-        currentPi = smoothedPi;
-        currentBattery = res.battery;
-
-        boolean isPolarActive = polarManager != null && polarManager.isConnected();
-        int hrToDisplay = isPolarActive ? currentPolarHr : res.hr;
-        int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
-
-        runOnUiThread(() -> UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery, polarBatt));
-
-        if (!isPolarActive && res.isFingerOn && isRecording) {
-            if (sessionStartTime == 0) sessionStartTime = now;
-            int elapsedSec = (int) ((now - sessionStartTime) / 1000);
-
-            String timestamp = timeFormat.format(new Date(now));
-            DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, res.hr, currentPi, 0);
-
-            synchronized (sessionData) {
-                sessionData.add(dp);
-            }
-            runOnUiThread(() -> ui.chartView.addDataPoint(dp));
-        }
+    public void onO2DataReceived(int spo2, float pi, int battery) {
+        currentSpo2 = spo2;
+        currentPi = pi;
+        currentBattery = battery;
+        updateUiMetrics();
     }
 
     @Override
-    public void onPolarDeviceFound(BluetoothDevice device) {
-        if (polarManager != null) {
-            polarManager.connect(device);
-        }
+    public void onDeviceConnected(BluetoothDevice device) {
+        onLog("Подключено O2 устройство: " + device.getName());
     }
 
-    private final PolarH10Manager.PolarCallback polarCallback = new PolarH10Manager.PolarCallback() {
-        @Override
-        public void onPolarLog(String message) {
-            onLog(message);
-        }
-
-        @Override
-        public void onPolarBatteryReceived(int battery) {
-            currentPolarBattery = battery;
-            int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
-            boolean isPolarActive = polarManager != null && polarManager.isConnected();
-            int hrToDisplay = isPolarActive ? currentPolarHr : 0;
-            runOnUiThread(() -> UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery, polarBatt));
-        }
-
-        @Override
-        public void onRrReceived(int rrMs, float instantHr) {
-            if (isRecording) {
-                boolean isArtifact = false;
-                if (prevRrMs > 0) {
-                    if (Math.abs(rrMs - prevRrMs) / (float) prevRrMs > 0.20) {
-                        consecutiveArtifactsCount++;
-                        if (consecutiveArtifactsCount < 3) {
-                            isArtifact = true;
-                            onLog("[АРТЕФАКТ] Скачок RR: " + prevRrMs + "мс -> " + rrMs + "мс. Исключен из графика.");
-                        }
-                    }
-                }
-
-                if (!isArtifact) {
-                    consecutiveArtifactsCount = 0;
-                    prevRrMs = rrMs;
-                    currentPolarHr = Math.round(instantHr);
-
-                    long now = System.currentTimeMillis();
-                    if (sessionStartTime == 0) sessionStartTime = now;
-
-                    float elapsedSec = (now - sessionStartTime) / 1000f;
-                    String timestamp = timeFormat.format(new Date(now));
-
-                    DataPoint dp = new DataPoint(timestamp, (int) elapsedSec, currentSpo2, currentPolarHr, currentPi, rrMs);
-
-                    synchronized (sessionData) {
-                        sessionData.add(dp);
-                    }
-
-                    int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
-
-                    runOnUiThread(() -> {
-                        UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, currentPolarHr, currentPi, currentBattery, polarBatt);
-                        ui.chartView.addDataPoint(dp);
-                        animateHeartPulse();
-                    });
-                }
-            }
-        }
-
-        @Override
-        public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
-            int totalTarget = 300;
-            float percent = Math.min(100.0f, (rrCount / (float) totalTarget) * 100.0f);
-            int remainingBeats = Math.max(0, totalTarget - rrCount);
-
-            int remainingSec = 0;
-            if (hr > 0 && remainingBeats > 0) {
-                remainingSec = (int) Math.round((remainingBeats * 60.0) / hr);
-            }
-            int remMin = remainingSec / 60;
-            int remSec = remainingSec % 60;
-
-            if (rrCount < totalTarget) {
-                String rmssdStr = (hrv != null) ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--";
-                String logMsg = String.format(Locale.US,
-                        "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
-                        percent, rrCount, totalTarget, remMin, remSec, hr, rmssdStr);
-                onLog(logMsg);
-            } else {
-                String logMsg = String.format(Locale.US,
-                        "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms²",
-                        hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
-                onLog(logMsg);
-
-                if (hrv != null) {
-                    String hrvDisplay = String.format(Locale.US,
-                            "RMSSD: %.1f ms  |  pNN50: %.1f%%  |  LF/HF: %.2f  |  TP: %.0f ms²",
-                            hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
-
-                    runOnUiThread(() -> {
-                        if (ui.tvHrvMetrics != null) {
-                            ui.tvHrvMetrics.setText(hrvDisplay);
-                        }
-                    });
-                }
-            }
-        }
-    };
-
     @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (bleManager != null) {
-            bleManager.close();
-        }
-        if (polarManager != null) {
-            polarManager.disconnect();
-        }
+    public void onDeviceDisconnected() {
+        onLog("Отключено O2 устройство");
     }
 }
