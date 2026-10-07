@@ -32,8 +32,6 @@ public class HrvForegroundService extends Service {
     private final List<Integer> rrSessionList = Collections.synchronizedList(new ArrayList<>());
     private boolean isRecording = false;
 
-    private PolarH10Manager polarManager;
-    private O2BleManager o2Manager;
     private ServiceCallback callback;
 
     public interface ServiceCallback {
@@ -57,61 +55,6 @@ public class HrvForegroundService extends Service {
         if (powerManager != null) {
             wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "O2Test::HrvWakeLock");
         }
-
-        initBleManagers();
-    }
-
-    private void initBleManagers() {
-        polarManager = new PolarH10Manager(getApplicationContext(), new PolarH10Manager.PolarCallback() {
-            @Override
-            public void onRrData(int rrMs, int hr) {
-                if (isRecording && rrMs > 0) {
-                    rrSessionList.add(rrMs);
-                }
-                if (callback != null) {
-                    callback.onRrDataReceived(rrMs, hr);
-                }
-                updateNotificationText("Пульс: " + hr + " уд/мин | RR: " + rrMs + " ms");
-            }
-
-            @Override
-            public void onStatusChanged(boolean isConnected) {
-                if (callback != null) {
-                    callback.onConnectionStatusChanged("Polar H10", isConnected);
-                }
-            }
-        });
-
-        o2Manager = new O2BleManager(getApplicationContext(), new O2BleManager.O2Callback() {
-            @Override
-            public void onDataReceived(int spo2, int hr, List<Integer> rrList) {
-                if (isRecording && rrList != null) {
-                    for (int rr : rrList) {
-                        if (rr > 0) {
-                            rrSessionList.add(rr);
-                        }
-                    }
-                }
-                if (callback != null) {
-                    callback.onO2DataReceived(spo2, hr);
-                    if (rrList != null && !rrList.isEmpty()) {
-                        for (int rr : rrList) {
-                            callback.onRrDataReceived(rr, hr);
-                        }
-                    }
-                }
-                if (spo2 > 0) {
-                    updateNotificationText("SpO2: " + spo2 + "% | HR: " + hr + " уд/мин");
-                }
-            }
-
-            @Override
-            public void onStatusChanged(boolean isConnected) {
-                if (callback != null) {
-                    callback.onConnectionStatusChanged("O2 Ring", isConnected);
-                }
-            }
-        });
     }
 
     @Override
@@ -199,6 +142,10 @@ public class HrvForegroundService extends Service {
         this.callback = callback;
     }
 
+    public ServiceCallback getCallback() {
+        return callback;
+    }
+
     // --- Управление накопительным буфером сессии ---
 
     public void startSessionRecording() {
@@ -230,22 +177,8 @@ public class HrvForegroundService extends Service {
         return isRecording;
     }
 
-    public PolarH10Manager getPolarManager() {
-        return polarManager;
-    }
-
-    public O2BleManager getO2Manager() {
-        return o2Manager;
-    }
-
     @Override
     public void onDestroy() {
-        if (polarManager != null) {
-            polarManager.disconnect();
-        }
-        if (o2Manager != null) {
-            o2Manager.disconnect();
-        }
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
         }
