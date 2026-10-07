@@ -1,62 +1,56 @@
 package com.local.o2test;
 
-import android.app.Activity;
-import android.bluetooth.BluetoothDevice;
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.widget.ScrollView;
+import android.os.IBinder;
+import android.view.View;
+import android.widget.Button;
+import android.widget.TextView;
+import android.widget.Toast;
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
 
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.LinkedList;
 import java.util.List;
-import java.util.Locale;
-import java.util.Queue;
 
-public class MainActivity extends Activity implements O2BleManager.BleListener {
+public class MainActivity extends AppCompatActivity implements HrvForegroundService.ServiceCallback {
 
-    private static final int PI_SMOOTHING_WINDOW = 5;
+    private HrvForegroundService hrvService;
+    private boolean isBound = false;
 
-    private O2BleManager bleManager;
-    private PolarH10Manager polarManager;
-    private UiBuilder.Views ui;
+    private UiBuilder uiBuilder;
+    private TrendChartView trendChartView;
+    private TextView tvHeartRate;
+    private TextView tvSpo2;
+    private TextView tvHrvMetrics;
+    private TextView tvStatus;
+    private Button btnConnectPolar;
+    private Button btnConnectO2;
+    private Button btnToggleRecord;
+    private Button btnExportCsv;
 
-    private boolean isRecording = false;
-    private long sessionStartTime = 0;
-    private final List<DataPoint> sessionData = new ArrayList<>();
-    private final Queue<Float> piWindow = new LinkedList<>();
-    private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
-
-    private int currentSpo2 = 0;
-    private float currentPi = 0.0f;
-    private int currentBattery = 0;
-    private int currentPolarHr = 0;
-    private int currentPolarBattery = 0;
-    private int prevRrMs = 0;
-    private int consecutiveArtifactsCount = 0;
-
-    private final PolarH10Manager.PolarCallback polarCallback = new PolarH10Manager.PolarCallback() {
+    private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
-        public void onHrDataReceived(int hr, int rrMs) {
-            currentPolarHr = hr;
-            if (rrMs > 0) {
-                prevRrMs = rrMs;
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            HrvForegroundService.LocalBinder binder = (HrvForegroundService.LocalBinder) service;
+            hrvService = binder.getService();
+            isBound = true;
+            hrvService.setCallback(MainActivity.this);
+
+            restoreSessionState();
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            isBound = false;
+            if (hrvService != null) {
+                hrvService.setCallback(null);
             }
-            updateUiMetrics();
-        }
-
-        @Override
-        public void onBatteryReceived(int batteryLevel) {
-            currentPolarBattery = batteryLevel;
-            updateUiMetrics();
-        }
-
-        @Override
-        public void onLog(String message) {
-            MainActivity.this.onLog(message);
+            hrvService = null;
         }
     };
 
@@ -64,111 +58,238 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        bleManager = new O2BleManager(this, this);
-        polarManager = new PolarH10Manager(this, polarCallback);
+        uiBuilder = new UiBuilder(this);
+        View rootView = uiBuilder.buildUi();
+        setContentView(rootView);
 
-        ui = UiBuilder.buildUi(this);
-        UiBuilder.updateStatusHeader(ui.tvLiveMetrics, 0, 0, 0f, 0, 0);
+        bindUiComponents();
+        setupListeners();
 
-        ui.btnHeart.setOnClickListener(v -> {
-            if (!isRecording) {
-                startMonitoringPanel();
-            } else {
-                stopMonitoring();
-            }
-        });
-
-        ui.btnReconnect.setOnClickListener(v -> {
-            onLog("Переподключение BLE устройств...");
-            checkAndRequestPermissions();
-        });
-
-        ui.btnSave.setOnClickListener(v -> saveData());
-        ui.btnSettings.setOnClickListener(v -> onLog("Открытие настроек..."));
-        ui.btnExit.setOnClickListener(v -> finish());
-    }
-
-    private void startMonitoringPanel() {
-        isRecording = true;
-        sessionStartTime = System.currentTimeMillis();
-        sessionData.clear();
-        onLog("Мониторинг запущен");
-
-        // Запуск передней службы (Foreground Service)
-        Intent serviceIntent = new Intent(this, HrvForegroundService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent);
-        } else {
-            startService(serviceIntent);
-        }
-    }
-
-    private void stopMonitoring() {
-        isRecording = false;
-        onLog("Мониторинг остановлен");
-
-        // Остановка передней службы
-        Intent serviceIntent = new Intent(this, HrvForegroundService.class);
-        stopService(serviceIntent);
-    }
-
-    private void saveData() {
-        if (sessionData.isEmpty()) {
-            onLog("Нет данных для сохранения");
-            return;
-        }
-        CsvExporter.exportToCsv(this, sessionData);
-    }
-
-    private void checkAndRequestPermissions() {
         if (PermissionHelper.hasPermissions(this)) {
-            bleManager.startScan();
-            polarManager.connect();
+            startAndBindService();
         } else {
             PermissionHelper.requestPermissions(this);
         }
     }
 
-    private void updateUiMetrics() {
-        runOnUiThread(() -> {
-            UiBuilder.updateStatusHeader(
-                    ui.tvLiveMetrics,
-                    currentSpo2,
-                    currentBattery,
-                    currentPi,
-                    currentPolarHr,
-                    currentPolarBattery
-            );
-        });
+    private void bindUiComponents() {
+        trendChartView = uiBuilder.getTrendChartView();
+        tvHeartRate = uiBuilder.getTvHeartRate();
+        tvSpo2 = uiBuilder.getTvSpo2();
+        tvHrvMetrics = uiBuilder.getTvHrvMetrics();
+        tvStatus = uiBuilder.getTvStatus();
+        btnConnectPolar = uiBuilder.getBtnConnectPolar();
+        btnConnectO2 = uiBuilder.getBtnConnectO2();
+        btnToggleRecord = uiBuilder.getBtnToggleRecord();
+        btnExportCsv = uiBuilder.getBtnExportCsv();
     }
 
-    public void onLog(String message) {
-        runOnUiThread(() -> {
-            if (ui != null && ui.tvLog != null) {
-                String time = timeFormat.format(new Date());
-                ui.tvLog.append("[" + time + "] " + message + "\n");
-                if (ui.scrollLog != null) {
-                    ui.scrollLog.fullScroll(ScrollView.FOCUS_DOWN);
+    private void setupListeners() {
+        if (btnConnectPolar != null) {
+            btnConnectPolar.setOnClickListener(v -> {
+                if (isBound && hrvService != null && hrvService.getPolarManager() != null) {
+                    hrvService.getPolarManager().connect();
+                    if (tvStatus != null) {
+                        tvStatus.setText("Подключение к Polar H10...");
+                    }
                 }
+            });
+        }
+
+        if (btnConnectO2 != null) {
+            btnConnectO2.setOnClickListener(v -> {
+                if (isBound && hrvService != null && hrvService.getO2Manager() != null) {
+                    hrvService.getO2Manager().connect();
+                    if (tvStatus != null) {
+                        tvStatus.setText("Подключение к O2 Ring...");
+                    }
+                }
+            });
+        }
+
+        if (btnToggleRecord != null) {
+            btnToggleRecord.setOnClickListener(v -> toggleRecording());
+        }
+
+        if (btnExportCsv != null) {
+            btnExportCsv.setOnClickListener(v -> exportSessionToCsv());
+        }
+    }
+
+    private void startAndBindService() {
+        Intent serviceIntent = new Intent(this, HrvForegroundService.class);
+        serviceIntent.setAction(HrvForegroundService.ACTION_START_FOREGROUND);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent);
+        } else {
+            startService(serviceIntent);
+        }
+
+        bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE);
+    }
+
+    private void restoreSessionState() {
+        if (!isBound || hrvService == null) return;
+
+        boolean isRecording = hrvService.isRecording();
+        if (btnToggleRecord != null) {
+            btnToggleRecord.setText(isRecording ? "Стоп и Сохранить" : "Старт Замера");
+        }
+
+        List<Integer> existingRrList = hrvService.getSessionRrData();
+        if (existingRrList != null && !existingRrList.isEmpty()) {
+            if (trendChartView != null) {
+                trendChartView.clearChart();
+                for (int rr : existingRrList) {
+                    trendChartView.addRrPoint(rr);
+                }
+            }
+            updateHrvMetrics(existingRrList);
+        }
+    }
+
+    private void toggleRecording() {
+        if (!isBound || hrvService == null) {
+            Toast.makeText(this, "Сервис не подключен", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        if (hrvService.isRecording()) {
+            hrvService.stopSessionRecording();
+            if (btnToggleRecord != null) {
+                btnToggleRecord.setText("Старт Замера");
+            }
+            if (tvStatus != null) {
+                tvStatus.setText("Запись остановлена");
+            }
+            List<Integer> fullSessionRr = hrvService.getSessionRrData();
+            updateHrvMetrics(fullSessionRr);
+            Toast.makeText(this, "Сессия записана. Точек: " + fullSessionRr.size(), Toast.LENGTH_SHORT).show();
+        } else {
+            if (trendChartView != null) {
+                trendChartView.clearChart();
+            }
+            hrvService.startSessionRecording();
+            if (btnToggleRecord != null) {
+                btnToggleRecord.setText("Стоп и Сохранить");
+            }
+            if (tvStatus != null) {
+                tvStatus.setText("Идет запись сессии...");
+            }
+        }
+    }
+
+    private void exportSessionToCsv() {
+        if (!isBound || hrvService == null) {
+            Toast.makeText(this, "Сервис не подключен", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        List<Integer> rrData = hrvService.getSessionRrData();
+        if (rrData.isEmpty()) {
+            Toast.makeText(this, "Нет данных RR для экспорта", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        boolean success = CsvExporter.exportRrSession(this, rrData);
+        if (success) {
+            Toast.makeText(this, "Данные успешно экспортированы в CSV", Toast.LENGTH_LONG).show();
+        } else {
+            Toast.makeText(this, "Ошибка при экспорте CSV", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void updateHrvMetrics(List<Integer> rrList) {
+        if (rrList == null || rrList.size() < 5) {
+            if (tvHrvMetrics != null) {
+                tvHrvMetrics.setText("Метрики ВСР: недостаточно данных");
+            }
+            return;
+        }
+
+        HrvCalculator.HrvResult result = HrvCalculator.calculate(rrList);
+        if (result != null && tvHrvMetrics != null) {
+            String metricsText = String.format(
+                    "SDNN: %.1f ms | RMSSD: %.1f ms | pNN50: %.1f%% | SI: %.1f | TP: %.1f ms²",
+                    result.sdnn, result.rmssd, result.pnn50, result.stressIndex, result.totalPower
+            );
+            tvHrvMetrics.setText(metricsText);
+        }
+    }
+
+    @Override
+    public void onRrDataReceived(int rrMs, int hr) {
+        runOnUiThread(() -> {
+            if (tvHeartRate != null && hr > 0) {
+                tvHeartRate.setText("Пульс: " + hr + " уд/мин (RR: " + rrMs + " ms)");
+            }
+            if (trendChartView != null && rrMs > 0) {
+                trendChartView.addRrPoint(rrMs);
+            }
+            if (isBound && hrvService != null && hrvService.isRecording()) {
+                updateHrvMetrics(hrvService.getSessionRrData());
             }
         });
     }
 
     @Override
-    public void onO2DataReceived(int spo2, float pi, int battery) {
-        currentSpo2 = spo2;
-        currentPi = pi;
-        currentBattery = battery;
-        updateUiMetrics();
+    public void onO2DataReceived(int spo2, int hr) {
+        runOnUiThread(() -> {
+            if (tvSpo2 != null && spo2 > 0) {
+                tvSpo2.setText("SpO2: " + spo2 + "%");
+            }
+            if (tvHeartRate != null && hr > 0) {
+                tvHeartRate.setText("Пульс: " + hr + " уд/мин");
+            }
+        });
     }
 
     @Override
-    public void onDeviceConnected(BluetoothDevice device) {
-        onLog("Подключено O2 устройство: " + device.getName());
+    public void onConnectionStatusChanged(String deviceType, boolean isConnected) {
+        runOnUiThread(() -> {
+            if (tvStatus != null) {
+                tvStatus.setText(deviceType + ": " + (isConnected ? "Подключено" : "Отключено"));
+            }
+        });
     }
 
     @Override
-    public void onDeviceDisconnected() {
-        onLog("Отключено O2 устройство");
+    protected void onStart() {
+        super.onStart();
+        if (PermissionHelper.hasPermissions(this) && !isBound) {
+            Intent intent = new Intent(this, HrvForegroundService.class);
+            bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (isBound) {
+            if (hrvService != null) {
+                hrvService.setCallback(null);
+            }
+            unbindService(serviceConnection);
+            isBound = false;
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PermissionHelper.PERMISSION_REQUEST_CODE) {
+            boolean allGranted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
+                    break;
+                }
+            }
+            if (allGranted) {
+                startAndBindService();
+            } else {
+                Toast.makeText(this, "Для работы приложения необходимы запрашиваемые разрешения", Toast.LENGTH_LONG).show();
+            }
+        }
     }
 }
