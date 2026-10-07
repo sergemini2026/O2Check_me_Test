@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Разрешения для работы с Bluetooth и геолокацией -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
@@ -8,7 +9,7 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
-    <!-- Разрешения для переднего сервиса, уведомлений и фоновой работы -->
+    <!-- Разрешения для Переднего Сервиса, удержания процессора и уведомлений -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
@@ -32,12 +33,13 @@
             </intent-filter>
         </activity>
 
-        <!-- Передний сервис мониторинга ВСР и взаимодействия с BLE-устройствами -->
+        <!-- Регистрация Переднего Сервиса -->
         <service
             android:name=".HrvForegroundService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice" />
+            android:foregroundServiceType="connectedDevice"
+            tools:ignore="ForegroundServicePermission" />
 
     </application>
 
