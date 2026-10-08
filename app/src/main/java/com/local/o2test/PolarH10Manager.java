@@ -138,8 +138,16 @@ public class PolarH10Manager {
 
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-            if (BATTERY_CHAR_UUID.equals(characteristic.getUuid())) {
-                byte[] data = characteristic.getValue();
+            handleCharacteristicData(characteristic.getUuid(), characteristic.getValue());
+        }
+
+        @Override
+        public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, byte[] value) {
+            handleCharacteristicData(characteristic.getUuid(), value);
+        }
+
+        private void handleCharacteristicData(UUID uuid, byte[] data) {
+            if (BATTERY_CHAR_UUID.equals(uuid)) {
                 if (data != null && data.length > 0) {
                     batteryLevel = data[0] & 0xFF;
                     new Handler(Looper.getMainLooper()).post(() -> {
@@ -151,8 +159,7 @@ public class PolarH10Manager {
                 return;
             }
 
-            if (HR_CHAR_UUID.equals(characteristic.getUuid())) {
-                byte[] data = characteristic.getValue();
+            if (HR_CHAR_UUID.equals(uuid)) {
                 if (data != null && data.length > 1) {
                     int currentHr = parseHeartRate(data);
                     List<Integer> newRrList = HrvCalculator.parseRrIntervals(data);
