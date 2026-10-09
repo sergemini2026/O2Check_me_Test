@@ -68,6 +68,7 @@ public class UiBuilder {
         v.btnExit = createButton(context, "Выход", android.R.drawable.ic_menu_close_clear_cancel);
 
         btnBar.addView(v.btnReconnect);
+        btnBar.addView(v.btnSave); // Возвращено отображение кнопки
         btnBar.addView(v.btnSettings);
         btnBar.addView(v.btnExit);
         v.mainLayout.addView(btnBar);
@@ -143,7 +144,6 @@ public class UiBuilder {
         v.logScrollView = new ScrollView(context);
         LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-      // Отступ изменен на динамический
         logParams.topMargin = (int) (16 * context.getResources().getDisplayMetrics().density);
         v.logScrollView.setLayoutParams(logParams);
         v.logScrollView.addView(v.tvLog);
