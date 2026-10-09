@@ -34,6 +34,11 @@ public class UiBuilder {
         public Button btnSave;
         public Button btnSettings;
         public Button btnExit;
+
+        // Новые графические кнопки функциональной панели
+        public ImageButton btnWorkout;
+        public ImageButton btnSessions;
+        public ImageButton btnProfiles;
     }
 
     public static Views buildUi(Context context) {
@@ -87,39 +92,51 @@ public class UiBuilder {
         v.tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
         v.mainLayout.addView(v.tvHrvMetrics);
 
-        // --- БЛОК УПРАВЛЕНИЯ МОНИТОРИНГОМ ---
-        LinearLayout heartContainer = new LinearLayout(context);
-        heartContainer.setOrientation(LinearLayout.HORIZONTAL);
-        heartContainer.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        LinearLayout.LayoutParams heartContainerParams = new LinearLayout.LayoutParams(
+        // --- БЛОК УПРАВЛЕНИЯ МОНИТОРИНГОМ И ТРЕНИРОВКАМИ (4 ВЕКТОРНЫЕ КНОПКИ) ---
+        LinearLayout actionPanel = new LinearLayout(context);
+        actionPanel.setOrientation(LinearLayout.HORIZONTAL);
+        actionPanel.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams actionPanelParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        heartContainerParams.setMargins(0, 0, 12, 4);
-        heartContainer.setLayoutParams(heartContainerParams);
+        actionPanelParams.setMargins(0, 4, 0, 4);
+        actionPanel.setLayoutParams(actionPanelParams);
 
-        TextView tvMonitorLabel = new TextView(context);
-        tvMonitorLabel.setText("Панель монитора");
-        tvMonitorLabel.setTextSize(13);
-        tvMonitorLabel.setTextColor(Color.WHITE);
-        tvMonitorLabel.setGravity(Gravity.CENTER_VERTICAL);
+        int iconSizePx = (int) (48 * context.getResources().getDisplayMetrics().density);
 
-        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        labelParams.setMargins(0, 0, 10, 0);
-        tvMonitorLabel.setLayoutParams(labelParams);
+        // 1. Кнопка "Тренировки"
+        v.btnWorkout = new ImageButton(context);
+        v.btnWorkout.setBackgroundColor(Color.TRANSPARENT);
+        v.btnWorkout.setImageResource(R.drawable.ic_workout);
+        v.btnWorkout.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        v.btnWorkout.setLayoutParams(new LinearLayout.LayoutParams(iconSizePx, iconSizePx));
+        actionPanel.addView(createActionItem(context, v.btnWorkout, "Тренировки"));
 
+        // 2. Кнопка "Сессии"
+        v.btnSessions = new ImageButton(context);
+        v.btnSessions.setBackgroundColor(Color.TRANSPARENT);
+        v.btnSessions.setImageResource(R.drawable.ic_sessions);
+        v.btnSessions.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        v.btnSessions.setLayoutParams(new LinearLayout.LayoutParams(iconSizePx, iconSizePx));
+        actionPanel.addView(createActionItem(context, v.btnSessions, "Сессии"));
+
+        // 3. Кнопка "Профили"
+        v.btnProfiles = new ImageButton(context);
+        v.btnProfiles.setBackgroundColor(Color.TRANSPARENT);
+        v.btnProfiles.setImageResource(R.drawable.ic_profile);
+        v.btnProfiles.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        v.btnProfiles.setLayoutParams(new LinearLayout.LayoutParams(iconSizePx, iconSizePx));
+        actionPanel.addView(createActionItem(context, v.btnProfiles, "Профили"));
+
+        // 4. Кнопка "Панель монитора" (Сердце)
         v.btnHeart = new ImageButton(context);
         v.btnHeart.setBackgroundColor(Color.TRANSPARENT);
         v.btnHeart.setImageResource(R.drawable.ic_heart_pulse);
         v.btnHeart.setScaleType(ImageView.ScaleType.FIT_CENTER);
         v.btnHeart.setAlpha(0.5f);
+        v.btnHeart.setLayoutParams(new LinearLayout.LayoutParams(iconSizePx, iconSizePx));
+        actionPanel.addView(createActionItem(context, v.btnHeart, "Панель монитора"));
 
-        int heartSizePx = (int) (60 * context.getResources().getDisplayMetrics().density);
-        LinearLayout.LayoutParams heartParams = new LinearLayout.LayoutParams(heartSizePx, heartSizePx);
-        v.btnHeart.setLayoutParams(heartParams);
-
-        heartContainer.addView(tvMonitorLabel);
-        heartContainer.addView(v.btnHeart);
-        v.mainLayout.addView(heartContainer);
+        v.mainLayout.addView(actionPanel);
 
         v.tvLog = new TextView(context);
         v.tvLog.setTextSize(11);
@@ -133,6 +150,32 @@ public class UiBuilder {
         v.mainLayout.addView(v.logScrollView);
 
         return v;
+    }
+
+    private static LinearLayout createActionItem(Context context, ImageButton btn, String labelText) {
+        LinearLayout itemLayout = new LinearLayout(context);
+        itemLayout.setOrientation(LinearLayout.VERTICAL);
+        itemLayout.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+        itemLayout.setLayoutParams(itemParams);
+
+        itemLayout.addView(btn);
+
+        TextView tvLabel = new TextView(context);
+        tvLabel.setText(labelText);
+        tvLabel.setTextSize(11);
+        tvLabel.setTextColor(Color.WHITE);
+        tvLabel.setGravity(Gravity.CENTER);
+        tvLabel.setSingleLine(true);
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        labelParams.setMargins(0, 2, 0, 0);
+        tvLabel.setLayoutParams(labelParams);
+
+        itemLayout.addView(tvLabel);
+
+        return itemLayout;
     }
 
     private static Button createButton(Context context, String text, int iconRes) {
