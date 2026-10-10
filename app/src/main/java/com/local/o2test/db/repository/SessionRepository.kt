@@ -24,6 +24,10 @@ class SessionRepository(private val db: AppDatabase) {
         db.profileDao().getProfileById(id)
     }
 
+    suspend fun deleteProfile(profileId: Long) = withContext(Dispatchers.IO) {
+        db.profileDao().deleteProfile(profileId)
+    }
+
     // --- СЕССИИ И МЕТРИКИ ---
 
     /**
