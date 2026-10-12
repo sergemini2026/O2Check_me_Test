@@ -46,6 +46,7 @@ public class PolarH10Manager {
     
     private boolean isConnected = false;
     private boolean isConnecting = false;
+    private boolean isCollecting = false; // Флаг разрешения сбора данных (управляется Панелью монитора)
     private int batteryLevel = 0;
     
     private final Queue<Integer> rrBuffer = new LinkedList<>();
@@ -67,11 +68,31 @@ public class PolarH10Manager {
     public void connect(BluetoothDevice device) {
         log("Polar H10: Подключение к " + device.getAddress());
         isConnecting = true;
+        gatt = device.connectGatt(context, false, gattCallback);
+    }
+
+    /**
+     * Запуск сбора данных в буфер (вызывается строго при активации Панели монитора)
+     */
+    public void startCollection() {
+        synchronized (rrBuffer) {
+            rrBuffer.clear();
+            hrWindow.clear();
+            isCollecting = true;
+        }
+        log("Polar H10: Старт накопления данных (300 RR)...");
+    }
+
+    /**
+     * Остановка сбора данных
+     */
+    public void stopCollection() {
+        isCollecting = false;
         synchronized (rrBuffer) {
             rrBuffer.clear();
             hrWindow.clear();
         }
-        gatt = device.connectGatt(context, false, gattCallback);
+        log("Polar H10: Накопление данных остановлено.");
     }
 
     private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
@@ -80,11 +101,12 @@ public class PolarH10Manager {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 isConnected = true;
                 isConnecting = false;
-                log("Polar H10: Подключен. Старт накопления данных (300 RR)...");
+                log("Polar H10: Подключен."); // Убран ошибочный автостарт накопления из лога соединения
                 gatt.discoverServices();
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 isConnected = false;
                 isConnecting = false;
+                isCollecting = false;
                 log("Polar H10: Отключен.");
             }
         }
@@ -161,6 +183,9 @@ public class PolarH10Manager {
 
             if (HR_CHAR_UUID.equals(uuid)) {
                 if (data != null && data.length > 1) {
+                    // ЕСЛИ ПАНЕЛЬ МОНИТОРА НЕ АКТИВНА — ИГНОРИРУЕМ ВХОДЯЩИЙ ПОТОК ДАННЫХ
+                    if (!isCollecting) return;
+
                     int currentHr = parseHeartRate(data);
                     List<Integer> newRrList = HrvCalculator.parseRrIntervals(data);
 
@@ -201,7 +226,6 @@ public class PolarH10Manager {
                             // 2. В процессе сбора (каждые 10 ударов) — отправляем промежуточный статус
                             } else if (currentCount % 10 == 0) {
                                 List<Integer> snapshot = new ArrayList<>(rrBuffer);
-                                // Промежуточный расчет быстрых метрик, если набралось хотя бы 30 ударов
                                 HrvCalculator.Metrics hrv = currentCount >= 30 ? HrvCalculator.calculate(snapshot) : null;
                                 int avgHr = getAverageHr();
                                 
@@ -244,6 +268,7 @@ public class PolarH10Manager {
     }
 
     public void disconnect() {
+        isCollecting = false;
         if (gatt != null) {
             gatt.disconnect();
             gatt.close();
