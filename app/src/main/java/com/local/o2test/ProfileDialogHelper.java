@@ -3,8 +3,10 @@ package com.local.o2test;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.text.InputType;
+import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.Spinner;
 import android.widget.Toast;
 
 import com.local.o2test.db.AppDatabase;
@@ -29,7 +31,7 @@ public class ProfileDialogHelper {
 
                 ((android.app.Activity) context).runOnUiThread(() -> {
                     if (profiles == null || profiles.isEmpty()) {
-                        showCreateAdminProfileDialog(context, db, dbExecutor, callback);
+                        showCreateProfileDialog(context, db, dbExecutor, callback);
                     } else {
                         showLoginOrProfilesListDialog(context, db, dbExecutor, profiles, callback);
                     }
@@ -42,59 +44,7 @@ public class ProfileDialogHelper {
         });
     }
 
-    private static void showCreateAdminProfileDialog(Context context, AppDatabase db, ExecutorService dbExecutor, ProfileCallback callback) {
-        AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        builder.setTitle("Создание профиля администратора");
-
-        LinearLayout layout = new LinearLayout(context);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(40, 20, 40, 20);
-
-        final EditText inputLogin = new EditText(context);
-        inputLogin.setHint("Логин администратора");
-        layout.addView(inputLogin);
-
-        final EditText inputPass = new EditText(context);
-        inputPass.setHint("Пароль (ровно 4 символа)");
-        inputPass.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
-        layout.addView(inputPass);
-
-        final EditText inputConfirm = new EditText(context);
-        inputConfirm.setHint("Подтвердите пароль (4 символа)");
-        inputConfirm.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
-        layout.addView(inputConfirm);
-
-        builder.setView(layout);
-        builder.setPositiveButton("Создать", (dialog, which) -> {
-            String login = inputLogin.getText().toString().trim();
-            String pass = inputPass.getText().toString().trim();
-            String confirm = inputConfirm.getText().toString().trim();
-
-            if (login.isEmpty() || pass.length() != 4 || !pass.equals(confirm)) {
-                Toast.makeText(context, "Ошибка! Пароль должен содержать ровно 4 символа и совпадать.", Toast.LENGTH_LONG).show();
-                return;
-            }
-
-            dbExecutor.execute(() -> {
-                try {
-                    ProfileEntity newProfile = new ProfileEntity(0, login, 30, 70.0f, 175.0f, 120, 80, System.currentTimeMillis());
-                    // ИСПОЛЬЗУЕМ СИНХРОННЫЙ МЕТОД insertProfileSync
-                    long id = db.profileDao().insertProfileSync(newProfile);
-                    ((android.app.Activity) context).runOnUiThread(() -> {
-                        callback.onProfileAuthorized(id, login);
-                        Toast.makeText(context, "Администратор успешно создан и авторизован!", Toast.LENGTH_SHORT).show();
-                    });
-                } catch (Exception ex) {
-                    ((android.app.Activity) context).runOnUiThread(() -> 
-                        Toast.makeText(context, "Ошибка сохранения: " + ex.getMessage(), Toast.LENGTH_SHORT).show()
-                    );
-                }
-            });
-        });
-        builder.setNegativeButton("Отмена", null);
-        builder.setCancelable(false);
-        builder.show();
-    }
+    private static void showндексOrProfilesListDialog(...) {} // оставлено для структуры
 
     private static void showLoginOrProfilesListDialog(Context context, AppDatabase db, ExecutorService dbExecutor, List<ProfileEntity> profiles, ProfileCallback callback) {
         List<String> profileNames = new ArrayList<>();
@@ -104,80 +54,90 @@ public class ProfileDialogHelper {
         profileNames.add("+ Создать новый профиль");
 
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        builder.setTitle("Доступ к профилям пользователей");
+        builder.setTitle("Выбор профиля пользователя");
         builder.setItems(profileNames.toArray(new String[0]), (dialog, which) -> {
             if (which == profileNames.size() - 1) {
-                showCreateNewProfileDialog(context, db, dbExecutor, callback);
+                showCreateProfileDialog(context, db, dbExecutor, callback);
             } else {
-                showPasswordAuthDialog(context, profiles.get(which), callback);
+                ProfileEntity selected = profiles.get(which);
+                callback.onProfileAuthorized(selected.getId(), selected.getName());
+                Toast.makeText(context, "Активный профиль: " + selected.getName(), Toast.LENGTH_SHORT).show();
             }
         });
         builder.setNegativeButton("Закрыть", null);
         builder.show();
     }
 
-    private static void showPasswordAuthDialog(Context context, ProfileEntity profile, ProfileCallback callback) {
+    private static void showCreateProfileDialog(Context context, AppDatabase db, ExecutorService dbExecutor, ProfileCallback callback) {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        builder.setTitle("Вход в профиль: " + profile.getName());
-
-        final EditText inputPass = new EditText(context);
-        inputPass.setHint("Введите 4-значный пароль");
-        inputPass.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
-
-        LinearLayout layout = new LinearLayout(context);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(40, 20, 40, 20);
-        layout.addView(inputPass);
-        builder.setView(layout);
-
-        builder.setPositiveButton("Войти", (dialog, which) -> {
-            String pass = inputPass.getText().toString().trim();
-            if (pass.length() == 4) {
-                callback.onProfileAuthorized(profile.getId(), profile.getName());
-                Toast.makeText(context, "Добро пожаловать, " + profile.getName() + "!", Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(context, "Пароль должен состоять из 4 символов!", Toast.LENGTH_SHORT).show();
-            }
-        });
-        builder.setNegativeButton("Отмена", null);
-        builder.show();
-    }
-
-    private static void showCreateNewProfileDialog(Context context, AppDatabase db, ExecutorService dbExecutor, ProfileCallback callback) {
-        AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        builder.setTitle("Создание нового профиля");
+        builder.setTitle("Создание профиля пользователя");
 
         LinearLayout layout = new LinearLayout(context);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(40, 20, 40, 20);
 
-        final EditText inputLogin = new EditText(context);
-        inputLogin.setHint("Имя / Логин пользователя");
-        layout.addView(inputLogin);
+        final EditText inputName = new EditText(context);
+        inputName.setHint("Имя / Логин");
+        layout.addView(inputName);
 
-        final EditText inputPass = new EditText(context);
-        inputPass.setHint("Пароль (4 символа)");
-        inputPass.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
-        layout.addView(inputPass);
+        final EditText inputAge = new EditText(context);
+        inputAge.setHint("Возраст (лет)");
+        inputAge.setInputType(InputType.TYPE_CLASS_NUMBER);
+        layout.addView(inputAge);
+
+        final EditText inputHeight = new EditText(context);
+        inputHeight.setHint("Рост (см)");
+        inputHeight.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        layout.addView(inputHeight);
+
+        final EditText inputWeight = new EditText(context);
+        inputWeight.setHint("Вес (кг)");
+        inputWeight.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        layout.addView(inputWeight);
+
+        final EditText inputSysBp = new EditText(context);
+        inputSysBp.setHint("Систолическое АД (мм рт. ст.)");
+        inputSysBp.setInputType(InputType.TYPE_CLASS_NUMBER);
+        inputSysBp.setText("120");
+        layout.addView(inputSysBp);
+
+        final EditText inputDiaBp = new EditText(context);
+        inputDiaBp.setHint("Диастолическое АД (мм рт. ст.)");
+        inputDiaBp.setInputType(InputType.TYPE_CLASS_NUMBER);
+        inputDiaBp.setText("80");
+        layout.addView(inputDiaBp);
+
+        // Spinner для выбора текущей физической формы
+        final Spinner spinnerFitness = new Spinner(context);
+        String[] fitnessLevels = {"Низкий", "Средний", "Высокий", "Максимальный"};
+        ArrayAdapter<String> spinnerAdapter = new ArrayAdapter<>(context, android.R.layout.simple_spinner_item, fitnessLevels);
+        spinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerFitness.setAdapter(spinnerAdapter);
+        spinnerFitness.setSelection(1); // По умолчанию "Средний"
+        layout.addView(spinnerFitness);
 
         builder.setView(layout);
         builder.setPositiveButton("Создать", (dialog, which) -> {
-            String login = inputLogin.getText().toString().trim();
-            String pass = inputPass.getText().toString().trim();
-
-            if (login.isEmpty() || pass.length() != 4) {
-                Toast.makeText(context, "Укажите имя и ровно 4 символа пароля!", Toast.LENGTH_SHORT).show();
+            String name = inputName.getText().toString().trim();
+            if (name.isEmpty()) {
+                Toast.makeText(context, "Укажите имя профиля!", Toast.LENGTH_SHORT).show();
                 return;
             }
 
+            int age = parseOrDefault(inputAge.getText().toString().trim(), 30);
+            float height = parseFloatOrDefault(inputHeight.getText().toString().trim(), 175.0f);
+            float weight = parseFloatOrDefault(inputWeight.getText().toString().trim(), 70.0f);
+            int sysBp = parseOrDefault(inputSysBp.getText().toString().trim(), 120);
+            int diaBp = parseOrDefault(inputDiaBp.getText().toString().trim(), 80);
+            String fitness = spinnerFitness.getSelectedItem().toString();
+
             dbExecutor.execute(() -> {
                 try {
-                    ProfileEntity newProfile = new ProfileEntity(0, login, 30, 70.0f, 175.0f, 120, 80, System.currentTimeMillis());
-                    // ИСПОЛЬЗУЕМ СИНХРОННЫЙ МЕТОД insertProfileSync
+                    ProfileEntity newProfile = new ProfileEntity(0, name, age, weight, height, sysBp, diaBp, fitness, System.currentTimeMillis());
                     long id = db.profileDao().insertProfileSync(newProfile);
                     ((android.app.Activity) context).runOnUiThread(() -> {
-                        callback.onProfileAuthorized(id, login);
-                        Toast.makeText(context, "Профиль создан и активирован!", Toast.LENGTH_SHORT).show();
+                        callback.onProfileAuthorized(id, name);
+                        Toast.makeText(context, "Профиль успешно создан и активирован!", Toast.LENGTH_SHORT).show();
                     });
                 } catch (Exception e) {
                     ((android.app.Activity) context).runOnUiThread(() -> 
@@ -188,5 +148,13 @@ public class ProfileDialogHelper {
         });
         builder.setNegativeButton("Отмена", null);
         builder.show();
+    }
+
+    private static int parseOrDefault(String val, int def) {
+        try { return Integer.parseInt(val); } catch (Exception e) { return def; }
+    }
+
+    private static float parseFloatOrDefault(String val, float def) {
+        try { return Float.parseFloat(val); } catch (Exception e) { return def; }
     }
 }
