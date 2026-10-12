@@ -95,7 +95,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         ui.btnHeart.setOnClickListener(v -> {
             if (!isProfileAuthorized) {
-                Toast.init(this); // Напоминание через Toast или воркфлоу
                 Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
                 openProfilesManager();
                 return;
