@@ -12,8 +12,14 @@ interface ProfileDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProfile(profile: ProfileEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun insertProfileSync(profile: ProfileEntity): Long // Добавлено для вызова из Java
+
     @Query("SELECT * FROM profiles ORDER BY id DESC")
     fun getAllProfiles(): Flow<List<ProfileEntity>>
+
+    @Query("SELECT * FROM profiles ORDER BY id DESC")
+    fun getAllProfilesSync(): List<ProfileEntity> // Добавлено для вызова из Java
 
     @Query("SELECT * FROM profiles WHERE id = :id")
     suspend fun getProfileById(id: Long): ProfileEntity?
