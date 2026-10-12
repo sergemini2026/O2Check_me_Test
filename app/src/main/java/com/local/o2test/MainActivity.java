@@ -298,6 +298,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         isRecording = true;
         if (isBound && hrvService != null) hrvService.startSessionRecording();
+        
+        // Запуск сбора данных в PolarH10Manager строго по нажатию кнопки "Панель монитора"
+        if (polarManager != null) {
+            polarManager.startCollection();
+        }
+
         sessionStartTime = System.currentTimeMillis();
         synchronized (sessionData) { sessionData.clear(); }
         piWindow.clear();
@@ -313,6 +319,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private void stopMonitoring() {
         isRecording = false;
         if (isBound && hrvService != null) hrvService.stopSessionRecording();
+        
+        // Остановка сбора данных в PolarH10Manager
+        if (polarManager != null) {
+            polarManager.stopCollection();
+        }
+
         piWindow.clear();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(isProfileAuthorized ? 1.0f : 0.5f);
         onLog("Мониторинг остановлен");
