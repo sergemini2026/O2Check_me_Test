@@ -3,10 +3,15 @@ package com.local.o2test;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.text.InputType;
+import android.text.Layout;
+import android.text.SpannableString;
+import android.text.style.AlignmentSpan;
+import android.view.Gravity;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import com.local.o2test.db.AppDatabase;
@@ -21,6 +26,12 @@ public class ProfileDialogHelper {
     public interface ProfileCallback {
         void onProfileAuthorized(long profileId, String profileName);
         void onLog(String message);
+    }
+
+    private static SpannableString getCenteredTitle(String title) {
+        SpannableString s = new SpannableString(title);
+        s.setSpan(new AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER), 0, s.length(), 0);
+        return s;
     }
 
     public static void openProfilesDialog(Context context, ExecutorService dbExecutor, ProfileCallback callback) {
@@ -52,7 +63,7 @@ public class ProfileDialogHelper {
         profileNames.add("+ Создать новый профиль");
 
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        builder.setTitle("Выбор профиля пользователя");
+        builder.setTitle(getCenteredTitle("Выбор профиля пользователя"));
         builder.setItems(profileNames.toArray(new String[0]), (dialog, which) -> {
             if (which == profileNames.size() - 1) {
                 showCreateProfileDialog(context, db, dbExecutor, callback);
@@ -68,7 +79,7 @@ public class ProfileDialogHelper {
 
     private static void showCreateProfileDialog(Context context, AppDatabase db, ExecutorService dbExecutor, ProfileCallback callback) {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        builder.setTitle("Создание профиля пользователя");
+        builder.setTitle(getCenteredTitle("Создание профиля пользователя"));
 
         LinearLayout layout = new LinearLayout(context);
         layout.setOrientation(LinearLayout.VERTICAL);
@@ -105,14 +116,38 @@ public class ProfileDialogHelper {
         inputDiaBp.setText("80");
         layout.addView(inputDiaBp);
 
-        // Spinner для выбора текущей физической формы
+        // Строка с поясняющей меткой и Spinner для выбора уровня физической формы
+        LinearLayout fitnessLayout = new LinearLayout(context);
+        fitnessLayout.setOrientation(LinearLayout.HORIZONTAL);
+        fitnessLayout.setPadding(0, 15, 0, 10);
+
+        TextView tvFitnessLabel = new TextView(context);
+        tvFitnessLabel.setText("Физический уровень: ");
+        tvFitnessLabel.setTextSize(16);
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, 
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        labelParams.gravity = Gravity.CENTER_VERTICAL;
+        tvFitnessLabel.setLayoutParams(labelParams);
+
         final Spinner spinnerFitness = new Spinner(context);
         String[] fitnessLevels = {"Низкий", "Средний", "Высокий", "Максимальный"};
         ArrayAdapter<String> spinnerAdapter = new ArrayAdapter<>(context, android.R.layout.simple_spinner_item, fitnessLevels);
         spinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerFitness.setAdapter(spinnerAdapter);
         spinnerFitness.setSelection(1); // По умолчанию "Средний"
-        layout.addView(spinnerFitness);
+
+        LinearLayout.LayoutParams spinnerParams = new LinearLayout.LayoutParams(
+                0, 
+                LinearLayout.LayoutParams.WRAP_CONTENT, 
+                1.0f
+        );
+        spinnerFitness.setLayoutParams(spinnerParams);
+
+        fitnessLayout.addView(tvFitnessLabel);
+        fitnessLayout.addView(spinnerFitness);
+        layout.addView(fitnessLayout);
 
         builder.setView(layout);
         builder.setPositiveButton("Создать", (dialog, which) -> {
