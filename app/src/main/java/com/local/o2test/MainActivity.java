@@ -1,15 +1,20 @@
 package com.local.o2test;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.bluetooth.BluetoothDevice;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
+import android.text.InputType;
+import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Toast;
 
@@ -28,6 +33,8 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity implements O2BleManager.BleListener {
 
+    private static final String PREF_NAME = "O2AppPrefs";
+    private static final String KEY_MASTER_PASS = "master_password";
     private static final int PI_SMOOTHING_WINDOW = 5;
 
     private O2BleManager bleManager;
@@ -104,7 +111,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             else stopMonitoring();
         });
 
-        // Кнопка "Связь" отвечает ТОЛЬКО за подключение/поиск устройств, без запуска сеанса сбора
         ui.btnReconnect.setOnClickListener(v -> {
             if (!isProfileAuthorized) {
                 Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
@@ -126,7 +132,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         ui.btnSettings.setOnClickListener(v -> onLog("Открытие настроек..."));
         ui.btnExit.setOnClickListener(v -> finish());
 
-        // --- ПРИВЯЗКА КНОПОК ТРЕНИРОВОК И СЕССИЙ ---
         if (ui.btnWorkout != null) {
             ui.btnWorkout.setOnClickListener(v -> TrainingDialogHelper.openTrainingDialog(
                     this, dbExecutor, activeProfileId, activeProfileName, isProfileAuthorized,
@@ -156,12 +161,93 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         setContentView(ui.mainLayout);
-        onLog("Система запущена. Выберите профиль для начала работы.");
+
+        // Проверка и запрос мастер-пароля при старте программы
+        checkMasterPasswordOnStart();
     }
 
-    /**
-     * Форматирует и выводит строку состояния под графиком: Профиль + Метрики HRV
-     */
+    private void checkMasterPasswordOnStart() {
+        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+        String savedPass = prefs.getString(KEY_MASTER_PASS, null);
+
+        if (savedPass == null) {
+            // Первый запуск — создание мастер-пароля администратора
+            showCreateMasterPasswordDialog(prefs);
+        } else {
+            // Последующие запуски — запрос мастер-пароля (ровно 1 раз)
+            showEnterMasterPasswordDialog(savedPass);
+        }
+    }
+
+    private void showCreateMasterPasswordDialog(SharedPreferences prefs) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Создание мастер-пароля системы");
+        builder.setMessage("Введите 4-значный пароль администратора для защиты доступа к данным.");
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(40, 20, 40, 20);
+
+        final EditText inputPass = new EditText(this);
+        inputPass.setHint("Пароль (ровно 4 символа)");
+        inputPass.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        layout.addView(inputPass);
+
+        final EditText inputConfirm = new EditText(this);
+        inputConfirm.setHint("Подтвердите пароль (4 символа)");
+        inputConfirm.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        layout.addView(inputConfirm);
+
+        builder.setView(layout);
+        builder.setPositiveButton("Создать", (dialog, which) -> {
+            String pass = inputPass.getText().toString().trim();
+            String confirm = inputConfirm.getText().toString().trim();
+
+            if (pass.length() != 4 || !pass.equals(confirm)) {
+                Toast.makeText(this, "Ошибка! Пароль должен содержать ровно 4 символа и совпадать.", Toast.LENGTH_LONG).show();
+                showCreateMasterPasswordDialog(prefs); // Повторный запрос
+                return;
+            }
+
+            prefs.edit().putString(KEY_MASTER_PASS, pass).apply();
+            Toast.makeText(this, "Мастер-пароль успешно создан!", Toast.LENGTH_SHORT).show();
+            onLog("Система запущена. Выберите профиль для начала работы.");
+        });
+        builder.setNegativeButton("Выход", (dialog, which) -> finish());
+        builder.setCancelable(false);
+        builder.show();
+    }
+
+    private void showEnterMasterPasswordDialog(String savedPass) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Авторизация администратора");
+        builder.setMessage("Введите 4-значный мастер-пароль для доступа к системе.");
+
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(40, 20, 40, 20);
+
+        final EditText inputPass = new EditText(this);
+        inputPass.setHint("4-значный пароль");
+        inputPass.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
+        layout.addView(inputPass);
+
+        builder.setView(layout);
+        builder.setPositiveButton("Войти", (dialog, which) -> {
+            String pass = inputPass.getText().toString().trim();
+            if (pass.equals(savedPass)) {
+                Toast.makeText(this, "Доступ разрешен!", Toast.LENGTH_SHORT).show();
+                onLog("Система запущена. Выберите профиль для начала работы.");
+            } else {
+                Toast.makeText(this, "Неверный пароль!", Toast.LENGTH_SHORT).show();
+                showEnterMasterPasswordDialog(savedPass); // Повторный запрос при ошибке
+            }
+        });
+        builder.setNegativeButton("Выход", (dialog, which) -> finish());
+        builder.setCancelable(false);
+        builder.show();
+    }
+
     private void updateMetricsDisplay(String rmssd, String pnn50, String lfHf, String tp) {
         if (ui.tvHrvMetrics != null) {
             String displayStr = String.format(Locale.US,
@@ -171,9 +257,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     }
 
-    /**
-     * Управляет доступностью элементов интерфейса в зависимости от авторизации
-     */
     private void setInterfaceAuthorizedState(boolean authorized) {
         float alphaVal = authorized ? 1.0f : 0.5f;
 
@@ -207,7 +290,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 activeProfileName = profileName;
                 isProfileAuthorized = true;
                 
-                // Разблокируем функциональные кнопки и связь
                 setInterfaceAuthorizedState(true);
                 updateMetricsDisplay("--", "--", "--", "--");
                 onLog("[GATEKEEPER] Активный профиль: " + profileName + " (ID: " + profileId + ")");
@@ -299,7 +381,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = true;
         if (isBound && hrvService != null) hrvService.startSessionRecording();
         
-        // Запуск сбора данных в PolarH10Manager строго по нажатию кнопки "Панель монитора"
         if (polarManager != null) {
             polarManager.startCollection();
         }
@@ -320,7 +401,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = false;
         if (isBound && hrvService != null) hrvService.stopSessionRecording();
         
-        // Остановка сбора данных в PolarH10Manager
         if (polarManager != null) {
             polarManager.stopCollection();
         }
