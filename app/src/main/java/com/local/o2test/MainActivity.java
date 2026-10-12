@@ -101,8 +101,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         ui.btnExit.setOnClickListener(v -> finish());
 
         // --- ПРИВЯЗКА КНОПОК ЧЕРЕЗ ХЕЛПЕРЫ (ЭТАП 1) ---
-        if (ui.btnTrainings != null) {
-            ui.btnTrainings.setOnClickListener(v -> TrainingDialogHelper.openTrainingDialog(
+        if (ui.btnWorkout != null) {
+            ui.btnWorkout.setOnClickListener(v -> TrainingDialogHelper.openTrainingDialog(
                     this, dbExecutor, activeProfileId, activeProfileName, isProfileAuthorized,
                     new TrainingDialogHelper.TrainingStartCallback() {
                         @Override
@@ -266,7 +266,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 AppDatabase db = AppDatabase.getInstance(getApplicationContext());
                 long endTime = System.currentTimeMillis();
                 
-                // Сохранение сессии в таблицу sessions[span_9](start_span)[span_9](end_span)
                 SessionEntity session = new SessionEntity(
                         0,
                         activeProfileId,
