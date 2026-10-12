@@ -45,6 +45,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private int prevRrMs = 0;
     private int consecutiveArtifactsCount = 0;
 
+    // --- GATEKEEPER & PROFILE SECURITY FIELDS ---
+    private long activeProfileId = -1L;
+    private boolean isProfileAuthorized = true; // По умолчанию true для обратной совместимости текущего контура
+
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
@@ -172,6 +176,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     private void startMonitoringPanel() {
+        // --- GATEKEEPER SECURITY CHECK ---
+        if (!isProfileAuthorized) {
+            onLog("[GATEKEEPER] Ошибка: Запуск сеанса заблокирован. Активный профиль не выбран!");
+            return;
+        }
+
         isRecording = true;
         if (isBound && hrvService != null) {
             hrvService.startSessionRecording();
@@ -236,6 +246,21 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             sum += val;
         }
         return sum / piWindow.size();
+    }
+
+    // --- GATEKEEPER MANAGEMENT METHODS ---
+    public void setActiveProfile(long profileId, String profileName) {
+        this.activeProfileId = profileId;
+        this.isProfileAuthorized = (profileId != -1L);
+        onLog("[GATEKEEPER] Установлен активный профиль: " + profileName + " (ID: " + profileId + ")");
+    }
+
+    public long getActiveProfileId() {
+        return activeProfileId;
+    }
+
+    public boolean isProfileAuthorized() {
+        return isProfileAuthorized;
     }
 
     @Override
