@@ -13,6 +13,9 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.text.InputType;
+import android.text.Layout;
+import android.text.SpannableString;
+import android.text.style.AlignmentSpan;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -86,6 +89,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             hrvService = null;
         }
     };
+
+    private static SpannableString getCenteredTitle(String title) {
+        SpannableString s = new SpannableString(title);
+        s.setSpan(new AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER), 0, s.length(), 0);
+        return s;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -181,7 +190,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private void showCreateMasterPasswordDialog(SharedPreferences prefs) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Создание мастер-пароля системы");
+        builder.setTitle(getCenteredTitle("Создание мастер-пароля системы"));
         builder.setMessage("Введите 4-значный пароль администратора для защиты доступа к данным.");
 
         LinearLayout layout = new LinearLayout(this);
@@ -220,7 +229,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private void showEnterMasterPasswordDialog(String savedPass) {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Авторизация администратора");
+        builder.setTitle(getCenteredTitle("Авторизация администратора"));
         builder.setMessage("Введите 4-значный мастер-пароль для доступа к системе.");
 
         LinearLayout layout = new LinearLayout(this);
