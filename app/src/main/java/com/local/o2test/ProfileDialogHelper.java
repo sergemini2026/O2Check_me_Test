@@ -44,8 +44,6 @@ public class ProfileDialogHelper {
         });
     }
 
-    private static void showндексOrProfilesListDialog(...) {} // оставлено для структуры
-
     private static void showLoginOrProfilesListDialog(Context context, AppDatabase db, ExecutorService dbExecutor, List<ProfileEntity> profiles, ProfileCallback callback) {
         List<String> profileNames = new ArrayList<>();
         for (ProfileEntity p : profiles) {
