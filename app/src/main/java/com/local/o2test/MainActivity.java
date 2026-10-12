@@ -92,6 +92,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         // ИСХОДНОЕ СОСТОЯНИЕ: блокируем все, кроме Профилей, Настроек и Выхода
         setInterfaceAuthorizedState(false);
+        updateMetricsDisplay("--", "--", "--", "--");
 
         ui.btnHeart.setOnClickListener(v -> {
             if (!isProfileAuthorized) {
@@ -103,6 +104,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             else stopMonitoring();
         });
 
+        // Кнопка "Связь" отвечает ТОЛЬКО за подключение/поиск устройств, без запуска сеанса сбора
         ui.btnReconnect.setOnClickListener(v -> {
             if (!isProfileAuthorized) {
                 Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
@@ -158,6 +160,18 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     /**
+     * Форматирует и выводит строку состояния под графиком: Профиль + Метрики HRV
+     */
+    private void updateMetricsDisplay(String rmssd, String pnn50, String lfHf, String tp) {
+        if (ui.tvHrvMetrics != null) {
+            String displayStr = String.format(Locale.US,
+                    "Профиль: %s  |  RMSSD: %s  |  pNN50: %s  |  LF/HF: %s  |  TP: %s",
+                    activeProfileName, rmssd, pnn50, lfHf, tp);
+            ui.tvHrvMetrics.setText(displayStr);
+        }
+    }
+
+    /**
      * Управляет доступностью элементов интерфейса в зависимости от авторизации
      */
     private void setInterfaceAuthorizedState(boolean authorized) {
@@ -195,6 +209,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 
                 // Разблокируем функциональные кнопки и связь
                 setInterfaceAuthorizedState(true);
+                updateMetricsDisplay("--", "--", "--", "--");
                 onLog("[GATEKEEPER] Активный профиль: " + profileName + " (ID: " + profileId + ")");
                 Toast.makeText(MainActivity.this, "Профиль активирован. Теперь доступна связь с датчиками.", Toast.LENGTH_SHORT).show();
             }
@@ -289,7 +304,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         prevRrMs = 0;
         consecutiveArtifactsCount = 0;
         if (ui.chartView != null) ui.chartView.clearData();
-        if (ui.tvHrvMetrics != null) ui.tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
+        
+        updateMetricsDisplay("--", "--", "--", "--");
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
         onLog("Мониторинг активен для профиля: " + activeProfileName);
     }
@@ -484,15 +500,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 }
 
                 if (hrv != null) {
-                    String hrvDisplay = String.format(Locale.US,
-                            "RMSSD: %.1f ms  |  pNN50: %.1f%%  |  LF/HF: %.2f  |  TP: %.0f ms²",
-                            hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
+                    String rmssdStr = String.format(Locale.US, "%.1f ms", hrv.rmssd);
+                    String pnn50Str = String.format(Locale.US, "%.1f%%", hrv.pnn50);
+                    String lfHfStr = String.format(Locale.US, "%.2f", hrv.lfHfRatio);
+                    String tpStr = String.format(Locale.US, "%.0f ms²", hrv.totalPower);
 
-                    runOnUiThread(() -> {
-                        if (ui.tvHrvMetrics != null) {
-                            ui.tvHrvMetrics.setText(hrvDisplay);
-                        }
-                    });
+                    runOnUiThread(() -> updateMetricsDisplay(rmssdStr, pnn50Str, lfHfStr, tpStr));
                 }
             }
         }
