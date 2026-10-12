@@ -66,8 +66,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             hrvService = binder.getService();
             isBound = true;
             if (hrvService != null && hrvService.isRecording()) {
-                isRecording = true;
-                if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
+                hrvService.stopSessionRecording();
+            }
+            isRecording = false;
+            if (ui.btnHeart != null) {
+                ui.btnHeart.setAlpha(0.5f);
             }
         }
         @Override
@@ -87,20 +90,42 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         ui = UiBuilder.buildUi(this);
         UiBuilder.updateStatusHeader(ui.tvLiveMetrics, 0, 0, 0f, 0, 0);
 
+        // ИСХОДНОЕ СОСТОЯНИЕ: блокируем все, кроме Профилей, Настроек и Выхода
+        setInterfaceAuthorizedState(false);
+
         ui.btnHeart.setOnClickListener(v -> {
+            if (!isProfileAuthorized) {
+                Toast.init(this); // Напоминание через Toast или воркфлоу
+                Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
+                openProfilesManager();
+                return;
+            }
             if (!isRecording) startMonitoringPanel();
             else stopMonitoring();
         });
 
         ui.btnReconnect.setOnClickListener(v -> {
+            if (!isProfileAuthorized) {
+                Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
+                openProfilesManager();
+                return;
+            }
             onLog("Переподключение BLE устройств...");
             checkAndRequestPermissions();
         });
-        ui.btnSave.setOnClickListener(v -> saveData());
+
+        ui.btnSave.setOnClickListener(v -> {
+            if (!isProfileAuthorized) {
+                Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            saveData();
+        });
+
         ui.btnSettings.setOnClickListener(v -> onLog("Открытие настроек..."));
         ui.btnExit.setOnClickListener(v -> finish());
 
-        // --- ПРИВЯЗКА КНОПОК ЧЕРЕЗ ХЕЛПЕРЫ (ЭТАП 1) ---
+        // --- ПРИВЯЗКА КНОПОК ТРЕНИРОВОК И СЕССИЙ ---
         if (ui.btnWorkout != null) {
             ui.btnWorkout.setOnClickListener(v -> TrainingDialogHelper.openTrainingDialog(
                     this, dbExecutor, activeProfileId, activeProfileName, isProfileAuthorized,
@@ -130,7 +155,35 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         setContentView(ui.mainLayout);
-        checkAndRequestPermissions();
+        onLog("Система запущена. Выберите профиль для начала работы.");
+    }
+
+    /**
+     * Управляет доступностью элементов интерфейса в зависимости от авторизации
+     */
+    private void setInterfaceAuthorizedState(boolean authorized) {
+        float alphaVal = authorized ? 1.0f : 0.5f;
+
+        if (ui.btnWorkout != null) {
+            ui.btnWorkout.setEnabled(authorized);
+            ui.btnWorkout.setAlpha(alphaVal);
+        }
+        if (ui.btnSessions != null) {
+            ui.btnSessions.setEnabled(authorized);
+            ui.btnSessions.setAlpha(alphaVal);
+        }
+        if (ui.btnHeart != null) {
+            ui.btnHeart.setEnabled(authorized);
+            ui.btnHeart.setAlpha(authorized && isRecording ? 1.0f : alphaVal);
+        }
+        if (ui.btnReconnect != null) {
+            ui.btnReconnect.setEnabled(authorized);
+            ui.btnReconnect.setAlpha(alphaVal);
+        }
+        if (ui.btnSave != null) {
+            ui.btnSave.setEnabled(authorized);
+            ui.btnSave.setAlpha(alphaVal);
+        }
     }
 
     private void openProfilesManager() {
@@ -140,7 +193,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 activeProfileId = profileId;
                 activeProfileName = profileName;
                 isProfileAuthorized = true;
+                
+                // Разблокируем функциональные кнопки и связь
+                setInterfaceAuthorizedState(true);
                 onLog("[GATEKEEPER] Активный профиль: " + profileName + " (ID: " + profileId + ")");
+                Toast.makeText(MainActivity.this, "Профиль активирован. Теперь доступна связь с датчиками.", Toast.LENGTH_SHORT).show();
             }
             @Override
             public void onLog(String message) {
@@ -176,6 +233,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     private void checkAndRequestPermissions() {
+        if (!isProfileAuthorized) {
+            Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
+            openProfilesManager();
+            return;
+        }
         if (PermissionHelper.checkAndRequestPermissions(this)) {
             startHrvForegroundService();
             bleManager.initAndStartScan();
@@ -237,7 +299,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = false;
         if (isBound && hrvService != null) hrvService.stopSessionRecording();
         piWindow.clear();
-        if (ui.btnHeart != null) ui.btnHeart.setAlpha(0.5f);
+        if (ui.btnHeart != null) ui.btnHeart.setAlpha(isProfileAuthorized ? 1.0f : 0.5f);
         onLog("Мониторинг остановлен");
     }
 
@@ -392,8 +454,303 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         @Override
         public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
             int totalTarget = 300;
-            if (rrCount >= totalTarget && hrv != null) {
-                onLog(String.format(Locale.US, "[Дамп ГОТОВ] HR: %d bpm | RMSSD: %.1f ms", hr, hrv.rmssd));
+            float percent = Math.min(100.0f, (rrCount / (float) totalTarget) * 100.0f);
+            int remainingBeats = Math.max(0, totalTarget - rrCount);
+
+            int remainingSec = 0;
+            if (hr > 0 && remainingBeats > 0) {
+                remainingSec = (int) Math.round((remainingBeats * 60.0) / hr);
+            }
+            int remMin = remainingSec / 60;
+            int remSec = remainingSec % 60;
+
+            if (rrCount < totalTarget) {
+                String rmssdStr = (hrv != null) ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--";
+                String logMsg = String.format(Locale.US,
+                        "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
+                        percent, rrCount, totalTarget, remMin, remSec, hr, rmssdStr);
+                onLog(logMsg);
+
+                if (isBound && hrvService != null) {
+                    hrvService.updateNotificationText("HR: " + hr + " bpm | RMSSD: " + rmssdStr);
+                }
+            } else {
+                String logMsg = String.format(Locale.US,
+                        "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms²",
+                        hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
+                onLog(logMsg);
+
+                if (isBound && hrvService != null) {
+                    hrvService.updateNotificationText("Запись завершена (300/300)");
+                }
+
+                if (hrv != null) {
+                    String hrvDisplay = String.format(Locale.US,
+                            "RMSSD: %.1f ms  |  pNN50: %.1f%%  |  LF/HF: %.2f  |  TP: %.0f ms²",
+                            hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
+
+                    runOnUiThread(() -> {
+                        if (ui.tvHrvMetrics != null) {
+                            ui.tvHrvMetrics.setText(hrvDisplay);
+                        }
+                    });
+                }
+     }
+
+    @Override
+    public void onDataReceived(byte[] data) {
+        O2Parser.ParseResult res = O2Parser.parse(data);
+        long now = System.currentTimeMillis();
+        float smoothedPi = getSmoothedPi(res.pi);
+
+        currentSpo2 = res.spo2;
+        currentPi = smoothedPi;
+        currentBattery = res.battery;
+
+        boolean isPolarActive = polarManager != null && polarManager.isConnected();
+        int hrToDisplay = isPolarActive ? currentPolarHr : res.hr;
+        int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
+
+        runOnUiThread(() -> UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery, polarBatt));
+
+        if (!isPolarActive && res.isFingerOn && isRecording) {
+            if (sessionStartTime == 0) sessionStartTime = now;
+            int elapsedSec = (int) ((now - sessionStartTime) / 1000);
+            String timestamp = timeFormat.format(new Date(now));
+            DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, res.hr, currentPi, 0);
+
+            synchronized (sessionData) { sessionData.add(dp); }
+            runOnUiThread(() -> ui.chartView.addDataPoint(dp));
+        }
+    }
+
+    @Override
+    public void onPolarDeviceFound(BluetoothDevice device) {
+        if (polarManager != null) polarManager.connect(device);
+    }
+
+    private final PolarH10Manager.PolarCallback polarCallback = new PolarH10Manager.PolarCallback() {
+        @Override
+        public void onPolarLog(String message) { onLog(message); }
+
+        @Override
+        public void onPolarBatteryReceived(int battery) {
+            currentPolarBattery = battery;
+            int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
+            boolean isPolarActive = polarManager != null && polarManager.isConnected();
+            int hrToDisplay = isPolarActive ? currentPolarHr : 0;
+            runOnUiThread(() -> UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery, polarBatt));
+        }
+
+        @Override
+        public void onRrReceived(int rrMs, float instantHr) {
+            if (isRecording) {
+                boolean isArtifact = false;
+                if (prevRrMs > 0) {
+                    if (Math.abs(rrMs - prevRrMs) / (float) prevRrMs > 0.20) {
+                        consecutiveArtifactsCount++;
+                        if (consecutiveArtifactsCount < 3) {
+                            isArtifact = true;
+                            onLog("[АРТЕФАКТ] Скачок RR: исключен.");
+                        }
+                    }
+                }
+                if (!isArtifact) {
+                    if (isBound && hrvService != null) hrvService.addRrInterval(rrMs);
+                    consecutiveArtifactsCount = 0;
+                    prevRrMs = rrMs;
+                    currentPolarHr = Math.round(instantHr);
+
+                    long now = System.currentTimeMillis();
+                    if (sessionStartTime == 0) sessionStartTime = now;
+                    float elapsedSec = (now - sessionStartTime) / 1000f;
+                    String timestamp = timeFormat.format(new Date(now));
+                    DataPoint dp = new DataPoint(timestamp, (int) elapsedSec, currentSpo2, currentPolarHr, currentPi, rrMs);
+
+                    synchronized (sessionData) { sessionData.add(dp); }
+                    int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
+
+                    runOnUiThread(() -> {
+                        UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, currentPolarHr, currentPi, currentBattery, polarBatt);
+                        ui.chartView.addDataPoint(dp);
+                        animateHeartPulse();
+                    });
+                }
+            }
+        }
+
+        @Override
+        public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
+            int totalTarget = 300;
+            float percent = Math.min(100.0f, (rrCount / (float) totalTarget) * 100.0f);
+            int remainingBeats = Math.max(0, totalTarget - rrCount);
+
+            int remainingSec = 0;
+            if (hr > 0 && remainingBeats > 0) {
+                remainingSec = (int) Math.round((remainingBeats * 60.0) / hr);
+            }
+            int remMin = remainingSec / 60;
+            int remSec = remainingSec % 60;
+
+            if (rrCount < totalTarget) {
+                String rmssdStr = (hrv != null) ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--";
+                String logMsg = String.format(Locale.US,
+                        "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
+                        percent, rrCount, totalTarget, remMin, remSec, hr, rmssdStr);
+                onLog(logMsg);
+
+                if (isBound && hrvService != null) {
+                    hrvService.updateNotificationText("HR: " + hr + " bpm | RMSSD: " + rmssdStr);
+                }
+            } else {
+                String logMsg = String.format(Locale.US,
+                        "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms²",
+                        hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
+                onLog(logMsg);
+
+                if (isBound && hrvService != null) {
+                    hrvService.updateNotificationText("Запись завершена (300/300)");
+                }
+
+                if (hrv != null) {
+                    String hrvDisplay = String.format(Locale.US,
+                            "RMSSD: %.1f ms  |  pNN50: %.1f%%  |  LF/HF: %.2f  |  TP: %.0f ms²",
+                            hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
+
+                    runOnUiThread(() -> {
+                        if (ui.tvHrvMetrics != null) {
+                            ui.tvHrvMetrics.setText(hrvDisplay);
+                        }
+                    });
+                }
+  }
+
+    @Override
+    public void onDataReceived(byte[] data) {
+        O2Parser.ParseResult res = O2Parser.parse(data);
+        long now = System.currentTimeMillis();
+        float smoothedPi = getSmoothedPi(res.pi);
+
+        currentSpo2 = res.spo2;
+        currentPi = smoothedPi;
+        currentBattery = res.battery;
+
+        boolean isPolarActive = polarManager != null && polarManager.isConnected();
+        int hrToDisplay = isPolarActive ? currentPolarHr : res.hr;
+        int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
+
+        runOnUiThread(() -> UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery, polarBatt));
+
+        if (!isPolarActive && res.isFingerOn && isRecording) {
+            if (sessionStartTime == 0) sessionStartTime = now;
+            int elapsedSec = (int) ((now - sessionStartTime) / 1000);
+            String timestamp = timeFormat.format(new Date(now));
+            DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, res.hr, currentPi, 0);
+
+            synchronized (sessionData) { sessionData.add(dp); }
+            runOnUiThread(() -> ui.chartView.addDataPoint(dp));
+        }
+    }
+
+    @Override
+    public void onPolarDeviceFound(BluetoothDevice device) {
+        if (polarManager != null) polarManager.connect(device);
+    }
+
+    private final PolarH10Manager.PolarCallback polarCallback = new PolarH10Manager.PolarCallback() {
+        @Override
+        public void onPolarLog(String message) { onLog(message); }
+
+        @Override
+        public void onPolarBatteryReceived(int battery) {
+            currentPolarBattery = battery;
+            int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
+            boolean isPolarActive = polarManager != null && polarManager.isConnected();
+            int hrToDisplay = isPolarActive ? currentPolarHr : 0;
+            runOnUiThread(() -> UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery, polarBatt));
+        }
+
+        @Override
+        public void onRrReceived(int rrMs, float instantHr) {
+            if (isRecording) {
+                boolean isArtifact = false;
+                if (prevRrMs > 0) {
+                    if (Math.abs(rrMs - prevRrMs) / (float) prevRrMs > 0.20) {
+                        consecutiveArtifactsCount++;
+                        if (consecutiveArtifactsCount < 3) {
+                            isArtifact = true;
+                            onLog("[АРТЕФАКТ] Скачок RR: исключен.");
+                        }
+                    }
+                }
+                if (!isArtifact) {
+                    if (isBound && hrvService != null) hrvService.addRrInterval(rrMs);
+                    consecutiveArtifactsCount = 0;
+                    prevRrMs = rrMs;
+                    currentPolarHr = Math.round(instantHr);
+
+                    long now = System.currentTimeMillis();
+                    if (sessionStartTime == 0) sessionStartTime = now;
+                    float elapsedSec = (now - sessionStartTime) / 1000f;
+                    String timestamp = timeFormat.format(new Date(now));
+                    DataPoint dp = new DataPoint(timestamp, (int) elapsedSec, currentSpo2, currentPolarHr, currentPi, rrMs);
+
+                    synchronized (sessionData) { sessionData.add(dp); }
+                    int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
+
+                    runOnUiThread(() -> {
+                        UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, currentPolarHr, currentPi, currentBattery, polarBatt);
+                        ui.chartView.addDataPoint(dp);
+                        animateHeartPulse();
+                    });
+                }
+            }
+        }
+
+        @Override
+        public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
+            int totalTarget = 300;
+            float percent = Math.min(100.0f, (rrCount / (float) totalTarget) * 100.0f);
+            int remainingBeats = Math.max(0, totalTarget - rrCount);
+
+            int remainingSec = 0;
+            if (hr > 0 && remainingBeats > 0) {
+                remainingSec = (int) Math.round((remainingBeats * 60.0) / hr);
+            }
+            int remMin = remainingSec / 60;
+            int remSec = remainingSec % 60;
+
+            if (rrCount < totalTarget) {
+                String rmssdStr = (hrv != null) ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--";
+                String logMsg = String.format(Locale.US,
+                        "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
+                        percent, rrCount, totalTarget, remMin, remSec, hr, rmssdStr);
+                onLog(logMsg);
+
+                if (isBound && hrvService != null) {
+                    hrvService.updateNotificationText("HR: " + hr + " bpm | RMSSD: " + rmssdStr);
+                }
+            } else {
+                String logMsg = String.format(Locale.US,
+                        "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms²",
+                        hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
+                onLog(logMsg);
+
+                if (isBound && hrvService != null) {
+                    hrvService.updateNotificationText("Запись завершена (300/300)");
+                }
+
+                if (hrv != null) {
+                    String hrvDisplay = String.format(Locale.US,
+                            "RMSSD: %.1f ms  |  pNN50: %.1f%%  |  LF/HF: %.2f  |  TP: %.0f ms²",
+                            hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
+
+                    runOnUiThread(() -> {
+                        if (ui.tvHrvMetrics != null) {
+                            ui.tvHrvMetrics.setText(hrvDisplay);
+                        }
+                    });
+                }
             }
         }
     };
@@ -404,4 +761,4 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (bleManager != null) bleManager.close();
         if (polarManager != null) polarManager.disconnect();
     }
-}
+    }
