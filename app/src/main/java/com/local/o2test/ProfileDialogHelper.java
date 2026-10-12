@@ -25,7 +25,6 @@ public class ProfileDialogHelper {
         dbExecutor.execute(() -> {
             try {
                 AppDatabase db = AppDatabase.getInstance(context);
-                // Получаем список профилей через DAO (используем блокирующий подход в фоновом потоке)
                 List<ProfileEntity> profiles = db.profileDao().getAllProfilesSync();
 
                 ((android.app.Activity) context).runOnUiThread(() -> {
@@ -78,9 +77,9 @@ public class ProfileDialogHelper {
 
             dbExecutor.execute(() -> {
                 try {
-                    // Создаем сущность профиля на основе ProfileEntity[span_2](start_span)[span_2](end_span)
                     ProfileEntity newProfile = new ProfileEntity(0, login, 30, 70.0f, 175.0f, 120, 80, System.currentTimeMillis());
-                    long id = db.profileDao().insertProfile(newProfile);
+                    // ИСПОЛЬЗУЕМ СИНХРОННЫЙ МЕТОД insertProfileSync
+                    long id = db.profileDao().insertProfileSync(newProfile);
                     ((android.app.Activity) context).runOnUiThread(() -> {
                         callback.onProfileAuthorized(id, login);
                         Toast.makeText(context, "Администратор успешно создан и авторизован!", Toast.LENGTH_SHORT).show();
@@ -133,7 +132,6 @@ public class ProfileDialogHelper {
 
         builder.setPositiveButton("Войти", (dialog, which) -> {
             String pass = inputPass.getText().toString().trim();
-            // В данной редакции проверяем стандартный пин-код или разрешаем доступ по выбору
             if (pass.length() == 4) {
                 callback.onProfileAuthorized(profile.getId(), profile.getName());
                 Toast.makeText(context, "Добро пожаловать, " + profile.getName() + "!", Toast.LENGTH_SHORT).show();
@@ -175,7 +173,8 @@ public class ProfileDialogHelper {
             dbExecutor.execute(() -> {
                 try {
                     ProfileEntity newProfile = new ProfileEntity(0, login, 30, 70.0f, 175.0f, 120, 80, System.currentTimeMillis());
-                    long id = db.profileDao().insertProfile(newProfile);
+                    // ИСПОЛЬЗУЕМ СИНХРОННЫЙ МЕТОД insertProfileSync
+                    long id = db.profileDao().insertProfileSync(newProfile);
                     ((android.app.Activity) context).runOnUiThread(() -> {
                         callback.onProfileAuthorized(id, login);
                         Toast.makeText(context, "Профиль создан и активирован!", Toast.LENGTH_SHORT).show();
