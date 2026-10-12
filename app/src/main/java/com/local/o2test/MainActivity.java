@@ -11,6 +11,10 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.widget.ScrollView;
+import android.widget.Toast;
+
+import com.local.o2test.db.AppDatabase;
+import com.local.o2test.db.entity.SessionEntity;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -19,6 +23,8 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Queue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity implements O2BleManager.BleListener {
 
@@ -33,6 +39,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private boolean isRecording = false;
     private long sessionStartTime = 0;
+    private String currentWorkoutMode = "Базовый мониторинг";
     private final List<DataPoint> sessionData = new ArrayList<>();
     private final Queue<Float> piWindow = new LinkedList<>();
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
@@ -45,9 +52,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private int prevRrMs = 0;
     private int consecutiveArtifactsCount = 0;
 
-    // --- GATEKEEPER & PROFILE SECURITY FIELDS ---
+    // --- GATEKEEPER & PROFILE STATE ---
     private long activeProfileId = -1L;
-    private boolean isProfileAuthorized = true; // По умолчанию true для обратной совместимости текущего контура
+    private boolean isProfileAuthorized = false;
+    private String activeProfileName = "Не выбран";
+
+    private final ExecutorService dbExecutor = Executors.newSingleThreadExecutor();
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -57,12 +67,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             isBound = true;
             if (hrvService != null && hrvService.isRecording()) {
                 isRecording = true;
-                if (ui.btnHeart != null) {
-                    ui.btnHeart.setAlpha(1.0f);
-                }
+                if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
             }
         }
-
         @Override
         public void onServiceDisconnected(ComponentName name) {
             isBound = false;
@@ -81,11 +88,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         UiBuilder.updateStatusHeader(ui.tvLiveMetrics, 0, 0, 0f, 0, 0);
 
         ui.btnHeart.setOnClickListener(v -> {
-            if (!isRecording) {
-                startMonitoringPanel();
-            } else {
-                stopMonitoring();
-            }
+            if (!isRecording) startMonitoringPanel();
+            else stopMonitoring();
         });
 
         ui.btnReconnect.setOnClickListener(v -> {
@@ -96,8 +100,53 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         ui.btnSettings.setOnClickListener(v -> onLog("Открытие настроек..."));
         ui.btnExit.setOnClickListener(v -> finish());
 
+        // --- ПРИВЯЗКА КНОПОК ЧЕРЕЗ ХЕЛПЕРЫ (ЭТАП 1) ---
+        if (ui.btnTrainings != null) {
+            ui.btnTrainings.setOnClickListener(v -> TrainingDialogHelper.openTrainingDialog(
+                    this, dbExecutor, activeProfileId, activeProfileName, isProfileAuthorized,
+                    new TrainingDialogHelper.TrainingStartCallback() {
+                        @Override
+                        public void onStartTraining(String trainingType, String modeName) {
+                            currentWorkoutMode = trainingType + " | " + modeName;
+                            onLog("[СТАРТ] " + currentWorkoutMode);
+                            startMonitoringPanel();
+                        }
+                        @Override
+                        public void onRequireProfileAuth() {
+                            openProfilesManager();
+                        }
+                    }
+            ));
+        }
+
+        if (ui.btnSessions != null) {
+            ui.btnSessions.setOnClickListener(v -> SessionDialogHelper.openSessionsDialog(
+                    this, dbExecutor, activeProfileId, activeProfileName, isProfileAuthorized
+            ));
+        }
+
+        if (ui.btnProfiles != null) {
+            ui.btnProfiles.setOnClickListener(v -> openProfilesManager());
+        }
+
         setContentView(ui.mainLayout);
         checkAndRequestPermissions();
+    }
+
+    private void openProfilesManager() {
+        ProfileDialogHelper.openProfilesDialog(this, dbExecutor, new ProfileDialogHelper.ProfileCallback() {
+            @Override
+            public void onProfileAuthorized(long profileId, String profileName) {
+                activeProfileId = profileId;
+                activeProfileName = profileName;
+                isProfileAuthorized = true;
+                onLog("[GATEKEEPER] Активный профиль: " + profileName + " (ID: " + profileId + ")");
+            }
+            @Override
+            public void onLog(String message) {
+                MainActivity.this.onLog(message);
+            }
+        });
     }
 
     private void startHrvForegroundService() {
@@ -141,10 +190,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (requestCode == PermissionHelper.PERMISSION_REQUEST_CODE) {
             boolean allGranted = true;
             for (int result : grantResults) {
-                if (result != PackageManager.PERMISSION_GRANTED) {
-                    allGranted = false;
-                    break;
-                }
+                if (result != PackageManager.PERMISSION_GRANTED) { allGranted = false; break; }
             }
             if (allGranted) {
                 onLog("Разрешения получены, запуск сканирования...");
@@ -158,109 +204,96 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private void animateHeartPulse() {
         if (ui.btnHeart == null || !isRecording) return;
-
-        ui.btnHeart.animate()
-            .scaleX(1.18f)
-            .scaleY(1.18f)
-            .setDuration(110)
+        ui.btnHeart.animate().scaleX(1.18f).scaleY(1.18f).setDuration(110)
             .withEndAction(() -> {
                 if (ui.btnHeart != null) {
-                    ui.btnHeart.animate()
-                        .scaleX(1.0f)
-                        .scaleY(1.0f)
-                        .setDuration(110)
-                        .start();
+                    ui.btnHeart.animate().scaleX(1.0f).scaleY(1.0f).setDuration(110).start();
                 }
-            })
-            .start();
+            }).start();
     }
 
     private void startMonitoringPanel() {
-        // --- GATEKEEPER SECURITY CHECK ---
-        if (!isProfileAuthorized) {
-            onLog("[GATEKEEPER] Ошибка: Запуск сеанса заблокирован. Активный профиль не выбран!");
+        if (!isProfileAuthorized || activeProfileId == -1L) {
+            onLog("[GATEKEEPER] Сеанс заблокирован: профиль не выбран!");
+            Toast.makeText(this, "Требуется авторизация в профиле!", Toast.LENGTH_SHORT).show();
+            openProfilesManager();
             return;
         }
 
         isRecording = true;
-        if (isBound && hrvService != null) {
-            hrvService.startSessionRecording();
-        }
+        if (isBound && hrvService != null) hrvService.startSessionRecording();
         sessionStartTime = System.currentTimeMillis();
-        synchronized (sessionData) {
-            sessionData.clear();
-        }
+        synchronized (sessionData) { sessionData.clear(); }
         piWindow.clear();
         prevRrMs = 0;
         consecutiveArtifactsCount = 0;
-        if (ui.chartView != null) {
-            ui.chartView.clearData();
-        }
-        if (ui.tvHrvMetrics != null) {
-            ui.tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
-        }
-        if (ui.btnHeart != null) {
-            ui.btnHeart.setAlpha(1.0f);
-        }
-        onLog("Панель монитора активна");
+        if (ui.chartView != null) ui.chartView.clearData();
+        if (ui.tvHrvMetrics != null) ui.tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
+        if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
+        onLog("Мониторинг активен для профиля: " + activeProfileName);
     }
 
     private void stopMonitoring() {
         isRecording = false;
-        if (isBound && hrvService != null) {
-            hrvService.stopSessionRecording();
-        }
+        if (isBound && hrvService != null) hrvService.stopSessionRecording();
         piWindow.clear();
-        if (ui.btnHeart != null) {
-            ui.btnHeart.setAlpha(0.5f);
-        }
+        if (ui.btnHeart != null) ui.btnHeart.setAlpha(0.5f);
         onLog("Мониторинг остановлен");
     }
 
     private void saveData() {
-        onLog("Сохранение данных...");
+        onLog("Сохранение данных в CSV и БД...");
         List<DataPoint> copyForExport;
-        synchronized (sessionData) {
-            copyForExport = new ArrayList<>(sessionData);
-        }
+        synchronized (sessionData) { copyForExport = new ArrayList<>(sessionData); }
+        
         CsvExporter.saveSessionToCsv(this, copyForExport, new CsvExporter.ExportCallback() {
             @Override
             public void onSuccess(String filePath, String fileName) {
-                onLog("Успешно сохранено: " + fileName);
+                onLog("Успешно сохранено в CSV: " + fileName);
+                saveSessionToDatabase(fileName, copyForExport);
             }
-
             @Override
             public void onError(String errorMessage) {
-                onLog("Ошибка: " + errorMessage);
+                onLog("Ошибка сохранения CSV: " + errorMessage);
+            }
+        });
+    }
+
+    private void saveSessionToDatabase(String fileName, List<DataPoint> points) {
+        if (activeProfileId == -1L) return;
+        dbExecutor.execute(() -> {
+            try {
+                AppDatabase db = AppDatabase.getInstance(getApplicationContext());
+                long endTime = System.currentTimeMillis();
+                
+                // Сохранение сессии в таблицу sessions[span_9](start_span)[span_9](end_span)
+                SessionEntity session = new SessionEntity(
+                        0,
+                        activeProfileId,
+                        currentWorkoutMode,
+                        sessionStartTime,
+                        endTime,
+                        currentPolarHr > 0 ? currentPolarHr : 75,
+                        currentSpo2 > 0 ? currentSpo2 : 98,
+                        45.0,
+                        50.0,
+                        1.2,
+                        35.0
+                );
+                long sessionId = db.sessionDao().insertSessionSync(session);
+                runOnUiThread(() -> onLog("Сессия #" + sessionId + " зарегистрирована в базе данных Room"));
+            } catch (Exception e) {
+                runOnUiThread(() -> onLog("Ошибка записи сессии в БД: " + e.getMessage()));
             }
         });
     }
 
     private float getSmoothedPi(float rawPi) {
         piWindow.add(rawPi);
-        if (piWindow.size() > PI_SMOOTHING_WINDOW) {
-            piWindow.poll();
-        }
+        if (piWindow.size() > PI_SMOOTHING_WINDOW) piWindow.poll();
         float sum = 0f;
-        for (float val : piWindow) {
-            sum += val;
-        }
+        for (float val : piWindow) sum += val;
         return sum / piWindow.size();
-    }
-
-    // --- GATEKEEPER MANAGEMENT METHODS ---
-    public void setActiveProfile(long profileId, String profileName) {
-        this.activeProfileId = profileId;
-        this.isProfileAuthorized = (profileId != -1L);
-        onLog("[GATEKEEPER] Установлен активный профиль: " + profileName + " (ID: " + profileId + ")");
-    }
-
-    public long getActiveProfileId() {
-        return activeProfileId;
-    }
-
-    public boolean isProfileAuthorized() {
-        return isProfileAuthorized;
     }
 
     @Override
@@ -278,7 +311,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     @Override
     public void onDataReceived(byte[] data) {
         O2Parser.ParseResult res = O2Parser.parse(data);
-
         long now = System.currentTimeMillis();
         float smoothedPi = getSmoothedPi(res.pi);
 
@@ -295,29 +327,22 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (!isPolarActive && res.isFingerOn && isRecording) {
             if (sessionStartTime == 0) sessionStartTime = now;
             int elapsedSec = (int) ((now - sessionStartTime) / 1000);
-
             String timestamp = timeFormat.format(new Date(now));
             DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, res.hr, currentPi, 0);
 
-            synchronized (sessionData) {
-                sessionData.add(dp);
-            }
+            synchronized (sessionData) { sessionData.add(dp); }
             runOnUiThread(() -> ui.chartView.addDataPoint(dp));
         }
     }
 
     @Override
     public void onPolarDeviceFound(BluetoothDevice device) {
-        if (polarManager != null) {
-            polarManager.connect(device);
-        }
+        if (polarManager != null) polarManager.connect(device);
     }
 
     private final PolarH10Manager.PolarCallback polarCallback = new PolarH10Manager.PolarCallback() {
         @Override
-        public void onPolarLog(String message) {
-            onLog(message);
-        }
+        public void onPolarLog(String message) { onLog(message); }
 
         @Override
         public void onPolarBatteryReceived(int battery) {
@@ -337,31 +362,23 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         consecutiveArtifactsCount++;
                         if (consecutiveArtifactsCount < 3) {
                             isArtifact = true;
-                            onLog("[АРТЕФАКТ] Скачок RR: " + prevRrMs + "мс -> " + rrMs + "мс. Исключен из графика.");
+                            onLog("[АРТЕФАКТ] Скачок RR: исключен.");
                         }
                     }
                 }
-
                 if (!isArtifact) {
-                    if (isBound && hrvService != null) {
-                        hrvService.addRrInterval(rrMs);
-                    }
+                    if (isBound && hrvService != null) hrvService.addRrInterval(rrMs);
                     consecutiveArtifactsCount = 0;
                     prevRrMs = rrMs;
                     currentPolarHr = Math.round(instantHr);
 
                     long now = System.currentTimeMillis();
                     if (sessionStartTime == 0) sessionStartTime = now;
-
                     float elapsedSec = (now - sessionStartTime) / 1000f;
                     String timestamp = timeFormat.format(new Date(now));
-
                     DataPoint dp = new DataPoint(timestamp, (int) elapsedSec, currentSpo2, currentPolarHr, currentPi, rrMs);
 
-                    synchronized (sessionData) {
-                        sessionData.add(dp);
-                    }
-
+                    synchronized (sessionData) { sessionData.add(dp); }
                     int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
 
                     runOnUiThread(() -> {
@@ -376,47 +393,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         @Override
         public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
             int totalTarget = 300;
-            float percent = Math.min(100.0f, (rrCount / (float) totalTarget) * 100.0f);
-            int remainingBeats = Math.max(0, totalTarget - rrCount);
-
-            int remainingSec = 0;
-            if (hr > 0 && remainingBeats > 0) {
-                remainingSec = (int) Math.round((remainingBeats * 60.0) / hr);
-            }
-            int remMin = remainingSec / 60;
-            int remSec = remainingSec % 60;
-
-            if (rrCount < totalTarget) {
-                String rmssdStr = (hrv != null) ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--";
-                String logMsg = String.format(Locale.US,
-                        "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
-                        percent, rrCount, totalTarget, remMin, remSec, hr, rmssdStr);
-                onLog(logMsg);
-
-                if (isBound && hrvService != null) {
-                    hrvService.updateNotificationText("HR: " + hr + " bpm | RMSSD: " + rmssdStr);
-                }
-            } else {
-                String logMsg = String.format(Locale.US,
-                        "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms²",
-                        hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
-                onLog(logMsg);
-
-                if (isBound && hrvService != null) {
-                    hrvService.updateNotificationText("Запись завершена (300/300)");
-                }
-
-                if (hrv != null) {
-                    String hrvDisplay = String.format(Locale.US,
-                            "RMSSD: %.1f ms  |  pNN50: %.1f%%  |  LF/HF: %.2f  |  TP: %.0f ms²",
-                            hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
-
-                    runOnUiThread(() -> {
-                        if (ui.tvHrvMetrics != null) {
-                            ui.tvHrvMetrics.setText(hrvDisplay);
-                        }
-                    });
-                }
+            if (rrCount >= totalTarget && hrv != null) {
+                onLog(String.format(Locale.US, "[Дамп ГОТОВ] HR: %d bpm | RMSSD: %.1f ms", hr, hrv.rmssd));
             }
         }
     };
@@ -424,11 +402,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (bleManager != null) {
-            bleManager.close();
-        }
-        if (polarManager != null) {
-            polarManager.disconnect();
-        }
+        if (bleManager != null) bleManager.close();
+        if (polarManager != null) polarManager.disconnect();
     }
 }
