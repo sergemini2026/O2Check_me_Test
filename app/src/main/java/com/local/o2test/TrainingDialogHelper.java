@@ -3,6 +3,9 @@ package com.local.o2test;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.text.InputType;
+import android.text.Layout;
+import android.text.SpannableString;
+import android.text.style.AlignmentSpan;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.Toast;
@@ -20,6 +23,12 @@ public class TrainingDialogHelper {
         void onRequireProfileAuth();
     }
 
+    private static SpannableString getCenteredTitle(String title) {
+        SpannableString s = new SpannableString(title);
+        s.setSpan(new AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER), 0, s.length(), 0);
+        return s;
+    }
+
     public static void openTrainingDialog(Context context, ExecutorService dbExecutor, long activeProfileId, String activeProfileName, boolean isAuthorized, TrainingStartCallback callback) {
         if (!isAuthorized || activeProfileId == -1L) {
             Toast.makeText(context, "Сначала войдите в профиль!", Toast.LENGTH_SHORT).show();
@@ -30,7 +39,7 @@ public class TrainingDialogHelper {
         String[] trainingTypes = {"Рандомная (Anti-Adaptive AI)", "Тайминг (AI-рекомендации)"};
 
         AlertDialog.Builder typeBuilder = new AlertDialog.Builder(context);
-        typeBuilder.setTitle("Выбор типа тренировки");
+        typeBuilder.setTitle(getCenteredTitle("Выбор типа тренировки"));
         typeBuilder.setItems(trainingTypes, (dialogType, typeChoice) -> {
             boolean isRandom = (typeChoice == 0);
             showTrainingModeSelectionDialog(context, dbExecutor, activeProfileId, activeProfileName, isRandom, callback);
@@ -40,7 +49,6 @@ public class TrainingDialogHelper {
     }
 
     private static void showTrainingModeSelectionDialog(Context context, ExecutorService dbExecutor, long activeProfileId, String activeProfileName, boolean isRandom, TrainingStartCallback callback) {
-        // 4 вида тренировки согласно Этапу 1[span_7](start_span)[span_7](end_span)
         String[] modes = {
             "1) Гипоксически - Гипероксическая",
             "2) Гипероксически - Гипоксическая",
@@ -49,7 +57,7 @@ public class TrainingDialogHelper {
         };
 
         AlertDialog.Builder modeBuilder = new AlertDialog.Builder(context);
-        modeBuilder.setTitle(isRandom ? "Режим: Рандомная (AI)" : "Режим: Тайминг");
+        modeBuilder.setTitle(getCenteredTitle(isRandom ? "Режим: Рандомная (AI)" : "Режим: Тайминг"));
         modeBuilder.setItems(modes, (dialogMode, modeChoice) -> {
             String selectedModeName = modes[modeChoice];
 
@@ -71,9 +79,8 @@ public class TrainingDialogHelper {
 
                 ((android.app.Activity) context).runOnUiThread(() -> {
                     if (sessions == null || sessions.isEmpty()) {
-                        // Если профиль новый и сессий нет -> предлагаем выбрать Рандомную для накопления данных[span_8](start_span)[span_8](end_span)
                         new AlertDialog.Builder(context)
-                                .setTitle("История сессий не найдена")
+                                .setTitle(getCenteredTitle("История сессий не найдена"))
                                 .setMessage("У данного профиля отсутствуют сохраненные сессии.\n\nДля работы тайминга выберите режим 'Рандомная', чтобы AI мог накопить необходимый массив данных в ходе тестирования.")
                                 .setPositiveButton("Выбрать Рандомный режим", (d, w) -> {
                                     confirmAndStart(context, "Рандомная", modeName, "AI запуск для накопления базы данных.", callback);
@@ -99,7 +106,7 @@ public class TrainingDialogHelper {
         };
 
         AlertDialog.Builder optBuilder = new AlertDialog.Builder(context);
-        optBuilder.setTitle("AI Тайминг: " + modeName);
+        optBuilder.setTitle(getCenteredTitle("AI Тайминг: " + modeName));
         optBuilder.setItems(aiOptions, (dialogOpt, optChoice) -> {
             if (optChoice == 3) {
                 showCustomTimingConfigDialog(context, modeName, callback);
@@ -113,7 +120,7 @@ public class TrainingDialogHelper {
 
     private static void showCustomTimingConfigDialog(Context context, String modeName, TrainingStartCallback callback) {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        builder.setTitle("Ручная корректировка тайминга");
+        builder.setTitle(getCenteredTitle("Ручная корректировка тайминга"));
 
         LinearLayout layout = new LinearLayout(context);
         layout.setOrientation(LinearLayout.VERTICAL);
@@ -143,7 +150,7 @@ public class TrainingDialogHelper {
 
     private static void confirmAndStart(Context context, String trainingType, String modeName, String description, TrainingStartCallback callback) {
         new AlertDialog.Builder(context)
-                .setTitle("Подтверждение сеанса")
+                .setTitle(getCenteredTitle("Подтверждение сеанса"))
                 .setMessage("Тип: " + trainingType + "\nРежим: " + modeName + "\n\n" + description)
                 .setPositiveButton("Начать тренировку", (dialog, which) -> callback.onStartTraining(trainingType, modeName))
                 .setNegativeButton("Отмена", null)
