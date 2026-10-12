@@ -2,6 +2,9 @@ package com.local.o2test;
 
 import android.app.AlertDialog;
 import android.content.Context;
+import android.text.Layout;
+import android.text.SpannableString;
+import android.text.style.AlignmentSpan;
 import android.widget.Toast;
 
 import com.local.o2test.db.AppDatabase;
@@ -14,6 +17,13 @@ import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 
 public class SessionDialogHelper {
+
+    // Вспомогательный метод для центрирования заголовка
+    private static SpannableString getCenteredTitle(String title) {
+        SpannableString s = new SpannableString(title);
+        s.setSpan(new AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER), 0, s.length(), 0);
+        return s;
+    }
 
     public static void openSessionsDialog(Context context, ExecutorService dbExecutor, long activeProfileId, String activeProfileName, boolean isAuthorized) {
         if (!isAuthorized || activeProfileId == -1L) {
@@ -29,7 +39,7 @@ public class SessionDialogHelper {
                 ((android.app.Activity) context).runOnUiThread(() -> {
                     if (sessions == null || sessions.isEmpty()) {
                         new AlertDialog.Builder(context)
-                                .setTitle("Сохраненные сессии")
+                                .setTitle(getCenteredTitle("Сохраненные сессии"))
                                 .setMessage("У пользователя " + activeProfileName + " пока нет сохраненных сессий.")
                                 .setPositiveButton("ОК", null)
                                 .show();
@@ -42,7 +52,7 @@ public class SessionDialogHelper {
                         }
 
                         new AlertDialog.Builder(context)
-                                .setTitle("Сессии: " + activeProfileName)
+                                .setTitle(getCenteredTitle("Сессии: " + activeProfileName))
                                 .setItems(sessionItems, (dialog, which) -> {
                                     SessionEntity selected = sessions.get(which);
                                     Toast.makeText(context, "Выбрана сессия #" + selected.getId(), Toast.LENGTH_LONG).show();
