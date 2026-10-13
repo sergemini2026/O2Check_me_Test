@@ -9,7 +9,7 @@ import android.graphics.RadialGradient;
 import android.graphics.Shader;
 import android.graphics.RectF;
 import android.view.View;
-import android.view.animation.DecelerateInterpolator;
+import android.view.animation.LinearInterpolator;
 
 public class BreatheAnimationView extends View {
     private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -18,21 +18,16 @@ public class BreatheAnimationView extends View {
     private final RectF bgRect = new RectF();
 
     private boolean isMonitoringActive = false;
-    private float currentProgress = 0f; // 0.0 (сжато/выдох) до 1.0 (раскрыто/вдох)
-    private float targetProgress = 0f;
     
-    // Скользящее среднее для базовой линии R-R интервалов
-    private float rrBaseline = 800f; 
-    private ValueAnimator progressAnimator;
+    // Плавная фаза дыхания (0.0 — выдох/сжатие, 1.0 — вдох/полное раскрытие)
+    private float breathPhase = 0f;
+    private float targetBreathPhase = 0f;
+    private float rrSmooth = 800f;
+    private ValueAnimator phaseAnimator;
 
-    // Параметры симметричных колец (центр в точке 100, 100)
-    private static final int CYAN_COUNT = 6;
-    private static final float CYAN_DISTANCE = 26f;
-    private static final float CYAN_RADIUS = 20f;
-
-    private static final int PINK_COUNT = 8;
-    private static final float PINK_DISTANCE = 56f;
-    private static final float PINK_RADIUS = 22f;
+    // Угол вращения структуры
+    private float rotationAngle = 0f;
+    private ValueAnimator rotationAnimator;
 
     public BreatheAnimationView(Context context) {
         super(context);
@@ -42,57 +37,74 @@ public class BreatheAnimationView extends View {
 
     public void startMonitoring() {
         isMonitoringActive = true;
-        currentProgress = 0f;
-        targetProgress = 0f;
-        rrBaseline = 800f;
+        breathPhase = 0f;
+        targetBreathPhase = 0f;
+        rrSmooth = 800f;
+        rotationAngle = 0f;
+        
+        startRotationLoop();
         invalidate();
     }
 
     public void stopMonitoring() {
         isMonitoringActive = false;
-        if (progressAnimator != null) {
-            progressAnimator.cancel();
-        }
-        currentProgress = 0f;
-        targetProgress = 0f;
+        if (phaseAnimator != null) phaseAnimator.cancel();
+        if (rotationAnimator != null) rotationAnimator.cancel();
+        breathPhase = 0f;
+        rotationAngle = 0f;
         invalidate();
     }
 
     /**
-     * Реальная привязка к дыханию через R-R интервалы (Дыхательная синусовая аритмия).
-     * Вдох -> пульс частеет -> RR укорачивается -> объект раскрывается (циан).
-     * Выдох -> пульс реже -> RR удлиняется -> объект сжимается (розовый).
+     * Плавная привязка к реальным R-R интервалам (RSA).
+     * Устраняет хаотичные скачки за счет экспоненциального сглаживания.
      */
     public void updateRr(int rrMs) {
         if (!isMonitoringActive || rrMs <= 0) return;
 
-        // Обновляем адаптивную базовую линию RR (экспоненциальное сглаживание)
-        rrBaseline = 0.9f * rrBaseline + 0.1f * rrMs;
-
-        // Разница между базой и текущим RR:
-        // Если rrMs < rrBaseline (вдох), diff > 0 -> стремимся к 1.0
-        // Если rrMs > rrBaseline (выдох), diff < 0 -> стремимся к 0.0
-        float diff = rrBaseline - rrMs;
+        // Сглаживаем сырой пульс, выделяя дыхательную волну
+        rrSmooth = 0.85f * rrSmooth + 0.15f * rrMs;
+        float diff = 800f - rrSmooth; // сдвиг относительно нормы
         
-        // Масштабируем отклонение в целевой прогресс [0.0, 1.0]
-        targetProgress = Math.max(0.0f, Math.min(1.0f, 0.5f + (diff / 150.0f)));
+        // Целевая фаза дыхания [0.0, 1.0]
+        targetBreathPhase = Math.max(0.0f, Math.min(1.0f, 0.5f + (diff / 120.0f)));
 
-        animateToTarget();
+        animatePhaseToTarget();
     }
 
-    private void animateToTarget() {
-        if (progressAnimator != null) {
-            progressAnimator.cancel();
-        }
+    private void animatePhaseToTarget() {
+        if (phaseAnimator != null) phaseAnimator.cancel();
 
-        progressAnimator = ValueAnimator.ofFloat(currentProgress, targetProgress);
-        progressAnimator.setDuration(800); // Плавный переход между ударами сердца
-        progressAnimator.setInterpolator(new DecelerateInterpolator());
-        progressAnimator.addUpdateListener(animation -> {
-            currentProgress = (float) animation.getAnimatedValue();
+        phaseAnimator = ValueAnimator.ofFloat(breathPhase, targetBreathPhase);
+        phaseAnimator.setDuration(1000); // Плавная инерция дыхательного цикла
+        phaseAnimator.setInterpolator(new LinearInterpolator());
+        phaseAnimator.addUpdateListener(animation -> {
+            if (!isMonitoringActive) return;
+            breathPhase = (float) animation.getAnimatedValue();
             invalidate();
         });
-        progressAnimator.start();
+        phaseAnimator.start();
+    }
+
+    private void startRotationLoop() {
+        if (rotationAnimator != null) rotationAnimator.cancel();
+
+        rotationAnimator = ValueAnimator.ofFloat(0f, 360f);
+        rotationAnimator.setDuration(20000); // Полный оборот за 20 секунд
+        rotationAnimator.setInterpolator(new LinearInterpolator());
+        rotationAnimator.setRepeatCount(ValueAnimator.INFINITE);
+        rotationAnimator.addUpdateListener(animation -> {
+            if (!isMonitoringActive) return;
+            rotationAngle = (float) animation.getAnimatedValue();
+            invalidate();
+        });
+        rotationAnimator.start();
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        stopMonitoring();
     }
 
     @Override
@@ -113,44 +125,71 @@ public class BreatheAnimationView extends View {
         bgRect.set(0, 0, 200, 200);
         canvas.drawRoundRect(bgRect, 16, 16, bgPaint);
 
-        // Цветовой градиент: от розового (выдох, прогресс 0) к яркому циану (вдох, прогресс 1)
-        int startColor = interpolateColor(0xDDFF4081, 0xDD00E5FF, currentProgress);
-        int endColor = interpolateColor(0x15FF4081, 0x1500E5FF, currentProgress);
+        // Применяем вращение всей структуры вокруг центра (100, 100)
+        canvas.save();
+        canvas.rotate(rotationAngle, 100f, 100f);
 
-        // 1. Отрисовка внутреннего симметричного кольца (Циан / Лепестки)
-        for (int i = 0; i < CYAN_COUNT; i++) {
-            double angle = i * (2.0 * Math.PI / CYAN_COUNT);
-            // Эффект "распускания": лепестки выдвигаются из центра при росте прогресса
-            float currentDist = CYAN_DISTANCE * (0.25f + 0.75f * currentProgress);
-            float cx = 100f + (float)(currentDist * Math.cos(angle));
-            float cy = 100f + (float)(currentDist * Math.sin(angle));
-            float r = CYAN_RADIUS * (0.4f + 0.6f * currentProgress);
+        // Цветовой переход: розовый (выдох) -> яркий циан (вдох)
+        int startColor = interpolateColor(0xDDFF4081, 0xDD00E5FF, breathPhase);
+        int endColor = interpolateColor(0x15FF4081, 0x1500E5FF, breathPhase);
 
-            elementPaint.setShader(new RadialGradient(cx, cy, r,
-                    new int[]{startColor, endColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
-            canvas.drawCircle(cx, cy, r, elementPaint);
+        // =========================================================================
+        // ЭФФЕКТ РАСКРЫВАЮЩЕГОСЯ ЦВЕТКА И УСЛОЖНЕНИЯ ФРАКТАЛА (Без изменения масштаба холста)
+        // =========================================================================
+
+        // 1. Внутренний контур (Базовые 8 лепестков, разворачиваются первыми)
+        int count1 = 8;
+        float dist1 = 30f + 15f * breathPhase;
+        float radius1 = 18f + 6f * breathPhase;
+        drawPetalRing(canvas, count1, dist1, radius1, startColor, endColor);
+
+        // 2. Средний контур (16 лепестков, усложнение структуры при раскрытии)
+        if (breathPhase > 0.2f) {
+            float layerProgress = (breathPhase - 0.2f) / 0.8f;
+            int count2 = 16;
+            float dist2 = 50f + 20f * layerProgress;
+            float radius2 = 12f + 8f * layerProgress;
+            // Прозрачность слоев зависит от фазы раскрытия
+            int alphaFactor = (int)(255 * layerProgress);
+            drawPetalRing(canvas, count2, dist2, radius2, applyAlpha(startColor, alphaFactor), applyAlpha(endColor, alphaFactor));
         }
 
-        // 2. Отрисовка внешнего симметричного кольца (Розово-циановые внешние лепестки)
-        for (int i = 0; i < PINK_COUNT; i++) {
-            double angle = i * (2.0 * Math.PI / PINK_COUNT) + (Math.PI / PINK_COUNT); // Смещение для гармоничной сетки
-            float currentDist = PINK_DISTANCE * (0.2f + 0.8f * currentProgress);
-            float cx = 100f + (float)(currentDist * Math.cos(angle));
-            float cy = 100f + (float)(currentDist * Math.sin(angle));
-            float r = PINK_RADIUS * (0.3f + 0.7f * currentProgress);
-
-            elementPaint.setShader(new RadialGradient(cx, cy, r,
-                    new int[]{startColor, endColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
-            canvas.drawCircle(cx, cy, r, elementPaint);
+        // 3. Внешний контур (32 лепестка, максимальное фрактальное усложнение на вдохе)
+        if (breathPhase > 0.6f) {
+            float layerProgress = (breathPhase - 0.6f) / 0.4f;
+            int count3 = 32;
+            float dist3 = 75f + 15f * layerProgress;
+            float radius3 = 6f + 6f * layerProgress;
+            int alphaFactor = (int)(255 * layerProgress);
+            drawPetalRing(canvas, count3, dist3, radius3, applyAlpha(startColor, alphaFactor), applyAlpha(endColor, alphaFactor));
         }
 
-        // 3. Центральное световое ядро (пульсирует в такт)
-        float coreRadius = 10f + 6f * currentProgress;
+        canvas.restore(); // Сброс вращения для ядра
+
+        // Центральное световое ядро (плавная пульсация)
+        float coreRadius = 12f + 6f * breathPhase;
         corePaint.setShader(new RadialGradient(100, 100, coreRadius,
                 new int[]{0xFFEEFFFF, 0x44FFFFFF}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
         canvas.drawCircle(100, 100, coreRadius, corePaint);
 
         canvas.restore();
+    }
+
+    private void drawPetalRing(Canvas canvas, int count, float distance, float radius, int startColor, int endColor) {
+        for (int i = 0; i < count; i++) {
+            double angle = i * (2.0 * Math.PI / count);
+            float cx = 100f + (float)(distance * Math.cos(angle));
+            float cy = 100f + (float)(distance * Math.sin(angle));
+
+            elementPaint.setShader(new RadialGradient(cx, cy, radius,
+                    new int[]{startColor, endColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
+            canvas.drawCircle(cx, cy, radius, elementPaint);
+        }
+    }
+
+    private int applyAlpha(int color, int alphaMultiplier) {
+        int a = (Color.alpha(color) * alphaMultiplier) / 255;
+        return Color.argb(a, Color.red(color), Color.green(color), Color.blue(color));
     }
 
     private int interpolateColor(int colorA, int colorB, float fraction) {
