@@ -254,7 +254,6 @@ public class UiBuilder {
                 }
 
                 if (!materialSuccess) {
-                    int width = btn.Width; // (или getWidth())
                     int w = btn.getWidth();
                     if (w > 0) {
                         Drawable[] drawables = btn.getCompoundDrawables();
@@ -266,6 +265,7 @@ public class UiBuilder {
                         btn.setPadding(pad, paddingVertPx, pad, paddingVertPx);
                     }
                 }
+
             });
         }
 
