@@ -43,7 +43,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private O2BleManager bleManager;
     private PolarH10Manager polarManager;
     private UiBuilder.Views ui;
-    private OxygenSensorManager oxygenSensorManager;
 
     private HrvForegroundService hrvService;
     private boolean isBound = false;
@@ -82,9 +81,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             }
             isRecording = false;
             isTrainingModeActive = false;
-            if (ui.breatheView != null) {
-                ui.breatheView.stopMonitoring();
-            }
             updateRightPanelStatus();
             if (ui.btnHeart != null) {
                 ui.btnHeart.setAlpha(0.5f);
@@ -111,9 +107,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         polarManager = new PolarH10Manager(this, polarCallback);
 
         ui = UiBuilder.buildUi(this);
-        oxygenSensorManager = new OxygenSensorManager(ui);
         UiBuilder.updateStatusHeader(ui.tvLiveMetrics, 0, 0, 0f, 0, 0);
 
+        // ИСХОДНОЕ СОСТОЯНИЕ: блокируем все, кроме Профилей, Настроек и Выхода
         setInterfaceAuthorizedState(false);
         updateMetricsDisplay("--", "--", "--", "--");
         updateRightPanelStatus();
@@ -183,6 +179,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         setContentView(ui.mainLayout);
+
+        // Проверка и запрос мастер-пароля при старте программы
         checkMasterPasswordOnStart();
     }
 
@@ -359,27 +357,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-        if (isRecording) {
-            if (ui != null && ui.breatheView != null) {
-                ui.breatheView.resumeAnimation();
-            }
-            if (ui != null && ui.chartView != null) {
-                ui.chartView.invalidate();
-            }
-        }
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-        if (ui != null && ui.breatheView != null) {
-            ui.breatheView.pauseAnimation();
-        }
-    }
-
     private void checkAndRequestPermissions() {
         if (!isProfileAuthorized) {
             Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
@@ -431,11 +408,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         isRecording = true;
-        
-        if (ui.breatheView != null) {
-            ui.breatheView.startMonitoring();
-        }
-
         if (isBound && hrvService != null) hrvService.startSessionRecording();
         
         if (polarManager != null) {
@@ -458,11 +430,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private void stopMonitoring() {
         isRecording = false;
         isTrainingModeActive = false;
-
-        if (ui.breatheView != null) {
-            ui.breatheView.stopMonitoring();
-        }
-
         if (isBound && hrvService != null) hrvService.stopSessionRecording();
         
         if (polarManager != null) {
@@ -555,10 +522,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         int hrToDisplay = isPolarActive ? currentPolarHr : res.hr;
         int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
 
-        if (ui.breatheView != null && isRecording) {
-            ui.breatheView.updateTelemetry(res.hr, 0, smoothedPi);
-        }
-
         runOnUiThread(() -> UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery, polarBatt));
 
         if (!isPolarActive && res.isFingerOn && isRecording) {
@@ -593,10 +556,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         @Override
         public void onRrReceived(int rrMs, float instantHr) {
             if (isRecording) {
-                if (ui.breatheView != null) {
-                    ui.breatheView.updateTelemetry(Math.round(instantHr), rrMs, currentPi);
-                }
-
                 boolean isArtifact = false;
                 if (prevRrMs > 0) {
                     if (Math.abs(rrMs - prevRrMs) / (float) prevRrMs > 0.20) {
