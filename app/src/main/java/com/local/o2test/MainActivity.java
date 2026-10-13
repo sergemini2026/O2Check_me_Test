@@ -82,7 +82,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             }
             isRecording = false;
             isTrainingModeActive = false;
-            if (ui.breatheView != null) {
+            if (ui.breatheView !=[span_1](start_span)[span_1](end_span) null) {
                 ui.breatheView.stopMonitoring();
             }
             updateRightPanelStatus();
@@ -414,7 +414,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         isRecording = true;
         
-        // Запуск анимации дыхания
+        // Запуск анимации дыхания[span_2](start_span)[span_2](end_span)
         if (ui.breatheView != null) {
             ui.breatheView.startMonitoring();
         }
@@ -442,7 +442,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = false;
         isTrainingModeActive = false;
 
-        // Остановка анимации дыхания
+        // Остановка анимации дыхания[span_3](start_span)[span_3](end_span)
         if (ui.breatheView != null) {
             ui.breatheView.stopMonitoring();
         }
@@ -539,6 +539,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         int hrToDisplay = isPolarActive ? currentPolarHr : res.hr;
         int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
 
+        // Передача телеметрии оксиметра в визуализатор дыхания[span_4](start_span)[span_4](end_span)
+        if (ui.breatheView != null && isRecording) {
+            ui.breatheView.updateTelemetry(res.hr, 0, smoothedPi);
+        }
+
         runOnUiThread(() -> UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery, polarBatt));
 
         if (!isPolarActive && res.isFingerOn && isRecording) {
@@ -573,9 +578,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         @Override
         public void onRrReceived(int rrMs, float instantHr) {
             if (isRecording) {
-                // Передача RR-интервала в анимированный компонент дыхания
+                // Передача расчетных параметров пульса и RR в анимацию дыхания[span_5](start_span)[span_5](end_span)
                 if (ui.breatheView != null) {
-                    ui.breatheView.updateRr(rrMs);
+                    ui.breatheView.updateTelemetry(Math.round(instantHr), rrMs, currentPi);
                 }
 
                 boolean isArtifact = false;
