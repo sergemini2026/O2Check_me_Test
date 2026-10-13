@@ -43,6 +43,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private O2BleManager bleManager;
     private PolarH10Manager polarManager;
     private UiBuilder.Views ui;
+    private OxygenSensorManager oxygenSensorManager; // Менеджер кислородных датчиков
 
     private HrvForegroundService hrvService;
     private boolean isBound = false;
@@ -107,6 +108,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         polarManager = new PolarH10Manager(this, polarCallback);
 
         ui = UiBuilder.buildUi(this);
+        oxygenSensorManager = new OxygenSensorManager(ui); // Инициализация менеджера датчиков
         UiBuilder.updateStatusHeader(ui.tvLiveMetrics, 0, 0, 0f, 0, 0);
 
         // ИСХОДНОЕ СОСТОЯНИЕ: блокируем все, кроме Профилей, Настроек и Выхода
