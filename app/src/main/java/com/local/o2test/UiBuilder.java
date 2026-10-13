@@ -233,7 +233,7 @@ public class UiBuilder {
         TextView tv = new TextView(context);
         tv.setText(text);
         tv.setTextSize(10);
-        tv.setTextColor(Color.YELLOW);
+        tv.setTextColor(Color.BLUE);
         tv.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
