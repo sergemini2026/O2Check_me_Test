@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="200dp"
+    android:viewportWidth="200"
+    android:viewportHeight="200">
+
+  <!-- Фоновая карточка скругленной формы -->
+  <path
+      android:fillColor="#1E222A"
+      android:pathData="M16,0 L184,0 A16,16 0,0 1 200,16 L200,184 A16,16 0,0 1 184,200 L16,200 A16,16 0,0 1 0,184 L0,16 A16,16 0,0 1 16,0 Z" />
+
+  <!-- Группа лепестков с наложением -->
+  <group>
+    <!-- Внутреннее световое ядро -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.95"
+        android:pathData="M100,86 A14,14 0,1 1 100,114 A14,14 0,1 1 100,86 Z" />
+
+    <!-- Внутреннее спиральное кольцо (Циан) -->
+    <path android:fillColor="#00E5FF" android:fillAlpha="0.6" android:pathData="M100,58 A22,22 0,1 1 100,102 A22,22 0,1 1 100,58 Z" />
+    <path android:fillColor="#00E5FF" android:fillAlpha="0.6" android:pathData="M118,66 A22,22 0,1 1 118,110 A22,22 0,1 1 118,66 Z" />
+    <path android:fillColor="#00E5FF" android:fillAlpha="0.6" android:pathData="M120,88 A22,22 0,1 1 120,132 A22,22 0,1 1 120,88 Z" />
+    <path android:fillColor="#00E5FF" android:fillAlpha="0.6" android:pathData="M100,100 A22,22 0,1 1 100,144 A22,22 0,1 1 100,100 Z" />
+    <path android:fillColor="#00E5FF" android:fillAlpha="0.6" android:pathData="M80,88 A22,22 0,1 1 80,132 A22,22 0,1 1 80,88 Z" />
+    <path android:fillColor="#00E5FF" android:fillAlpha="0.6" android:pathData="M82,66 A22,22 0,1 1 82,110 A22,22 0,1 1 82,66 Z" />
+
+    <!-- Внешнее спиральное кольцо (Розовый) -->
+    <path android:fillColor="#FF4081" android:fillAlpha="0.6" android:pathData="M100,27 A27,27 0,1 1 100,81 A27,27 0,1 1 100,27 Z" />
+    <path android:fillColor="#FF4081" android:fillAlpha="0.6" android:pathData="M139,45 A24,24 0,1 1 139,93 A24,24 0,1 1 139,45 Z" />
+    <path android:fillColor="#FF4081" android:fillAlpha="0.6" android:pathData="M152,84 A24,24 0,1 1 152,132 A24,24 0,1 1 152,84 Z" />
+    <path android:fillColor="#FF4081" android:fillAlpha="0.6" android:pathData="M125,117 A27,27 0,1 1 125,171 A27,27 0,1 1 125,117 Z" />
+    <path android:fillColor="#FF4081" android:fillAlpha="0.6" android:pathData="M87,128 A24,24 0,1 1 87,176 A24,24 0,1 1 87,128 Z" />
+    <path android:fillColor="#FF4081" android:fillAlpha="0.6" android:pathData="M56,99 A24,24 0,1 1 56,147 A24,24 0,1 1 56,99 Z" />
+    <path android:fillColor="#FF4081" android:fillAlpha="0.6" android:pathData="M53,55 A27,27 0,1 1 53,109 A27,27 0,1 1 53,55 Z" />
+    <path android:fillColor="#FF4081" android:fillAlpha="0.6" android:pathData="M77,32 A24,24 0,1 1 77,80 A24,24 0,1 1 77,32 Z" />
+  </group>
+
+</vector>
