@@ -39,6 +39,9 @@ public class UiBuilder {
         public ImageButton btnWorkout;
         public ImageButton btnSessions;
         public ImageButton btnProfiles;
+
+        // Панель для правой половины нижней части экрана
+        public LinearLayout rightPanel;
     }
 
     public static Views buildUi(Context context) {
@@ -68,7 +71,7 @@ public class UiBuilder {
         v.btnExit = createButton(context, "Выход", android.R.drawable.ic_menu_close_clear_cancel);
 
         btnBar.addView(v.btnReconnect);
-        btnBar.addView(v.btnSave); // Возвращено отображение кнопки
+        btnBar.addView(v.btnSave);
         btnBar.addView(v.btnSettings);
         btnBar.addView(v.btnExit);
         v.mainLayout.addView(btnBar);
@@ -138,16 +141,47 @@ public class UiBuilder {
 
         v.mainLayout.addView(actionPanel);
 
+        // --- НИЖНЯЯ ПАНЕЛЬ: РАЗДЕЛЕНИЕ НА ДВЕ ПОЛОВИНЫ (ЛЕВАЯ - ЛОГ, ПРАВАЯ - ПАНЕЛЬ УПРАВЛЕНИЯ) ---
+        LinearLayout bottomSplitLayout = new LinearLayout(context);
+        bottomSplitLayout.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams splitParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
+        splitParams.topMargin = (int) (16 * context.getResources().getDisplayMetrics().density);
+        bottomSplitLayout.setLayoutParams(splitParams);
+
+        // Левая половина: Лог (ScrollView + TextView)
         v.tvLog = new TextView(context);
         v.tvLog.setTextSize(11);
 
         v.logScrollView = new ScrollView(context);
-        LinearLayout.LayoutParams logParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        logParams.topMargin = (int) (16 * context.getResources().getDisplayMetrics().density);
-        v.logScrollView.setLayoutParams(logParams);
+        LinearLayout.LayoutParams leftParams = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f);
+        v.logScrollView.setLayoutParams(leftParams);
         v.logScrollView.addView(v.tvLog);
-        v.mainLayout.addView(v.logScrollView);
+
+        // Правая половина: Контейнер для будущих элементов интерфейса
+        v.rightPanel = new LinearLayout(context);
+        v.rightPanel.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f);
+        rightParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density); // небольшой отступ между половинками
+        v.rightPanel.setLayoutParams(rightParams);
+
+        // Временная заглушка в правую панель (чтобы было видно область, позже заменим на нужные элементы)
+        TextView tvPlaceholder = new TextView(context);
+        tvPlaceholder.setText("Панель управления\n(резерв)");
+        tvPlaceholder.setTextSize(12);
+        tvPlaceholder.setTextColor(Color.GRAY);
+        tvPlaceholder.setGravity(Gravity.CENTER);
+        v.rightPanel.addView(tvPlaceholder, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT));
+
+        // Добавляем обе половины в общий горизонтальный контейнер нижней части
+        bottomSplitLayout.addView(v.logScrollView);
+        bottomSplitLayout.addView(v.rightPanel);
+
+        // Добавляем весь нижний блок в главный экран
+        v.mainLayout.addView(bottomSplitLayout);
 
         return v;
     }
@@ -220,14 +254,15 @@ public class UiBuilder {
                 }
 
                 if (!materialSuccess) {
-                    int width = btn.getWidth();
-                    if (width > 0) {
+                    int width = btn.Width; // (или getWidth())
+                    int w = btn.getWidth();
+                    if (w > 0) {
                         Drawable[] drawables = btn.getCompoundDrawables();
                         int iconWidth = (drawables[0] != null) ? drawables[0].getIntrinsicWidth() : 0;
                         float textWidth = btn.getPaint().measureText(text);
 
                         float contentWidth = iconWidth + iconPaddingPx + textWidth;
-                        int pad = Math.max(0, (int) ((width - contentWidth) / 2f));
+                        int pad = Math.max(0, (int) ((w - contentWidth) / 2f));
                         btn.setPadding(pad, paddingVertPx, pad, paddingVertPx);
                     }
                 }
