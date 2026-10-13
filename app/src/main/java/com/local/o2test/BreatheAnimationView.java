@@ -58,6 +58,20 @@ public class BreatheAnimationView extends View {
         invalidate();
     }
 
+    public void pauseAnimation() {
+        if (tickerAnimator != null) tickerAnimator.cancel();
+        if (rotationAnimator != null) rotationAnimator.cancel();
+    }
+
+    public void resumeAnimation() {
+        if (isMonitoringActive) {
+            lastFrameTime = System.currentTimeMillis();
+            startTicker();
+            startRotationLoop();
+            invalidate();
+        }
+    }
+
     /**
      * Плавное обновление целевой длительности цикла на основе пульса (HR / 4).
      * Никогда не прерывает и не сбрасывает текущий прогресс, гарантируя 100% непрерывность.
@@ -85,11 +99,14 @@ public class BreatheAnimationView extends View {
             long dt = now - lastFrameTime;
             lastFrameTime = now;
 
-            if (dt > 0 && dt < 200) {
-                // Плавная инерционная адаптация скорости под изменение пульса
+            if (dt > 0) {
+                // Защита от зависания при возврате из фона (срезаем гигантский dt)
+                if (dt > 500) {
+                    dt = 16; 
+                }
+
                 currentCycleDurationMs = currentCycleDurationMs * 0.96f + targetCycleDurationMs * 0.04f;
 
-                // Непрерывное накопление прогресса без единого сброса
                 animationProgress += (dt / currentCycleDurationMs);
                 if (animationProgress >= 1.0f) {
                     animationProgress %= 1.0f;
@@ -113,6 +130,14 @@ public class BreatheAnimationView extends View {
             invalidate();
         });
         rotationAnimator.start();
+    }
+
+    @Override
+    protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        if (visibility == VISIBLE && isMonitoringActive) {
+            lastFrameTime = System.currentTimeMillis();
+        }
     }
 
     @Override
