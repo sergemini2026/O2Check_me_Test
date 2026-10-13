@@ -4,9 +4,11 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import com.local.o2test.db.dao.HrvSnapshotDao
 import com.local.o2test.db.dao.ProfileDao
 import com.local.o2test.db.dao.RawMetricsDao
 import com.local.o2test.db.dao.SessionDao
+import com.local.o2test.db.entity.HrvSnapshotEntity
 import com.local.o2test.db.entity.ProfileEntity
 import com.local.o2test.db.entity.RawMetricsEntity
 import com.local.o2test.db.entity.SessionEntity
@@ -15,9 +17,10 @@ import com.local.o2test.db.entity.SessionEntity
     entities = [
         ProfileEntity::class,
         SessionEntity::class,
-        RawMetricsEntity::class
+        RawMetricsEntity::class,
+        HrvSnapshotEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -25,6 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun profileDao(): ProfileDao
     abstract fun sessionDao(): SessionDao
     abstract fun rawMetricsDao(): RawMetricsDao
+    abstract fun hrvSnapshotDao(): HrvSnapshotDao
 
     companion object {
         @Volatile
