@@ -1,6 +1,7 @@
 package com.local.o2test;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 public class HrvCalculator {
@@ -13,12 +14,19 @@ public class HrvCalculator {
         public final double hfPower;
         public final double totalPower;
         public final double lfHfRatio;
+        // Новые поля для Пуанкаре и Баевского
+        public final double sd1;
+        public final double sd2;
+        public final double sd1sd2Ratio;
+        public final double baevskySi;
         public final int artifactsDetected;
         public final double artifactPct;
+        public final boolean isValid; // Флаг прохождения Sanity Check
 
         public Metrics(double rmssd, double sdnn, double pnn50, double lfPower, 
                        double hfPower, double totalPower, double lfHfRatio, 
-                       int artifactsDetected, double artifactPct) {
+                       double sd1, double sd2, double sd1sd2Ratio, double baevskySi,
+                       int artifactsDetected, double artifactPct, boolean isValid) {
             this.rmssd = rmssd;
             this.sdnn = sdnn;
             this.pnn50 = pnn50;
@@ -26,18 +34,23 @@ public class HrvCalculator {
             this.hfPower = hfPower;
             this.totalPower = totalPower;
             this.lfHfRatio = lfHfRatio;
+            this.sd1 = sd1;
+            this.sd2 = sd2;
+            this.sd1sd2Ratio = sd1sd2Ratio;
+            this.baevskySi = baevskySi;
             this.artifactsDetected = artifactsDetected;
             this.artifactPct = artifactPct;
+            this.isValid = isValid;
         }
     }
 
     public static Metrics calculate(List<Integer> rawRrList) {
         if (rawRrList == null || rawRrList.size() < 10) {
-            return new Metrics(0, 0, 0, 0, 0, 0, 0, 0, 0);
+            return new Metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100.0, false);
         }
 
         // ==========================================
-        // 1. ФИЛЬТРАЦИЯ ВЫБРОСОВ (АРТЕФАКТОВ)
+        // 1. ФИЛЬТРАЦИЯ ВЫБРОСОВ (АРТЕФАКТОВ)[span_1](start_span)[span_1](end_span)
         // ==========================================
         List<Double> cleanRr = new ArrayList<>();
         int artifacts = 0;
@@ -54,7 +67,6 @@ public class HrvCalculator {
                 if (Math.abs(rr - prev) / prev > 0.25) {
                     artifacts++;
                     consecutiveArtifacts++;
-                    // Если подряд идет 3 и более "выбросов", сбрасываем счетчик и принимаем новый ритм
                     if (consecutiveArtifacts < 3) {
                         continue;
                     }
@@ -65,14 +77,14 @@ public class HrvCalculator {
         }
 
         if (cleanRr.size() < 10) {
-            return new Metrics(0, 0, 0, 0, 0, 0, 0, artifacts, 100.0);
+            return new Metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, artifacts, 100.0, false);
         }
 
         int N = cleanRr.size();
         double artifactPct = ((double) artifacts / rawRrList.size()) * 100.0;
 
         // ==========================================
-        // 2. ВРЕМЕННОЙ АНАЛИЗ (RMSSD, pNN50, SDNN) STRICTLY ON cleanRr
+        // 2. ВРЕМЕННОЙ АНАЛИЗ (RMSSD, pNN50, SDNN)[span_2](start_span)[span_2](end_span)
         // ==========================================
         double sumDiffSq = 0.0;
         int nn50Count = 0;
@@ -89,7 +101,6 @@ public class HrvCalculator {
         double rmssd = Math.sqrt(sumDiffSq / totalPairs);
         double pnn50 = ((double) nn50Count / totalPairs) * 100.0;
 
-        // SDNN по физическому ряду RR
         double sumRr = 0.0;
         for (double rr : cleanRr) {
             sumRr += rr;
@@ -104,110 +115,179 @@ public class HrvCalculator {
         double sdnn = Math.sqrt(sumSdnnSq / (N - 1));
 
         // ==========================================
-        // 3. РЕСЕМПЛИРОВАНИЕ В 4 Гц (PCHIP / Monotone Hermite)
+        // 2.1. СКАТЕРОГРАММА ПУАНКАРЕ (SD1, SD2)
+        // ==========================================
+        double sumSqPerp = 0.0;
+        double sumSqLong = 0.0;
+
+        for (int i = 0; i < N - 1; i++) {
+            double rr_i = cleanRr.get(i);
+            double rr_next = cleanRr.get(i + 1);
+
+            double diff = rr_next - rr_i;
+            double sum = rr_next + rr_i;
+
+            sumSqPerp += diff * diff;
+            sumSqLong += Math.pow(sum - 2 * meanRr, 2);
+        }
+
+        double sd1 = Math.sqrt(sumSqPerp / (2.0 * (N - 1)));
+        double sd2 = Math.sqrt(sumSqLong / (2.0 * (N - 1)));
+        double sd1sd2Ratio = (sd2 > 0) ? (sd1 / sd2) : 0.0;
+
+        // ==========================================
+        // 2.2. ИНДЕКС НАПРЯЖЕНИЯ БАЕВСКОГО (SI)
+        // ==========================================
+        List<Integer> cleanRrInt = new ArrayList<>();
+        for (double d : cleanRr) cleanRrInt.add((int) Math.round(d));
+        double baevskySi = calculateBaevskySI(cleanRrInt);
+
+        // ==========================================
+        // 3. РЕСЕМПЛИРОВАНИЕ В 4 Гц И СПЕКТР (Уэлч)[span_3](start_span)[span_3](end_span)
         // ==========================================
         double[] timeStamps = new double[N];
         double currentTime = 0;
         for (int i = 0; i < N; i++) {
             timeStamps[i] = currentTime;
-            currentTime += cleanRr.get(i) / 1000.0; // секунды
+            currentTime += cleanRr.get(i) / 1000.0;
         }
 
         double samplingFreq = 4.0;
-        double dt = 1.0 / samplingFreq; // 0.25 сек
+        double dt = 1.0 / samplingFreq;
         int numSamples = (int) Math.floor(currentTime * samplingFreq);
 
-        if (numSamples < 32) {
-            return new Metrics(rmssd, sdnn, pnn50, 0, 0, 0, 0, artifacts, artifactPct);
-        }
-
-        double[] rrArray = new double[N];
-        for (int i = 0; i < N; i++) rrArray[i] = cleanRr.get(i);
-
-        double[] resampled = pchipInterpolate(timeStamps, rrArray, numSamples, dt);
-
-        // ==========================================
-        // 4. ДЕТРЕНДИНГ НА СЕТКЕ 4 Гц (Smoothness Priors, lambda = 500)
-        // ==========================================
-        // На 4 Гц сетке lambda = 500 соответствует cutoff frequency ~0.035 Hz (убирает VLF-дрейф)
-        double[] zTrend = smoothnessPriorsDetrend(resampled, 500.0);
-        double[] detrended = new double[numSamples];
-        for (int i = 0; i < numSamples; i++) {
-            detrended[i] = resampled[i] - zTrend[i];
-        }
-
-        // ==========================================
-        // 5. СПЕКТРАЛЬНЫЙ АНАЛИЗ (WELCH'S PSD, 50% Overlap, Hann Window)
-        // ==========================================
-        int segmentLength = 128; // 32 сек
-        if (numSamples < segmentLength) {
-            segmentLength = numSamples;
-        }
-        int overlap = segmentLength / 2; // 50%
-        int step = segmentLength - overlap;
-
-        int fftSize = 256;
-
-        double hannPowerSum = 0;
-        double[] hannWindow = new double[segmentLength];
-        for (int i = 0; i < segmentLength; i++) {
-            hannWindow[i] = 0.5 * (1.0 - Math.cos(2.0 * Math.PI * i / (segmentLength - 1)));
-            hannPowerSum += hannWindow[i] * hannWindow[i];
-        }
-
-        double[] avgPsd = new double[fftSize / 2];
-        int segmentCount = 0;
-
-        for (int start = 0; start + segmentLength <= numSamples; start += step) {
-            double[] real = new double[fftSize];
-            double[] imag = new double[fftSize];
-
-            for (int i = 0; i < segmentLength; i++) {
-                real[i] = detrended[start + i] * hannWindow[i];
-            }
-
-            fft(real, imag);
-
-            // Двусторонняя PSD нормализация
-            double norm = 2.0 / (samplingFreq * hannPowerSum);
-
-            for (int k = 0; k < fftSize / 2; k++) {
-                double power = (real[k] * real[k] + imag[k] * imag[k]) * norm;
-                avgPsd[k] += power;
-            }
-            segmentCount++;
-        }
-
-        if (segmentCount == 0) {
-            segmentCount = 1;
-        }
-
-        double df = samplingFreq / fftSize;
-        double vlfPower = 0;
         double lfPower = 0;
         double hfPower = 0;
+        double totalPower = sdnn * sdnn;
+        double lfHfRatio = 0;
 
-        for (int k = 0; k < fftSize / 2; k++) {
-            avgPsd[k] /= segmentCount;
-            double freq = k * df;
-            double bandPower = avgPsd[k] * df;
+        if (numSamples >= 32) {
+            double[] rrArray = new double[N];
+            for (int i = 0; i < N; i++) rrArray[i] = cleanRr.get(i);
 
-            if (freq >= 0.0033 && freq < 0.04) {
-                vlfPower += bandPower;
-            } else if (freq >= 0.04 && freq < 0.15) {
-                lfPower += bandPower;
-            } else if (freq >= 0.15 && freq <= 0.40) {
-                hfPower += bandPower;
+            double[] resampled = pchipInterpolate(timeStamps, rrArray, numSamples, dt);
+            double[] zTrend = smoothnessPriorsDetrend(resampled, 500.0);
+            double[] detrended = new double[numSamples];
+            for (int i = 0; i < numSamples; i++) {
+                detrended[i] = resampled[i] - zTrend[i];
+            }
+
+            int segmentLength = Math.min(128, numSamples);
+            int overlap = segmentLength / 2;
+            int step = segmentLength - overlap;
+            int fftSize = 256;
+
+            double hannPowerSum = 0;
+            double[] hannWindow = new double[segmentLength];
+            for (int i = 0; i < segmentLength; i++) {
+                hannWindow[i] = 0.5 * (1.0 - Math.cos(2.0 * Math.PI * i / (segmentLength - 1)));
+                hannPowerSum += hannWindow[i] * hannWindow[i];
+            }
+
+            double[] avgPsd = new double[fftSize / 2];
+            int segmentCount = 0;
+
+            for (int start = 0; start + segmentLength <= numSamples; start += step) {
+                double[] real = new double[fftSize];
+                double[] imag = new double[fftSize];
+
+                for (int i = 0; i < segmentLength; i++) {
+                    real[i] = detrended[start + i] * hannWindow[i];
+                }
+
+                fft(real, imag);
+                double norm = 2.0 / (samplingFreq * hannPowerSum);
+
+                for (int k = 0; k < fftSize / 2; k++) {
+                    double power = (real[k] * real[k] + imag[k] * imag[k]) * norm;
+                    avgPsd[k] += power;
+                }
+                segmentCount++;
+            }
+
+            if (segmentCount == 0) segmentCount = 1;
+
+            double df = samplingFreq / fftSize;
+            double vlfPower = 0;
+
+            for (int k = 0; k < fftSize / 2; k++) {
+                avgPsd[k] /= segmentCount;
+                double freq = k * df;
+                double bandPower = avgPsd[k] * df;
+
+                if (freq >= 0.0033 && freq < 0.04) {
+                    vlfPower += bandPower;
+                } else if (freq >= 0.04 && freq < 0.15) {
+                    lfPower += bandPower;
+                } else if (freq >= 0.15 && freq <= 0.40) {
+                    hfPower += bandPower;
+                }
+            }
+
+            totalPower = vlfPower + lfPower + hfPower;
+            lfHfRatio = hfPower > 0 ? lfPower / hfPower : 0;
+        }
+
+        // ==========================================
+        // 4. ПОСТРАСЧЕТНАЯ ВАЛИДАЦИЯ (Sanity Check)
+        // ==========================================
+        boolean isValid = validateMetrics(rmssd, baevskySi, sd1sd2Ratio, artifactPct);
+
+        return new Metrics(rmssd, sdnn, pnn50, lfPower, hfPower, totalPower, lfHfRatio, 
+                           sd1, sd2, sd1sd2Ratio, baevskySi, artifacts, artifactPct, isValid);
+    }
+
+    /**
+     * Расчет индекса напряжения Баевского по гистограмме с шагом 50 мс
+     */
+    private static double calculateBaevskySI(List<Integer> rrIntervals) {
+        if (rrIntervals.isEmpty()) return 0.0;
+
+        int minRr = Collections.min(rrIntervals);
+        int maxRr = Collections.max(rrIntervals);
+        int binSize = 50;
+
+        int numBins = (maxRr - minRr) / binSize + 1;
+        if (numBins <= 0) numBins = 1;
+
+        int[] bins = new int[numBins];
+        int maxFreq = 0;
+        int modeBinStart = minRr;
+
+        for (int rr : rrIntervals) {
+            int binIndex = (rr - minRr) / binSize;
+            if (binIndex >= numBins) binIndex = numBins - 1;
+            if (binIndex < 0) binIndex = 0;
+            
+            bins[binIndex]++;
+            if (bins[binIndex] > maxFreq) {
+                maxFreq = bins[binIndex];
+                modeBinStart = minRr + binIndex * binSize;
             }
         }
 
-        double totalPower = vlfPower + lfPower + hfPower;
-        double lfHfRatio = hfPower > 0 ? lfPower / hfPower : 0;
+        int n = rrIntervals.size();
+        double amol = ((double) maxFreq / n) * 100.0;
+        double moSec = (modeBinStart + binSize / 2.0) / 1000.0;
+        double mxdmSec = (maxRr - minRr) / 1000.0;
 
-        return new Metrics(rmssd, sdnn, pnn50, lfPower, hfPower, totalPower, lfHfRatio, artifacts, artifactPct);
+        if (moSec <= 0 || mxdmSec <= 0) return 0.0;
+
+        return amol / (2.0 * moSec * mxdmSec);
     }
 
-    // --- Интерполяция PCHIP (Monotone Piecewise Cubic Hermite) ---
+    /**
+     * Защитный барьер: проверка на физиологическую адекватность и избыток артефактов
+     */
+    private static boolean validateMetrics(double rmssd, double baevskySi, double sd1sd2Ratio, double artifactPct) {
+        if (rmssd < 3.0 || rmssd > 250.0) return false;
+        if (baevskySi < 5.0 || baevskySi > 4000.0) return false;
+        if (sd1sd2Ratio < 0.05 || sd1sd2Ratio > 3.0) return false;
+        if (artifactPct > 30.0) return false; // Если артефактов больше 30%, окно забраковывается
+        return true;
+    }
+
+    // --- Интерполяция PCHIP (Monotone Piecewise Cubic Hermite) ---[span_4](start_span)[span_4](end_span)
     private static double[] pchipInterpolate(double[] x, double[] y, int numSamples, double dt) {
         int n = x.length;
         double[] resampled = new double[numSamples];
@@ -231,12 +311,9 @@ public class HrvCalculator {
         }
 
         double[] d = new double[n];
-
-        // Конечные точки
         d[0] = pchipEndSlope(h[0], h[1], delta[0], delta[1]);
         d[n - 1] = pchipEndSlope(h[n - 2], h[n - 3], delta[n - 2], delta[n - 3]);
 
-        // Внутренние точки
         for (int i = 1; i < n - 1; i++) {
             if (delta[i - 1] * delta[i] <= 0) {
                 d[i] = 0;
@@ -279,7 +356,7 @@ public class HrvCalculator {
         return d;
     }
 
-    // --- Smoothness Priors Detrending ---
+    // --- Smoothness Priors Detrending ---[span_5](start_span)[span_5](end_span)
     private static double[] smoothnessPriorsDetrend(double[] y, double lambda) {
         int N = y.length;
         double[] zTrend = new double[N];
@@ -289,32 +366,22 @@ public class HrvCalculator {
         }
 
         double alpha = lambda * lambda;
-
         double[] d = new double[N];
         double[] e = new double[N - 1];
         double[] f = new double[N - 2];
 
         for (int i = 0; i < N; i++) {
-            if (i == 0 || i == N - 1) {
-                d[i] = 1.0 + alpha;
-            } else if (i == 1 || i == N - 2) {
-                d[i] = 1.0 + 5.0 * alpha;
-            } else {
-                d[i] = 1.0 + 6.0 * alpha;
-            }
+            if (i == 0 || i == N - 1) d[i] = 1.0 + alpha;
+            else if (i == 1 || i == N - 2) d[i] = 1.0 + 5.0 * alpha;
+            else d[i] = 1.0 + 6.0 * alpha;
         }
 
         for (int i = 0; i < N - 1; i++) {
-            if (i == 0 || i == N - 2) {
-                e[i] = -2.0 * alpha;
-            } else {
-                e[i] = -4.0 * alpha;
-            }
+            if (i == 0 || i == N - 2) e[i] = -2.0 * alpha;
+            else e[i] = -4.0 * alpha;
         }
 
-        for (int i = 0; i < N - 2; i++) {
-            f[i] = alpha;
-        }
+        for (int i = 0; i < N - 2; i++) f[i] = alpha;
 
         double[] dL = new double[N];
         double[] l1 = new double[N - 1];
@@ -332,9 +399,7 @@ public class HrvCalculator {
                 l1[i] = sumL1 / dL[i];
             }
 
-            if (i < N - 2) {
-                l2[i] = f[i] / dL[i];
-            }
+            if (i < N - 2) l2[i] = f[i] / dL[i];
         }
 
         double[] w = new double[N];
@@ -346,9 +411,7 @@ public class HrvCalculator {
         }
 
         double[] v = new double[N];
-        for (int i = 0; i < N; i++) {
-            v[i] = w[i] / dL[i];
-        }
+        for (int i = 0; i < N; i++) v[i] = w[i] / dL[i];
 
         for (int i = N - 1; i >= 0; i--) {
             double val = v[i];
@@ -360,7 +423,7 @@ public class HrvCalculator {
         return zTrend;
     }
 
-    // --- FFT ---
+    // --- FFT ---[span_6](start_span)[span_6](end_span)
     private static void fft(double[] real, double[] imag) {
         int n = real.length;
         if (n <= 1) return;
@@ -408,7 +471,7 @@ public class HrvCalculator {
         }
     }
 
-    // --- BLE Parser ---
+    // --- BLE Parser ---[span_7](start_span)[span_7](end_span)
     public static List<Integer> parseRrIntervals(byte[] data) {
         List<Integer> rrList = new ArrayList<>();
         if (data == null || data.length < 2) return rrList;
