@@ -219,6 +219,25 @@ public class UiBuilder {
         v.tvStatusValue.setLayoutParams(valueParams);
         v.rightPanel.addView(v.tvStatusValue);
 
+        // --- ВИЗУАЛЬНЫЙ БЛОК ФРАКТАЛЬНОГО ОБЪЕКТА (НИЖНЯЯ ЧАСТЬ ПРАВОЙ ПАНЕЛИ) ---
+        ImageView ivBreatheFractal = new ImageView(context);
+        ivBreatheFractal.setImageResource(R.drawable.ic_breathe_fractal);
+        ivBreatheFractal.setScaleType(ImageView.ScaleType.FIT_CENTER);
+
+        int padPx = (int) (8 * context.getResources().getDisplayMetrics().density);
+        ivBreatheFractal.setPadding(padPx, padPx, padPx, padPx);
+
+        LinearLayout.LayoutParams fractalParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 
+                LinearLayout.LayoutParams.MATCH_PARENT
+        );
+        fractalParams.topMargin = (int) (4 * context.getResources().getDisplayMetrics().density);
+        fractalParams.bottomMargin = (int) (4 * context.getResources().getDisplayMetrics().density);
+        ivBreatheFractal.setLayoutParams(fractalParams);
+
+        // Добавляем графический объект в правую панель
+        v.rightPanel.addView(ivBreatheFractal);
+
         // Добавляем обе половины в общий горизонтальный контейнер нижней части
         bottomSplitLayout.addView(v.logScrollView);
         bottomSplitLayout.addView(v.rightPanel);
