@@ -17,6 +17,9 @@ import androidx.core.app.NotificationCompat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class HrvForegroundService extends Service {
 
@@ -33,6 +36,10 @@ public class HrvForegroundService extends Service {
     private boolean isRecording = false;
 
     private ServiceCallback callback;
+
+    // --- Новые элементы: буфер обработанных снимков и фоновый планировщик ---
+    private final List<SessionSnapshot> snapshotBuffer = Collections.synchronizedList(new ArrayList<>());
+    private ScheduledExecutorService scheduler;
 
     public interface ServiceCallback {
         void onRrDataReceived(int rrMs, int hr);
@@ -55,6 +62,10 @@ public class HrvForegroundService extends Service {
         if (powerManager != null) {
             wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "O2Test::HrvWakeLock");
         }
+
+        // Запуск фонового планировщика для расчета метрик и наполнения буфера снимков каждые 30 секунд
+        scheduler = Executors.newSingleThreadScheduledExecutor();
+        scheduler.scheduleAtFixedRate(this::processSnapshotCalculation, 10, 30, TimeUnit.SECONDS);
     }
 
     @Override
@@ -152,6 +163,9 @@ public class HrvForegroundService extends Service {
         synchronized (rrSessionList) {
             rrSessionList.clear();
         }
+        synchronized (snapshotBuffer) {
+            snapshotBuffer.clear();
+        }
         isRecording = true;
         updateNotificationText("Идет запись сессии ВСР...");
     }
@@ -177,8 +191,44 @@ public class HrvForegroundService extends Service {
         return isRecording;
     }
 
+    /**
+     * Фоновый расчет метрик с проверкой Sanity Check и сохранением в буфер снимков
+     */
+    private void processSnapshotCalculation() {
+        if (!isRecording) return;
+        try {
+            List<Integer> currentData = getSessionRrData();
+            if (currentData.size() < 10) return;
+
+            // Расчет через математическое ядро с учетом фильтрации и валидации
+            HrvCalculator.Metrics metrics = HrvCalculator.calculate(currentData);
+
+            // Если окно прошло пострасчетную валидацию, добавляем в буфер снимков
+            if (metrics != null && metrics.isValid) {
+                SessionSnapshot snapshot = new SessionSnapshot(System.currentTimeMillis(), metrics);
+                snapshotBuffer.add(snapshot);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Атомарный сброс и получение буфера готовых снимков для записи в БД Room
+     */
+    public List<SessionSnapshot> flushSnapshotBuffer() {
+        synchronized (snapshotBuffer) {
+            List<SessionSnapshot> snapshotCopy = new ArrayList<>(snapshotBuffer);
+            snapshotBuffer.clear();
+            return snapshotCopy;
+        }
+    }
+
     @Override
     public void onDestroy() {
+        if (scheduler != null) {
+            scheduler.shutdown();
+        }
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
         }
