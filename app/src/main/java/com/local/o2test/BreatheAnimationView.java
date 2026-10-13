@@ -5,16 +5,13 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.RadialGradient;
-import android.graphics.Shader;
 import android.graphics.RectF;
 import android.view.View;
 import android.view.animation.LinearInterpolator;
 
 public class BreatheAnimationView extends View {
     private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint corePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint elementPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint ringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF bgRect = new RectF();
 
     private boolean isMonitoringActive = false;
@@ -34,6 +31,10 @@ public class BreatheAnimationView extends View {
         super(context);
         bgPaint.setColor(0xFF1E222A);
         bgPaint.setStyle(Paint.Style.FILL);
+        ringPaint.setStyle(Paint.Style.FILL);
+        
+        // Включаем аппаратное ускорение для отрисовки слоя через GPU
+        setLayerType(LAYER_TYPE_HARDWARE, null);
     }
 
     public void startMonitoring() {
@@ -152,6 +153,8 @@ public class BreatheAnimationView extends View {
 
         float width = getWidth();
         float height = getHeight();
+        if (width <= 0 || height <= 0) return;
+
         float scale = Math.min(width, height) / 200f;
         float dx = (width - 200f * scale) / 2f;
         float dy = (height - 200f * scale) / 2f;
@@ -160,11 +163,11 @@ public class BreatheAnimationView extends View {
         canvas.translate(dx, dy);
         canvas.scale(scale, scale);
 
-        // Карточка-фон
+        // Карточка-фон (без аллокаций)
         bgRect.set(0, 0, 200, 200);
         canvas.drawRoundRect(bgRect, 16, 16, bgPaint);
 
-        // Плавная фаза дыхания (0.0 — выдох, 1.0 — вдох) из непрерывного времени
+        // Плавная фаза дыхания (0.0 — выдох, 1.0 — вдох)
         float breathPhase;
         if (animationProgress <= 0.5f) {
             breathPhase = animationProgress * 2.0f; // Вдох
@@ -176,68 +179,61 @@ public class BreatheAnimationView extends View {
         canvas.save();
         canvas.rotate(rotationAngle, 100f, 100f);
 
-        int startColor = interpolateColor(0xDDFF4081, 0xDD00E5FF, breathPhase);
-        int endColor = interpolateColor(0x15FF4081, 0x1500E5FF, breathPhase);
+        // Динамический цвет (розовый -> циан) без создания объектов градиентов в памяти
+        int dynamicColor = interpolateColor(0xFF4081, 0x00E5FF, breathPhase);
 
-        // 1. Внутренний уровень (8 лепестков)
-        int count1 = 8;
-        float dist1 = 30f + 12f * breathPhase;
-        float radius1 = 18f + 5f * breathPhase;
-        drawPetalRing(canvas, count1, dist1, radius1, startColor, endColor);
+        // Оптимизированный узор (нулевые аллокации в памяти во время кадров)
+        float baseRadius = 28f + 12f * breathPhase;
 
-        // 2. Средний уровень (16 лепестков)
+        // Внутреннее кольцо (8 элементов)
+        for (int i = 0; i < 8; i++) {
+            double angle = i * (2.0 * Math.PI / 8.0);
+            float cx = 100f + (float)(baseRadius * Math.cos(angle));
+            float cy = 100f + (float)(baseRadius * Math.sin(angle));
+            
+            ringPaint.setColor(dynamicColor);
+            ringPaint.setAlpha(130);
+            canvas.drawCircle(cx, cy, 16f + 5f * breathPhase, ringPaint);
+        }
+
+        // Внешнее кольцо (16 элементов при раскрытии > 20%)
         if (breathPhase > 0.2f) {
             float p2 = (breathPhase - 0.2f) / 0.8f;
-            int count2 = 16;
-            float dist2 = 50f + 18f * p2;
-            float radius2 = 12f + 6f * p2;
-            int alpha = (int)(255 * p2);
-            drawPetalRing(canvas, count2, dist2, radius2, applyAlpha(startColor, alpha), applyAlpha(endColor, alpha));
+            float outerDist = baseRadius * 1.6f;
+            for (int i = 0; i < 16; i++) {
+                double angle = i * (2.0 * Math.PI / 16.0) + 0.1f;
+                float cx = 100f + (float)(outerDist * Math.cos(angle));
+                float cy = 100f + (float)(outerDist * Math.sin(angle));
+                
+                ringPaint.setColor(dynamicColor);
+                ringPaint.setAlpha((int)(90 * p2));
+                canvas.drawCircle(cx, cy, 10f + 4f * p2, ringPaint);
+            }
         }
 
-        // 3. Внешний уровень (32 лепестка)
-        if (breathPhase > 0.6f) {
-            float p3 = (breathPhase - 0.6f) / 0.4f;
-            int count3 = 32;
-            float dist3 = 72f + 15f * p3;
-            float radius3 = 6f + 5f * p3;
-            int alpha = (int)(255 * p3);
-            drawPetalRing(canvas, count3, dist3, radius3, applyAlpha(startColor, alpha), applyAlpha(endColor, alpha));
-        }
+        canvas.restore(); // Сброс вращения
+
+        // Центральное световое ядро
+        float coreRadius = 14f + 5f * breathPhase;
+        ringPaint.setColor(0xFFEEFFFF);
+        ringPaint.setAlpha(230);
+        canvas.drawCircle(100, 100, coreRadius, ringPaint);
 
         canvas.restore();
-
-        // Центральное ядро
-        float coreRadius = 12f + 5f * breathPhase;
-        corePaint.setShader(new RadialGradient(100, 100, coreRadius,
-                new int[]{0xFFEEFFFF, 0x44FFFFFF}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
-        canvas.drawCircle(100, 100, coreRadius, corePaint);
-
-        canvas.restore();
-    }
-
-    private void drawPetalRing(Canvas canvas, int count, float distance, float radius, int startColor, int endColor) {
-        for (int i = 0; i < count; i++) {
-            double angle = i * (2.0 * Math.PI / count);
-            float cx = 100f + (float)(distance * Math.cos(angle));
-            float cy = 100f + (float)(distance * Math.sin(angle));
-
-            elementPaint.setShader(new RadialGradient(cx, cy, radius,
-                    new int[]{startColor, endColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
-            canvas.drawCircle(cx, cy, radius, elementPaint);
-        }
-    }
-
-    private int applyAlpha(int color, int alphaMultiplier) {
-        int a = (Color.alpha(color) * alphaMultiplier) / 255;
-        return Color.argb(a, Color.red(color), Color.green(color), Color.blue(color));
     }
 
     private int interpolateColor(int colorA, int colorB, float fraction) {
-        int a = (int) (Color.alpha(colorA) + fraction * (Color.alpha(colorB) - Color.alpha(colorA)));
-        int r = (int) (Color.red(colorA) + fraction * (Color.red(colorB) - Color.red(colorA)));
-        int g = (int) (Color.green(colorA) + fraction * (Color.green(colorB) - Color.green(colorA)));
-        int b = (int) (Color.blue(colorA) + fraction * (Color.blue(colorB) - Color.blue(colorA)));
-        return Color.argb(a, r, g, b);
+        int rA = (colorA >> 16) & 0xFF;
+        int gA = (colorA >> 8) & 0xFF;
+        int bA = colorA & 0xFF;
+
+        int rB = (colorB >> 16) & 0xFF;
+        int gB = (colorB >> 8) & 0xFF;
+        int bB = colorB & 0xFF;
+
+        int r = (int) (rA + fraction * (rB - rA));
+        int g = (int) (gA + fraction * (gB - gA));
+        int b = (int) (bA + fraction * (bB - bA));
+        return Color.rgb(r, g, b);
     }
 }
