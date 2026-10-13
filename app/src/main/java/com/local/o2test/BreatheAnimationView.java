@@ -9,7 +9,7 @@ import android.graphics.RadialGradient;
 import android.graphics.Shader;
 import android.graphics.RectF;
 import android.view.View;
-import android.view.animation.LinearInterpolator;
+import android.view.animation.DecelerateInterpolator;
 
 public class BreatheAnimationView extends View {
     private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -18,18 +18,21 @@ public class BreatheAnimationView extends View {
     private final RectF bgRect = new RectF();
 
     private boolean isMonitoringActive = false;
-    private float breathProgress = 0f; // 0.0 (выдох/пятно) до 1.0 (вдох/фрактал)
-    private ValueAnimator breathAnimator;
+    private float currentProgress = 0f; // 0.0 (сжато/выдох) до 1.0 (раскрыто/вдох)
+    private float targetProgress = 0f;
+    
+    // Скользящее среднее для базовой линии R-R интервалов
+    private float rrBaseline = 800f; 
+    private ValueAnimator progressAnimator;
 
-    private static final float[][] CYAN_CIRCLES = {
-        {100, 80, 22}, {118, 88, 22}, {120, 110, 22},
-        {100, 122, 22}, {80, 110, 22}, {82, 88, 22}
-    };
+    // Параметры симметричных колец (центр в точке 100, 100)
+    private static final int CYAN_COUNT = 6;
+    private static final float CYAN_DISTANCE = 26f;
+    private static final float CYAN_RADIUS = 20f;
 
-    private static final float[][] PINK_CIRCLES = {
-        {100, 54, 27}, {139, 69, 24}, {152, 108, 24}, {125, 144, 27},
-        {87, 152, 24}, {56, 123, 24}, {53, 82, 27}, {77, 56, 24}
-    };
+    private static final int PINK_COUNT = 8;
+    private static final float PINK_DISTANCE = 56f;
+    private static final float PINK_RADIUS = 22f;
 
     public BreatheAnimationView(Context context) {
         super(context);
@@ -39,48 +42,57 @@ public class BreatheAnimationView extends View {
 
     public void startMonitoring() {
         isMonitoringActive = true;
-        startBreathingLoop();
+        currentProgress = 0f;
+        targetProgress = 0f;
+        rrBaseline = 800f;
+        invalidate();
     }
 
     public void stopMonitoring() {
         isMonitoringActive = false;
-        if (breathAnimator != null) {
-            breathAnimator.cancel();
+        if (progressAnimator != null) {
+            progressAnimator.cancel();
         }
-        breathProgress = 0f; // возврат в компактное состояние
+        currentProgress = 0f;
+        targetProgress = 0f;
         invalidate();
     }
 
+    /**
+     * Реальная привязка к дыханию через R-R интервалы (Дыхательная синусовая аритмия).
+     * Вдох -> пульс частеет -> RR укорачивается -> объект раскрывается (циан).
+     * Выдох -> пульс реже -> RR удлиняется -> объект сжимается (розовый).
+     */
     public void updateRr(int rrMs) {
-        if (!isMonitoringActive) return;
-        // Точка расширения под будущую аппаратную коррекцию фазы по RR-интервалам
+        if (!isMonitoringActive || rrMs <= 0) return;
+
+        // Обновляем адаптивную базовую линию RR (экспоненциальное сглаживание)
+        rrBaseline = 0.9f * rrBaseline + 0.1f * rrMs;
+
+        // Разница между базой и текущим RR:
+        // Если rrMs < rrBaseline (вдох), diff > 0 -> стремимся к 1.0
+        // Если rrMs > rrBaseline (выдох), diff < 0 -> стремимся к 0.0
+        float diff = rrBaseline - rrMs;
+        
+        // Масштабируем отклонение в целевой прогресс [0.0, 1.0]
+        targetProgress = Math.max(0.0f, Math.min(1.0f, 0.5f + (diff / 150.0f)));
+
+        animateToTarget();
     }
 
-    private void startBreathingLoop() {
-        if (breathAnimator != null) breathAnimator.cancel();
-        
-        // Цикл дыхания (4с вдох -> 4с выдох)
-        breathAnimator = ValueAnimator.ofFloat(0f, 1f);
-        breathAnimator.setDuration(8000);
-        breathAnimator.setInterpolator(new LinearInterpolator());
-        breathAnimator.setRepeatCount(ValueAnimator.INFINITE);
-        breathAnimator.addUpdateListener(animation -> {
-            if (!isMonitoringActive) return;
-            float val = (float) animation.getAnimatedValue();
-            if (val <= 0.5f) {
-                breathProgress = val * 2.0f; // Вдох (0 -> 1)
-            } else {
-                breathProgress = 1.0f - (val - 0.5f) * 2.0f; // Выдох (1 -> 0)
-            }
+    private void animateToTarget() {
+        if (progressAnimator != null) {
+            progressAnimator.cancel();
+        }
+
+        progressAnimator = ValueAnimator.ofFloat(currentProgress, targetProgress);
+        progressAnimator.setDuration(800); // Плавный переход между ударами сердца
+        progressAnimator.setInterpolator(new DecelerateInterpolator());
+        progressAnimator.addUpdateListener(animation -> {
+            currentProgress = (float) animation.getAnimatedValue();
             invalidate();
         });
-        breathAnimator.start();
-    }
-
-    @Override
-    protected void onDetachedFromWindow() {
-        super.onDetachedFromWindow();
-        if (breathAnimator != null) breathAnimator.cancel();
+        progressAnimator.start();
     }
 
     @Override
@@ -97,37 +109,47 @@ public class BreatheAnimationView extends View {
         canvas.translate(dx, dy);
         canvas.scale(scale, scale);
 
+        // Карточка-фон
         bgRect.set(0, 0, 200, 200);
         canvas.drawRoundRect(bgRect, 16, 16, bgPaint);
 
-        // Масштаб лепестков от компактного пятна (0.3) до полного фрактала (1.0)
-        float currentScale = 0.3f + 0.7f * breathProgress;
-        canvas.save();
-        canvas.scale(currentScale, currentScale, 100, 100);
+        // Цветовой градиент: от розового (выдох, прогресс 0) к яркому циану (вдох, прогресс 1)
+        int startColor = interpolateColor(0xDDFF4081, 0xDD00E5FF, currentProgress);
+        int endColor = interpolateColor(0x15FF4081, 0x1500E5FF, currentProgress);
 
-        // Плавный переход цвета: от розового (выдох) к голубому (вдох)
-        int startColor = interpolateColor(0xDDFF4081, 0xDD00E5FF, breathProgress);
-        int endColor = interpolateColor(0x15FF4081, 0x1500E5FF, breathProgress);
+        // 1. Отрисовка внутреннего симметричного кольца (Циан / Лепестки)
+        for (int i = 0; i < CYAN_COUNT; i++) {
+            double angle = i * (2.0 * Math.PI / CYAN_COUNT);
+            // Эффект "распускания": лепестки выдвигаются из центра при росте прогресса
+            float currentDist = CYAN_DISTANCE * (0.25f + 0.75f * currentProgress);
+            float cx = 100f + (float)(currentDist * Math.cos(angle));
+            float cy = 100f + (float)(currentDist * Math.sin(angle));
+            float r = CYAN_RADIUS * (0.4f + 0.6f * currentProgress);
 
-        for (float[] c : CYAN_CIRCLES) {
-            float cx = c[0], cy = c[1], r = c[2];
             elementPaint.setShader(new RadialGradient(cx, cy, r,
                     new int[]{startColor, endColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
             canvas.drawCircle(cx, cy, r, elementPaint);
         }
 
-        for (float[] c : PINK_CIRCLES) {
-            float cx = c[0], cy = c[1], r = c[2];
+        // 2. Отрисовка внешнего симметричного кольца (Розово-циановые внешние лепестки)
+        for (int i = 0; i < PINK_COUNT; i++) {
+            double angle = i * (2.0 * Math.PI / PINK_COUNT) + (Math.PI / PINK_COUNT); // Смещение для гармоничной сетки
+            float currentDist = PINK_DISTANCE * (0.2f + 0.8f * currentProgress);
+            float cx = 100f + (float)(currentDist * Math.cos(angle));
+            float cy = 100f + (float)(currentDist * Math.sin(angle));
+            float r = PINK_RADIUS * (0.3f + 0.7f * currentProgress);
+
             elementPaint.setShader(new RadialGradient(cx, cy, r,
                     new int[]{startColor, endColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
             canvas.drawCircle(cx, cy, r, elementPaint);
         }
 
-        corePaint.setShader(new RadialGradient(100, 100, 14,
+        // 3. Центральное световое ядро (пульсирует в такт)
+        float coreRadius = 10f + 6f * currentProgress;
+        corePaint.setShader(new RadialGradient(100, 100, coreRadius,
                 new int[]{0xFFEEFFFF, 0x44FFFFFF}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
-        canvas.drawCircle(100, 100, 14, corePaint);
+        canvas.drawCircle(100, 100, coreRadius, corePaint);
 
-        canvas.restore();
         canvas.restore();
     }
 
