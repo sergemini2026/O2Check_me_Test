@@ -49,6 +49,9 @@ public class UiBuilder {
         public TextView tvPo2Mix;
         public TextView tvPo2Hipo;
         public TextView tvPo2Hiper;
+
+        // Ссылка на компонент анимации дыхания
+        public BreatheAnimationView breatheView;
     }
 
     public static Views buildUi(Context context) {
@@ -221,6 +224,7 @@ public class UiBuilder {
 
         // --- ВИЗУАЛЬНЫЙ БЛОК ФРАКТАЛЬНОГО ОБЪЕКТА (НИЖНЯЯ ЧАСТЬ ПРАВОЙ ПАНЕЛИ) ---
         BreatheAnimationView breatheView = new BreatheAnimationView(context);
+        v.breatheView = breatheView; // Сохраняем ссылку
 
         LinearLayout.LayoutParams fractalParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 
