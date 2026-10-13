@@ -43,7 +43,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private O2BleManager bleManager;
     private PolarH10Manager polarManager;
     private UiBuilder.Views ui;
-    private OxygenSensorManager oxygenSensorManager; // Менеджер кислородных датчиков
+    private OxygenSensorManager oxygenSensorManager;
 
     private HrvForegroundService hrvService;
     private boolean isBound = false;
@@ -82,7 +82,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             }
             isRecording = false;
             isTrainingModeActive = false;
-            if (ui.breatheView !=[span_1](start_span)[span_1](end_span) null) {
+            if (ui.breatheView != null) {
                 ui.breatheView.stopMonitoring();
             }
             updateRightPanelStatus();
@@ -111,10 +111,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         polarManager = new PolarH10Manager(this, polarCallback);
 
         ui = UiBuilder.buildUi(this);
-        oxygenSensorManager = new OxygenSensorManager(ui); // Инициализация менеджера датчиков
+        oxygenSensorManager = new OxygenSensorManager(ui);
         UiBuilder.updateStatusHeader(ui.tvLiveMetrics, 0, 0, 0f, 0, 0);
 
-        // ИСХОДНОЕ СОСТОЯНИЕ: блокируем все, кроме Профилей, Настроек и Выхода
         setInterfaceAuthorizedState(false);
         updateMetricsDisplay("--", "--", "--", "--");
         updateRightPanelStatus();
@@ -184,8 +183,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         setContentView(ui.mainLayout);
-
-        // Проверка и запрос мастер-пароля при старте программы
         checkMasterPasswordOnStart();
     }
 
@@ -414,7 +411,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         isRecording = true;
         
-        // Запуск анимации дыхания[span_2](start_span)[span_2](end_span)
         if (ui.breatheView != null) {
             ui.breatheView.startMonitoring();
         }
@@ -442,7 +438,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = false;
         isTrainingModeActive = false;
 
-        // Остановка анимации дыхания[span_3](start_span)[span_3](end_span)
         if (ui.breatheView != null) {
             ui.breatheView.stopMonitoring();
         }
@@ -539,7 +534,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         int hrToDisplay = isPolarActive ? currentPolarHr : res.hr;
         int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
 
-        // Передача телеметрии оксиметра в визуализатор дыхания[span_4](start_span)[span_4](end_span)
         if (ui.breatheView != null && isRecording) {
             ui.breatheView.updateTelemetry(res.hr, 0, smoothedPi);
         }
@@ -578,7 +572,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         @Override
         public void onRrReceived(int rrMs, float instantHr) {
             if (isRecording) {
-                // Передача расчетных параметров пульса и RR в анимацию дыхания[span_5](start_span)[span_5](end_span)
                 if (ui.breatheView != null) {
                     ui.breatheView.updateTelemetry(Math.round(instantHr), rrMs, currentPi);
                 }
