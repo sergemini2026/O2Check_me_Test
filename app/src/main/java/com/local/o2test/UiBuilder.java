@@ -232,7 +232,7 @@ public class UiBuilder {
     private static TextView createSensorField(Context context, String text) {
         TextView tv = new TextView(context);
         tv.setText(text);
-        tv.setTextSize(10);
+        tv.setTextSize(12);
         tv.setTextColor(Color.BLUE);
         tv.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
