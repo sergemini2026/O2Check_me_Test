@@ -222,15 +222,12 @@ public class UiBuilder {
         // --- ВИЗУАЛЬНЫЙ БЛОК ФРАКТАЛЬНОГО ОБЪЕКТА (НИЖНЯЯ ЧАСТЬ ПРАВОЙ ПАНЕЛИ) ---
         BreatheAnimationView breatheView = new BreatheAnimationView(context);
 
-        int padPx = (int) (8 * context.getResources().getDisplayMetrics().density);
-        breatheView.setPadding(padPx, padPx, padPx, padPx);
-
         LinearLayout.LayoutParams fractalParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 
                 LinearLayout.LayoutParams.MATCH_PARENT
         );
-        fractalParams.topMargin = (int) (4 * context.getResources().getDisplayMetrics().density);
-        fractalParams.bottomMargin = (int) (4 * context.getResources().getDisplayMetrics().density);
+        int marginPx = (int) (8 * context.getResources().getDisplayMetrics().density);
+        fractalParams.setMargins(marginPx, marginPx, marginPx, marginPx);
         breatheView.setLayoutParams(fractalParams);
 
         // Добавляем кастомный графический компонент с нативными градиентами в правую панель
