@@ -38,9 +38,16 @@ public class BreatheAnimationView extends View {
 
         float width = getWidth();
         float height = getHeight();
+        
+        // Масштаб по меньшей стороне, чтобы квадрат 200x200 вписался без искажений
         float scale = Math.min(width, height) / 200f;
+        
+        // Центрируем отрисовку внутри доступного пространства view
+        float dx = (width - 200f * scale) / 2f;
+        float dy = (height - 200f * scale) / 2f;
 
         canvas.save();
+        canvas.translate(dx, dy);
         canvas.scale(scale, scale);
 
         // Карточка-фон с скругленными углами
