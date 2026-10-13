@@ -18,10 +18,16 @@ public class BreatheAnimationView extends View {
     private final RectF bgRect = new RectF();
 
     private boolean isMonitoringActive = false;
-    private float breathPhase = 0f; // от 0.0 (выдох) до 1.0 (вдох)
+    
+    // Переменные для абсолютно непрерывной анимации на базе реального времени
+    private long lastFrameTime = 0;
+    private float animationProgress = 0f; // [0.0 ... 1.0] текущий непрерывный цикл
+    private float currentCycleDurationMs = 4000f; // текущая длительность цикла дыхания
+    private float targetCycleDurationMs = 4000f; // целевая длительность по данным пульса
+    
     private float rotationAngle = 0f;
     
-    private ValueAnimator breathAnimator;
+    private ValueAnimator tickerAnimator;
     private ValueAnimator rotationAnimator;
 
     public BreatheAnimationView(Context context) {
@@ -32,80 +38,73 @@ public class BreatheAnimationView extends View {
 
     public void startMonitoring() {
         isMonitoringActive = true;
-        breathPhase = 0f;
+        animationProgress = 0f;
+        lastFrameTime = System.currentTimeMillis();
+        currentCycleDurationMs = 4000f;
+        targetCycleDurationMs = 4000f;
         rotationAngle = 0f;
-        startDynamicLoop(70); // Старт с базового пульса 70 bpm
+        
+        startTicker();
         startRotationLoop();
         invalidate();
     }
 
     public void stopMonitoring() {
         isMonitoringActive = false;
-        if (breathAnimator != null) breathAnimator.cancel();
+        if (tickerAnimator != null) tickerAnimator.cancel();
         if (rotationAnimator != null) rotationAnimator.cancel();
-        breathPhase = 0f;
+        animationProgress = 0f;
         rotationAngle = 0f;
         invalidate();
     }
 
     /**
-     * Вычисление биоритма на основе параметров пульса и оксигенации.
+     * Плавное обновление целевой длительности цикла на основе пульса (HR / 4).
+     * Никогда не прерывает и не сбрасывает текущий прогресс, гарантируя 100% непрерывность.
      */
     public void updateTelemetry(int hr, int rrMs, float pi) {
         if (!isMonitoringActive) return;
 
-        // Физиологический расчет темпа дыхания по текущему пульсу (HR / 4)
         int effectiveHr = (hr > 30 && hr < 220) ? hr : 70;
         float breathsPerMinute = effectiveHr / 4.0f;
-        long cycleDurationMs = (long) ((60.0f / breathsPerMinute) * 1000.0f);
-
-        // Плавная адаптация скорости аниматора под изменение пульса
-        if (breathAnimator == null || Math.abs(breathAnimator.getDuration() - cycleDurationMs) > 400) {
-            updateAnimatorDuration(cycleDurationMs);
-        }
+        targetCycleDurationMs = (60.0f / breathsPerMinute) * 1000.0f;
     }
 
-    private void startDynamicLoop(int initialHr) {
-        if (breathAnimator != null) breathAnimator.cancel();
+    private void startTicker() {
+        if (tickerAnimator != null) tickerAnimator.cancel();
 
-        float breathsPerMinute = initialHr / 4.0f;
-        long cycleDurationMs = (long) ((60.0f / breathsPerMinute) * 1000.0f);
-
-        breathAnimator = ValueAnimator.ofFloat(0f, 1f);
-        breathAnimator.setDuration(cycleDurationMs);
-        breathAnimator.setInterpolator(new LinearInterpolator());
-        breathAnimator.setRepeatCount(ValueAnimator.INFINITE);
-        breathAnimator.addUpdateListener(animation -> {
+        lastFrameTime = System.currentTimeMillis();
+        tickerAnimator = ValueAnimator.ofFloat(0f, 1f);
+        tickerAnimator.setDuration(1000);
+        tickerAnimator.setInterpolator(new LinearInterpolator());
+        tickerAnimator.setRepeatCount(ValueAnimator.INFINITE);
+        tickerAnimator.addUpdateListener(animation -> {
             if (!isMonitoringActive) return;
-            float progress = (float) animation.getAnimatedValue();
-            
-            // Синусоидальный цикл: вдох (0 -> 1) и выдох (1 -> 0)
-            if (progress <= 0.5f) {
-                breathPhase = progress * 2.0f; 
-            } else {
-                breathPhase = 2.0f - (progress * 2.0f); 
+
+            long now = System.currentTimeMillis();
+            long dt = now - lastFrameTime;
+            lastFrameTime = now;
+
+            if (dt > 0 && dt < 200) {
+                // Плавная инерционная адаптация скорости под изменение пульса
+                currentCycleDurationMs = currentCycleDurationMs * 0.96f + targetCycleDurationMs * 0.04f;
+
+                // Непрерывное накопление прогресса без единого сброса
+                animationProgress += (dt / currentCycleDurationMs);
+                if (animationProgress >= 1.0f) {
+                    animationProgress %= 1.0f;
+                }
             }
             invalidate();
         });
-        breathAnimator.start();
-    }
-
-    private void updateAnimatorDuration(long newDuration) {
-        if (breathAnimator == null) return;
-        long currentPlayTime = breathAnimator.getCurrentPlayTime();
-        breathAnimator.cancel();
-        breathAnimator.setDuration(newDuration);
-        if (currentPlayTime < newDuration) {
-            breathAnimator.setCurrentPlayTime(currentPlayTime);
-        }
-        breathAnimator.start();
+        tickerAnimator.start();
     }
 
     private void startRotationLoop() {
         if (rotationAnimator != null) rotationAnimator.cancel();
 
         rotationAnimator = ValueAnimator.ofFloat(0f, 360f);
-        rotationAnimator.setDuration(25000); // Медленное медитативное вращение за 25 секунд
+        rotationAnimator.setDuration(25000);
         rotationAnimator.setInterpolator(new LinearInterpolator());
         rotationAnimator.setRepeatCount(ValueAnimator.INFINITE);
         rotationAnimator.addUpdateListener(animation -> {
@@ -140,17 +139,20 @@ public class BreatheAnimationView extends View {
         bgRect.set(0, 0, 200, 200);
         canvas.drawRoundRect(bgRect, 16, 16, bgPaint);
 
+        // Плавная фаза дыхания (0.0 — выдох, 1.0 — вдох) из непрерывного времени
+        float breathPhase;
+        if (animationProgress <= 0.5f) {
+            breathPhase = animationProgress * 2.0f; // Вдох
+        } else {
+            breathPhase = 2.0f - (animationProgress * 2.0f); // Выдох
+        }
+
         // Вращение всей структуры
         canvas.save();
         canvas.rotate(rotationAngle, 100f, 100f);
 
-        // Цветовой переход: розовый (выдох) -> яркий циан (вдох)
         int startColor = interpolateColor(0xDDFF4081, 0xDD00E5FF, breathPhase);
         int endColor = interpolateColor(0x15FF4081, 0x1500E5FF, breathPhase);
-
-        // =========================================================================
-        // УСЛОЖНЕНИЕ ФРАКТАЛА БЕЗ МАСШТАБИРОВАНИЯ (8 -> 16 -> 32 лепестка)
-        // =========================================================================
 
         // 1. Внутренний уровень (8 лепестков)
         int count1 = 8;
@@ -158,7 +160,7 @@ public class BreatheAnimationView extends View {
         float radius1 = 18f + 5f * breathPhase;
         drawPetalRing(canvas, count1, dist1, radius1, startColor, endColor);
 
-        // 2. Средний уровень (16 лепестков при раскрытии > 20%)
+        // 2. Средний уровень (16 лепестков)
         if (breathPhase > 0.2f) {
             float p2 = (breathPhase - 0.2f) / 0.8f;
             int count2 = 16;
@@ -168,7 +170,7 @@ public class BreatheAnimationView extends View {
             drawPetalRing(canvas, count2, dist2, radius2, applyAlpha(startColor, alpha), applyAlpha(endColor, alpha));
         }
 
-        // 3. Внешний уровень (32 лепестка при раскрытии > 60%)
+        // 3. Внешний уровень (32 лепестка)
         if (breathPhase > 0.6f) {
             float p3 = (breathPhase - 0.6f) / 0.4f;
             int count3 = 32;
@@ -178,9 +180,9 @@ public class BreatheAnimationView extends View {
             drawPetalRing(canvas, count3, dist3, radius3, applyAlpha(startColor, alpha), applyAlpha(endColor, alpha));
         }
 
-        canvas.restore(); // Сброс вращения
+        canvas.restore();
 
-        // Центральное световое ядро
+        // Центральное ядро
         float coreRadius = 12f + 5f * breathPhase;
         corePaint.setShader(new RadialGradient(100, 100, coreRadius,
                 new int[]{0xFFEEFFFF, 0x44FFFFFF}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
