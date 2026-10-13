@@ -48,6 +48,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private boolean isBound = false;
 
     private boolean isRecording = false;
+    private boolean isTrainingModeActive = false;
     private long sessionStartTime = 0;
     private String currentWorkoutMode = "Базовый мониторинг";
     private final List<DataPoint> sessionData = new ArrayList<>();
@@ -79,6 +80,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 hrvService.stopSessionRecording();
             }
             isRecording = false;
+            isTrainingModeActive = false;
+            updateRightPanelStatus();
             if (ui.btnHeart != null) {
                 ui.btnHeart.setAlpha(0.5f);
             }
@@ -109,6 +112,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         // ИСХОДНОЕ СОСТОЯНИЕ: блокируем все, кроме Профилей, Настроек и Выхода
         setInterfaceAuthorizedState(false);
         updateMetricsDisplay("--", "--", "--", "--");
+        updateRightPanelStatus();
 
         ui.btnHeart.setOnClickListener(v -> {
             if (!isProfileAuthorized) {
@@ -116,8 +120,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 openProfilesManager();
                 return;
             }
-            if (!isRecording) startMonitoringPanel();
-            else stopMonitoring();
+            if (!isRecording) {
+                isTrainingModeActive = false;
+                startMonitoringPanel();
+            } else {
+                stopMonitoring();
+            }
         });
 
         ui.btnReconnect.setOnClickListener(v -> {
@@ -147,7 +155,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     new TrainingDialogHelper.TrainingStartCallback() {
                         @Override
                         public void onStartTraining(String trainingType, String modeName) {
-                            currentWorkoutMode = trainingType + " | " + modeName;
+                            currentWorkoutMode = trainingType + ", " + modeName;
+                            isTrainingModeActive = true;
                             onLog("[СТАРТ] " + currentWorkoutMode);
                             startMonitoringPanel();
                         }
@@ -175,15 +184,26 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         checkMasterPasswordOnStart();
     }
 
+    private void updateRightPanelStatus() {
+        if (ui.tvStatusValue == null) return;
+        if (!isRecording) {
+            ui.tvStatusValue.setText("");
+        } else {
+            if (isTrainingModeActive) {
+                ui.tvStatusValue.setText(currentWorkoutMode);
+            } else {
+                ui.tvStatusValue.setText("Мониторинг");
+            }
+        }
+    }
+
     private void checkMasterPasswordOnStart() {
         SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
         String savedPass = prefs.getString(KEY_MASTER_PASS, null);
 
         if (savedPass == null) {
-            // Первый запуск — создание мастер-пароля администратора
             showCreateMasterPasswordDialog(prefs);
         } else {
-            // Последующие запуски — запрос мастер-пароля (ровно 1 раз)
             showEnterMasterPasswordDialog(savedPass);
         }
     }
@@ -214,7 +234,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
             if (pass.length() != 4 || !pass.equals(confirm)) {
                 Toast.makeText(this, "Ошибка! Пароль должен содержать ровно 4 символа и совпадать.", Toast.LENGTH_LONG).show();
-                showCreateMasterPasswordDialog(prefs); // Повторный запрос
+                showCreateMasterPasswordDialog(prefs);
                 return;
             }
 
@@ -249,7 +269,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 onLog("Система запущена. Выберите профиль для начала работы.");
             } else {
                 Toast.makeText(this, "Неверный пароль!", Toast.LENGTH_SHORT).show();
-                showEnterMasterPasswordDialog(savedPass); // Повторный запрос при ошибке
+                showEnterMasterPasswordDialog(savedPass);
             }
         });
         builder.setNegativeButton("Выход", (dialog, which) -> finish());
@@ -402,12 +422,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (ui.chartView != null) ui.chartView.clearData();
         
         updateMetricsDisplay("--", "--", "--", "--");
+        updateRightPanelStatus();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
         onLog("Мониторинг активен для профиля: " + activeProfileName);
     }
 
     private void stopMonitoring() {
         isRecording = false;
+        isTrainingModeActive = false;
         if (isBound && hrvService != null) hrvService.stopSessionRecording();
         
         if (polarManager != null) {
@@ -415,6 +437,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         piWindow.clear();
+        updateRightPanelStatus();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(isProfileAuthorized ? 1.0f : 0.5f);
         onLog("Мониторинг остановлен");
     }
