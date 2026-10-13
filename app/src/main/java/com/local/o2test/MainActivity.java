@@ -22,6 +22,7 @@ import android.widget.ScrollView;
 import android.widget.Toast;
 
 import com.local.o2test.db.AppDatabase;
+import com.local.o2test.db.entity.HrvSnapshotEntity;
 import com.local.o2test.db.entity.SessionEntity;
 
 import java.text.SimpleDateFormat;
@@ -467,6 +468,15 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private void saveSessionToDatabase(String fileName, List<DataPoint> points) {
         if (activeProfileId == -1L) return;
+
+        // Атомарно забираем буфер готовых снимков из сервиса, пока он активен/связан
+        final List<SessionSnapshot> capturedSnapshots;
+        if (isBound && hrvService != null) {
+            capturedSnapshots = hrvService.flushSnapshotBuffer();
+        } else {
+            capturedSnapshots = new ArrayList<>();
+        }
+
         dbExecutor.execute(() -> {
             try {
                 AppDatabase db = AppDatabase.getInstance(getApplicationContext());
@@ -486,7 +496,17 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         35.0
                 );
                 long sessionId = db.sessionDao().insertSessionSync(session);
-                runOnUiThread(() -> onLog("Сессия #" + sessionId + " зарегистрирована в базе данных Room"));
+
+                // Сохраняем пакет валидированных HRV снимков через DAO
+                if (!capturedSnapshots.isEmpty()) {
+                    List<HrvSnapshotEntity> entityList = new ArrayList<>();
+                    for (SessionSnapshot snapshot : capturedSnapshots) {
+                        entityList.add(new HrvSnapshotEntity(snapshot.getTimestamp(), snapshot.getMetrics()));
+                    }
+                    db.hrvSnapshotDao().insertAll(entityList);
+                }
+
+                runOnUiThread(() -> onLog("Сессия #" + sessionId + " и " + capturedSnapshots.size() + " HRV снимков зарегистрированы в базе данных Room"));
             } catch (Exception e) {
                 runOnUiThread(() -> onLog("Ошибка записи сессии в БД: " + e.getMessage()));
             }
