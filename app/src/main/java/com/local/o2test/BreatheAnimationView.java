@@ -18,15 +18,10 @@ public class BreatheAnimationView extends View {
     private final RectF bgRect = new RectF();
 
     private boolean isMonitoringActive = false;
-    
-    // Плавная фаза дыхания (0.0 — выдох/сжатие, 1.0 — вдох/полное раскрытие)
-    private float breathPhase = 0f;
-    private float targetBreathPhase = 0f;
-    private float rrSmooth = 800f;
-    private ValueAnimator phaseAnimator;
-
-    // Угол вращения структуры
+    private float breathPhase = 0f; // от 0.0 (выдох) до 1.0 (вдох)
     private float rotationAngle = 0f;
+    
+    private ValueAnimator breathAnimator;
     private ValueAnimator rotationAnimator;
 
     public BreatheAnimationView(Context context) {
@@ -38,17 +33,15 @@ public class BreatheAnimationView extends View {
     public void startMonitoring() {
         isMonitoringActive = true;
         breathPhase = 0f;
-        targetBreathPhase = 0f;
-        rrSmooth = 800f;
         rotationAngle = 0f;
-        
+        startDynamicLoop(70); // Старт с базового пульса 70 bpm
         startRotationLoop();
         invalidate();
     }
 
     public void stopMonitoring() {
         isMonitoringActive = false;
-        if (phaseAnimator != null) phaseAnimator.cancel();
+        if (breathAnimator != null) breathAnimator.cancel();
         if (rotationAnimator != null) rotationAnimator.cancel();
         breathPhase = 0f;
         rotationAngle = 0f;
@@ -56,41 +49,63 @@ public class BreatheAnimationView extends View {
     }
 
     /**
-     * Плавная привязка к реальным R-R интервалам (RSA).
-     * Устраняет хаотичные скачки за счет экспоненциального сглаживания.
+     * Вычисление биоритма на основе параметров пульса и оксигенации.
      */
-    public void updateRr(int rrMs) {
-        if (!isMonitoringActive || rrMs <= 0) return;
+    public void updateTelemetry(int hr, int rrMs, float pi) {
+        if (!isMonitoringActive) return;
 
-        // Сглаживаем сырой пульс, выделяя дыхательную волну
-        rrSmooth = 0.85f * rrSmooth + 0.15f * rrMs;
-        float diff = 800f - rrSmooth; // сдвиг относительно нормы
-        
-        // Целевая фаза дыхания [0.0, 1.0]
-        targetBreathPhase = Math.max(0.0f, Math.min(1.0f, 0.5f + (diff / 120.0f)));
+        // Физиологический расчет темпа дыхания по текущему пульсу (HR / 4)
+        int effectiveHr = (hr > 30 && hr < 220) ? hr : 70;
+        float breathsPerMinute = effectiveHr / 4.0f;
+        long cycleDurationMs = (long) ((60.0f / breathsPerMinute) * 1000.0f);
 
-        animatePhaseToTarget();
+        // Плавная адаптация скорости аниматора под изменение пульса
+        if (breathAnimator == null || Math.abs(breathAnimator.getDuration() - cycleDurationMs) > 400) {
+            updateAnimatorDuration(cycleDurationMs);
+        }
     }
 
-    private void animatePhaseToTarget() {
-        if (phaseAnimator != null) phaseAnimator.cancel();
+    private void startDynamicLoop(int initialHr) {
+        if (breathAnimator != null) breathAnimator.cancel();
 
-        phaseAnimator = ValueAnimator.ofFloat(breathPhase, targetBreathPhase);
-        phaseAnimator.setDuration(1000); // Плавная инерция дыхательного цикла
-        phaseAnimator.setInterpolator(new LinearInterpolator());
-        phaseAnimator.addUpdateListener(animation -> {
+        float breathsPerMinute = initialHr / 4.0f;
+        long cycleDurationMs = (long) ((60.0f / breathsPerMinute) * 1000.0f);
+
+        breathAnimator = ValueAnimator.ofFloat(0f, 1f);
+        breathAnimator.setDuration(cycleDurationMs);
+        breathAnimator.setInterpolator(new LinearInterpolator());
+        breathAnimator.setRepeatCount(ValueAnimator.INFINITE);
+        breathAnimator.addUpdateListener(animation -> {
             if (!isMonitoringActive) return;
-            breathPhase = (float) animation.getAnimatedValue();
+            float progress = (float) animation.getAnimatedValue();
+            
+            // Синусоидальный цикл: вдох (0 -> 1) и выдох (1 -> 0)
+            if (progress <= 0.5f) {
+                breathPhase = progress * 2.0f; 
+            } else {
+                breathPhase = 2.0f - (progress * 2.0f); 
+            }
             invalidate();
         });
-        phaseAnimator.start();
+        breathAnimator.start();
+    }
+
+    private void updateAnimatorDuration(long newDuration) {
+        if (breathAnimator == null) return;
+        long currentPlayTime = breathAnimator.getCurrentPlayTime();
+        breathAnimator.cancel();
+        breathAnimator.setDuration(newDuration);
+        if (currentPlayTime < newDuration) {
+            breathAnimator.setCurrentPlayTime(currentPlayTime);
+        }
+        breathAnimator.start();
     }
 
     private void startRotationLoop() {
         if (rotationAnimator != null) rotationAnimator.cancel();
 
         rotationAnimator = ValueAnimator.ofFloat(0f, 360f);
-        rotationAnimator.setDuration(20000); // Полный оборот за 20 секунд
+        rotationAnimator.setDuration(25000); // Медленное медитативное вращение за 25 секунд
         rotationAnimator.setInterpolator(new LinearInterpolator());
         rotationAnimator.setRepeatCount(ValueAnimator.INFINITE);
         rotationAnimator.addUpdateListener(animation -> {
@@ -125,7 +140,7 @@ public class BreatheAnimationView extends View {
         bgRect.set(0, 0, 200, 200);
         canvas.drawRoundRect(bgRect, 16, 16, bgPaint);
 
-        // Применяем вращение всей структуры вокруг центра (100, 100)
+        // Вращение всей структуры
         canvas.save();
         canvas.rotate(rotationAngle, 100f, 100f);
 
@@ -134,40 +149,39 @@ public class BreatheAnimationView extends View {
         int endColor = interpolateColor(0x15FF4081, 0x1500E5FF, breathPhase);
 
         // =========================================================================
-        // ЭФФЕКТ РАСКРЫВАЮЩЕГОСЯ ЦВЕТКА И УСЛОЖНЕНИЯ ФРАКТАЛА (Без изменения масштаба холста)
+        // УСЛОЖНЕНИЕ ФРАКТАЛА БЕЗ МАСШТАБИРОВАНИЯ (8 -> 16 -> 32 лепестка)
         // =========================================================================
 
-        // 1. Внутренний контур (Базовые 8 лепестков, разворачиваются первыми)
+        // 1. Внутренний уровень (8 лепестков)
         int count1 = 8;
-        float dist1 = 30f + 15f * breathPhase;
-        float radius1 = 18f + 6f * breathPhase;
+        float dist1 = 30f + 12f * breathPhase;
+        float radius1 = 18f + 5f * breathPhase;
         drawPetalRing(canvas, count1, dist1, radius1, startColor, endColor);
 
-        // 2. Средний контур (16 лепестков, усложнение структуры при раскрытии)
+        // 2. Средний уровень (16 лепестков при раскрытии > 20%)
         if (breathPhase > 0.2f) {
-            float layerProgress = (breathPhase - 0.2f) / 0.8f;
+            float p2 = (breathPhase - 0.2f) / 0.8f;
             int count2 = 16;
-            float dist2 = 50f + 20f * layerProgress;
-            float radius2 = 12f + 8f * layerProgress;
-            // Прозрачность слоев зависит от фазы раскрытия
-            int alphaFactor = (int)(255 * layerProgress);
-            drawPetalRing(canvas, count2, dist2, radius2, applyAlpha(startColor, alphaFactor), applyAlpha(endColor, alphaFactor));
+            float dist2 = 50f + 18f * p2;
+            float radius2 = 12f + 6f * p2;
+            int alpha = (int)(255 * p2);
+            drawPetalRing(canvas, count2, dist2, radius2, applyAlpha(startColor, alpha), applyAlpha(endColor, alpha));
         }
 
-        // 3. Внешний контур (32 лепестка, максимальное фрактальное усложнение на вдохе)
+        // 3. Внешний уровень (32 лепестка при раскрытии > 60%)
         if (breathPhase > 0.6f) {
-            float layerProgress = (breathPhase - 0.6f) / 0.4f;
+            float p3 = (breathPhase - 0.6f) / 0.4f;
             int count3 = 32;
-            float dist3 = 75f + 15f * layerProgress;
-            float radius3 = 6f + 6f * layerProgress;
-            int alphaFactor = (int)(255 * layerProgress);
-            drawPetalRing(canvas, count3, dist3, radius3, applyAlpha(startColor, alphaFactor), applyAlpha(endColor, alphaFactor));
+            float dist3 = 72f + 15f * p3;
+            float radius3 = 6f + 5f * p3;
+            int alpha = (int)(255 * p3);
+            drawPetalRing(canvas, count3, dist3, radius3, applyAlpha(startColor, alpha), applyAlpha(endColor, alpha));
         }
 
-        canvas.restore(); // Сброс вращения для ядра
+        canvas.restore(); // Сброс вращения
 
-        // Центральное световое ядро (плавная пульсация)
-        float coreRadius = 12f + 6f * breathPhase;
+        // Центральное световое ядро
+        float coreRadius = 12f + 5f * breathPhase;
         corePaint.setShader(new RadialGradient(100, 100, coreRadius,
                 new int[]{0xFFEEFFFF, 0x44FFFFFF}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
         canvas.drawCircle(100, 100, coreRadius, corePaint);
