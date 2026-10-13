@@ -97,7 +97,7 @@ public class UiBuilder {
         v.tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
         v.mainLayout.addView(v.tvHrvMetrics);
 
-        // --- БЛОК УПРАВЛЕНИЯ МОНИТОРИНГОМ И ТРЕНИРОВКАМИ (4 ВЕКТОРНЫЕ КНОПКИ) ---
+        // --- БЛОК УПРАВЛЕНИЯ МОНИТОРИНГom И ТРЕНИРОВКАМИ (4 ВЕКТОРНЫЕ КНОПКИ) ---
         LinearLayout actionPanel = new LinearLayout(context);
         actionPanel.setOrientation(LinearLayout.HORIZONTAL);
         actionPanel.setGravity(Gravity.CENTER_VERTICAL);
@@ -159,6 +159,12 @@ public class UiBuilder {
         LinearLayout.LayoutParams leftParams = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f);
         v.logScrollView.setLayoutParams(leftParams);
+
+        ScrollView.LayoutParams tvLogParams = new ScrollView.LayoutParams(
+                ScrollView.LayoutParams.MATCH_PARENT,
+                ScrollView.LayoutParams.WRAP_CONTENT
+        );
+        v.tvLog.setLayoutParams(tvLogParams);
         v.logScrollView.addView(v.tvLog);
 
         // Правая половина: Панель статуса и режимов
