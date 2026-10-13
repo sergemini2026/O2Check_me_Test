@@ -16,98 +16,55 @@
         android:type="radial"
         android:centerX="100"
         android:centerY="100"
-        android:gradientRadius="14">
-      <item android:offset="0.0" android:color="#FFEEFFFF" />
-      <item android:offset="1.0" android:color="#44FFFFFF" />
-    </gradient>
+        android:gradientRadius="14"
+        android:startColor="#FFEEFFFF"
+        android:endColor="#44FFFFFF" />
   </path>
 
   <!-- Внутреннее кольцо (Циан) с мягким радиальным градиентом -->
   <path android:pathData="M100,58 A22,22 0,1 1 100,102 A22,22 0,1 1 100,58 Z">
-    <gradient android:type="radial" android:centerX="100" android:centerY="80" android:gradientRadius="22">
-      <item android:offset="0.0" android:color="#DD00E5FF" />
-      <item android:offset="1.0" android:color="#1500E5FF" />
-    </gradient>
+    <gradient android:type="radial" android:centerX="100" android:centerY="80" android:gradientRadius="22" android:startColor="#DD00E5FF" android:endColor="#1500E5FF" />
   </path>
   <path android:pathData="M118,66 A22,22 0,1 1 118,110 A22,22 0,1 1 118,66 Z">
-    <gradient android:type="radial" android:centerX="118" android:centerY="88" android:gradientRadius="22">
-      <item android:offset="0.0" android:color="#DD00E5FF" />
-      <item android:offset="1.0" android:color="#1500E5FF" />
-    </gradient>
+    <gradient android:type="radial" android:centerX="118" android:centerY="88" android:gradientRadius="22" android:startColor="#DD00E5FF" android:endColor="#1500E5FF" />
   </path>
   <path android:pathData="M120,88 A22,22 0,1 1 120,132 A22,22 0,1 1 120,88 Z">
-    <gradient android:type="radial" android:centerX="120" android:centerY="110" android:gradientRadius="22">
-      <item android:offset="0.0" android:color="#DD00E5FF" />
-      <item android:offset="1.0" android:color="#1500E5FF" />
-    </gradient>
+    <gradient android:type="radial" android:centerX="120" android:centerY="110" android:gradientRadius="22" android:startColor="#DD00E5FF" android:endColor="#1500E5FF" />
   </path>
   <path android:pathData="M100,100 A22,22 0,1 1 100,144 A22,22 0,1 1 100,100 Z">
-    <gradient android:type="radial" android:centerX="100" android:centerY="122" android:gradientRadius="22">
-      <item android:offset="0.0" android:color="#DD00E5FF" />
-      <item android:offset="1.0" android:color="#1500E5FF" />
-    </gradient>
+    <gradient android:type="radial" android:centerX="100" android:centerY="122" android:gradientRadius="22" android:startColor="#DD00E5FF" android:endColor="#1500E5FF" />
   </path>
   <path android:pathData="M80,88 A22,22 0,1 1 80,132 A22,22 0,1 1 80,88 Z">
-    <gradient android:type="radial" android:centerX="80" android:centerY="110" android:gradientRadius="22">
-      <item android:offset="0.0" android:color="#DD00E5FF" />
-      <item android:offset="1.0" android:color="#1500E5FF" />
-    </gradient>
+    <gradient android:type="radial" android:centerX="80" android:centerY="110" android:gradientRadius="22" android:startColor="#DD00E5FF" android:endColor="#1500E5FF" />
   </path>
   <path android:pathData="M82,66 A22,22 0,1 1 82,110 A22,22 0,1 1 82,66 Z">
-    <gradient android:type="radial" android:centerX="82" android:centerY="88" android:gradientRadius="22">
-      <item android:offset="0.0" android:color="#DD00E5FF" />
-      <item android:offset="1.0" android:color="#1500E5FF" />
-    </gradient>
+    <gradient android:type="radial" android:centerX="82" android:centerY="88" android:gradientRadius="22" android:startColor="#DD00E5FF" android:endColor="#1500E5FF" />
   </path>
 
   <!-- Внешнее кольцо (Розовый) с мягким радиальным градиентом -->
   <path android:pathData="M100,27 A27,27 0,1 1 100,81 A27,27 0,1 1 100,27 Z">
-    <gradient android:type="radial" android:centerX="100" android:centerY="54" android:gradientRadius="27">
-      <item android:offset="0.0" android:color="#DDFF4081" />
-      <item android:offset="1.0" android:color="#15FF4081" />
-    </gradient>
+    <gradient android:type="radial" android:centerX="100" android:centerY="54" android:gradientRadius="27" android:startColor="#DDFF4081" android:endColor="#15FF4081" />
   </path>
   <path android:pathData="M139,45 A24,24 0,1 1 139,93 A24,24 0,1 1 139,45 Z">
-    <gradient android:type="radial" android:centerX="139" android:centerY="69" android:gradientRadius="24">
-      <item android:offset="0.0" android:color="#DDFF4081" />
-      <item android:offset="1.0" android:color="#15FF4081" />
-    </gradient>
+    <gradient android:type="radial" android:centerX="139" android:centerY="69" android:gradientRadius="24" android:startColor="#DDFF4081" android:endColor="#15FF4081" />
   </path>
   <path android:pathData="M152,84 A24,24 0,1 1 152,132 A24,24 0,1 1 152,84 Z">
-    <gradient android:type="radial" android:centerX="152" android:centerY="108" android:gradientRadius="24">
-      <item android:offset="0.0" android:color="#DDFF4081" />
-      <item android:offset="1.0" android:color="#15FF4081" />
-    </gradient>
+    <gradient android:type="radial" android:centerX="152" android:centerY="108" android:gradientRadius="24" android:startColor="#DDFF4081" android:endColor="#15FF4081" />
   </path>
   <path android:pathData="M125,117 A27,27 0,1 1 125,171 A27,27 0,1 1 125,117 Z">
-    <gradient android:type="radial" android:centerX="125" android:centerY="144" android:gradientRadius="27">
-      <item android:offset="0.0" android:color="#DDFF4081" />
-      <item android:offset="1.0" android:color="#15FF4081" />
-    </gradient>
+    <gradient android:type="radial" android:centerX="125" android:centerY="144" android:gradientRadius="27" android:startColor="#DDFF4081" android:endColor="#15FF4081" />
   </path>
   <path android:pathData="M87,128 A24,24 0,1 1 87,176 A24,24 0,1 1 87,128 Z">
-    <gradient android:type="radial" android:centerX="87" android:centerY="152" android:gradientRadius="24">
-      <item android:offset="0.0" android:color="#DDFF4081" />
-      <item android:offset="1.0" android:color="#15FF4081" />
-    </gradient>
+    <gradient android:type="radial" android:centerX="87" android:centerY="152" android:gradientRadius="24" android:startColor="#DDFF4081" android:endColor="#15FF4081" />
   </path>
   <path android:pathData="M56,99 A24,24 0,1 1 56,147 A24,24 0,1 1 56,99 Z">
-    <gradient android:type="radial" android:centerX="56" android:centerY="123" android:gradientRadius="24">
-      <item android:offset="0.0" android:color="#DDFF4081" />
-      <item android:offset="1.0" android:color="#15FF4081" />
-    </gradient>
+    <gradient android:type="radial" android:centerX="56" android:centerY="123" android:gradientRadius="24" android:startColor="#DDFF4081" android:endColor="#15FF4081" />
   </path>
   <path android:pathData="M53,55 A27,27 0,1 1 53,109 A27,27 0,1 1 53,55 Z">
-    <gradient android:type="radial" android:centerX="53" android:centerY="82" android:gradientRadius="27">
-      <item android:offset="0.0" android:color="#DDFF4081" />
-      <item android:offset="1.0" android:color="#15FF4081" />
-    </gradient>
+    <gradient android:type="radial" android:centerX="53" android:centerY="82" android:gradientRadius="27" android:startColor="#DDFF4081" android:endColor="#15FF4081" />
   </path>
   <path android:pathData="M77,32 A24,24 0,1 1 77,80 A24,24 0,1 1 77,32 Z">
-    <gradient android:type="radial" android:centerX="77" android:centerY="56" android:gradientRadius="24">
-      <item android:offset="0.0" android:color="#DDFF4081" />
-      <item android:offset="1.0" android:color="#15FF4081" />
-    </gradient>
+    <gradient android:type="radial" android:centerX="77" android:centerY="56" android:gradientRadius="24" android:startColor="#DDFF4081" android:endColor="#15FF4081" />
   </path>
 
 </vector>
