@@ -42,6 +42,8 @@ public class UiBuilder {
 
         // Панель для правой половины нижней части экрана
         public LinearLayout rightPanel;
+        public TextView tvStatusLabel;
+        public TextView tvStatusValue;
     }
 
     public static Views buildUi(Context context) {
@@ -141,7 +143,7 @@ public class UiBuilder {
 
         v.mainLayout.addView(actionPanel);
 
-        // --- НИЖНЯЯ ПАНЕЛЬ: РАЗДЕЛЕНИЕ НА ДВЕ ПОЛОВИНЫ (ЛЕВАЯ - ЛОГ, ПРАВАЯ - ПАНЕЛЬ УПРАВЛЕНИЯ) ---
+        // --- НИЖНЯЯ ПАНЕЛЬ: РАЗДЕЛЕНИЕ НА ДВЕ ПОЛОВИНЫ (ЛЕВАЯ - ЛОГ, ПРАВАЯ - СТАТУС РЕЖИМОВ) ---
         LinearLayout bottomSplitLayout = new LinearLayout(context);
         bottomSplitLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams splitParams = new LinearLayout.LayoutParams(
@@ -159,22 +161,34 @@ public class UiBuilder {
         v.logScrollView.setLayoutParams(leftParams);
         v.logScrollView.addView(v.tvLog);
 
-        // Правая половина: Контейнер для будущих элементов интерфейса
+        // Правая половина: Панель статуса и режимов
         v.rightPanel = new LinearLayout(context);
         v.rightPanel.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f);
-        rightParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density); // небольшой отступ между половинками
+        rightParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
         v.rightPanel.setLayoutParams(rightParams);
 
-        // Временная заглушка в правую панель (чтобы было видно область, позже заменим на нужные элементы)
-        TextView tvPlaceholder = new TextView(context);
-        tvPlaceholder.setText("Панель управления\n(резерв)");
-        tvPlaceholder.setTextSize(12);
-        tvPlaceholder.setTextColor(Color.GRAY);
-        tvPlaceholder.setGravity(Gravity.CENTER);
-        v.rightPanel.addView(tvPlaceholder, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT));
+        // Верхняя строка правой панели: "Статус:" (левое выравнивание)
+        v.tvStatusLabel = new TextView(context);
+        v.tvStatusLabel.setText("Статус:");
+        v.tvStatusLabel.setTextSize(12);
+        v.tvStatusLabel.setTextColor(Color.LTGRAY);
+        v.tvStatusLabel.setGravity(Gravity.START);
+        v.rightPanel.addView(v.tvStatusLabel);
+
+        // Следующая строка правой панели: значение статуса/режима (центрирование)
+        v.tvStatusValue = new TextView(context);
+        v.tvStatusValue.setText("");
+        v.tvStatusValue.setTextSize(13);
+        v.tvStatusValue.setTextColor(Color.WHITE);
+        v.tvStatusValue.setGravity(Gravity.CENTER);
+
+        LinearLayout.LayoutParams valueParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        valueParams.topMargin = (int) (6 * context.getResources().getDisplayMetrics().density);
+        v.tvStatusValue.setLayoutParams(valueParams);
+        v.rightPanel.addView(v.tvStatusValue);
 
         // Добавляем обе половины в общий горизонтальный контейнер нижней части
         bottomSplitLayout.addView(v.logScrollView);
@@ -265,7 +279,6 @@ public class UiBuilder {
                         btn.setPadding(pad, paddingVertPx, pad, paddingVertPx);
                     }
                 }
-
             });
         }
 
