@@ -82,6 +82,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             }
             isRecording = false;
             isTrainingModeActive = false;
+            if (ui.breatheView != null) {
+                ui.breatheView.stopMonitoring();
+            }
             updateRightPanelStatus();
             if (ui.btnHeart != null) {
                 ui.btnHeart.setAlpha(0.5f);
@@ -410,6 +413,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         isRecording = true;
+        
+        // Запуск анимации дыхания
+        if (ui.breatheView != null) {
+            ui.breatheView.startMonitoring();
+        }
+
         if (isBound && hrvService != null) hrvService.startSessionRecording();
         
         if (polarManager != null) {
@@ -432,6 +441,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private void stopMonitoring() {
         isRecording = false;
         isTrainingModeActive = false;
+
+        // Остановка анимации дыхания
+        if (ui.breatheView != null) {
+            ui.breatheView.stopMonitoring();
+        }
+
         if (isBound && hrvService != null) hrvService.stopSessionRecording();
         
         if (polarManager != null) {
@@ -558,6 +573,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         @Override
         public void onRrReceived(int rrMs, float instantHr) {
             if (isRecording) {
+                // Передача RR-интервала в анимированный компонент дыхания
+                if (ui.breatheView != null) {
+                    ui.breatheView.updateRr(rrMs);
+                }
+
                 boolean isArtifact = false;
                 if (prevRrMs > 0) {
                     if (Math.abs(rrMs - prevRrMs) / (float) prevRrMs > 0.20) {
