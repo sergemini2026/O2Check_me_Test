@@ -359,6 +359,27 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (isRecording) {
+            if (ui != null && ui.breatheView != null) {
+                ui.breatheView.resumeAnimation();
+            }
+            if (ui != null && ui.chartView != null) {
+                ui.chartView.invalidate();
+            }
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (ui != null && ui.breatheView != null) {
+            ui.breatheView.pauseAnimation();
+        }
+    }
+
     private void checkAndRequestPermissions() {
         if (!isProfileAuthorized) {
             Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
