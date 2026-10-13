@@ -76,14 +76,17 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             HrvForegroundService.LocalBinder binder = (HrvForegroundService.LocalBinder) service;
             hrvService = binder.getService();
             isBound = true;
-            if (hrvService != null && hrvService.isRecording()) {
-                hrvService.stopSessionRecording();
+            
+            // Синхронизируем состояние записи с сервисом вместо жесткого сброса в false
+            if (hrvService != null) {
+                isRecording = hrvService.isRecording();
+            } else {
+                isRecording = false;
             }
-            isRecording = false;
-            isTrainingModeActive = false;
+            
             updateRightPanelStatus();
             if (ui.btnHeart != null) {
-                ui.btnHeart.setAlpha(0.5f);
+                ui.btnHeart.setAlpha(isRecording ? 1.0f : (isProfileAuthorized ? 1.0f : 0.5f));
             }
         }
         @Override
