@@ -44,14 +44,6 @@ public class UiBuilder {
         public LinearLayout rightPanel;
         public TextView tvStatusLabel;
         public TextView tvStatusValue;
-
-        // Активные поля для датчиков кислорода (интегрированы с OxygenSensorManager)
-        public TextView tvPo2Mix;
-        public TextView tvPo2Hipo;
-        public TextView tvPo2Hiper;
-
-        // Ссылка на компонент анимации дыхания
-        public BreatheAnimationView breatheView;
     }
 
     public static Views buildUi(Context context) {
@@ -151,7 +143,7 @@ public class UiBuilder {
 
         v.mainLayout.addView(actionPanel);
 
-        // --- НИЖНЯЯ ПАНЕЛЬ: РАЗДЕЛЕНИЕ НА 60% (ЛОГ) И 40% (СТАТУС И ДАТЧИКИ) ---
+        // --- НИЖНЯЯ ПАНЕЛЬ: РАЗДЕЛЕНИЕ НА 60% (ЛОГ) И 40% (СТАТУС РЕЖИМОВ) ---
         LinearLayout bottomSplitLayout = new LinearLayout(context);
         bottomSplitLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams splitParams = new LinearLayout.LayoutParams(
@@ -183,24 +175,6 @@ public class UiBuilder {
         rightParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
         v.rightPanel.setLayoutParams(rightParams);
 
-        // --- ТРИ ПОЛЯ КИСЛОРОДНЫХ ДАТЧИКОВ (ВЫШЕ СТАТУСА) ---
-        LinearLayout sensorsLayout = new LinearLayout(context);
-        sensorsLayout.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams sensorsParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        sensorsParams.bottomMargin = (int) (6 * context.getResources().getDisplayMetrics().density);
-        sensorsLayout.setLayoutParams(sensorsParams);
-        sensorsLayout.setGravity(Gravity.CENTER);
-
-        v.tvPo2Mix = createSensorField(context, "PO2Mix []");
-        v.tvPo2Hipo = createSensorField(context, "PO2Hipo []");
-        v.tvPo2Hiper = createSensorField(context, "PO2Hiper []");
-
-        sensorsLayout.addView(v.tvPo2Mix);
-        sensorsLayout.addView(v.tvPo2Hipo);
-        sensorsLayout.addView(v.tvPo2Hiper);
-        v.rightPanel.addView(sensorsLayout);
-
         // Верхняя строка правой панели: "Статус:" (левое выравнивание)
         v.tvStatusLabel = new TextView(context);
         v.tvStatusLabel.setText("Статус:");
@@ -218,24 +192,9 @@ public class UiBuilder {
 
         LinearLayout.LayoutParams valueParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        valueParams.topMargin = (int) (4 * context.getResources().getDisplayMetrics().density);
+        valueParams.topMargin = (int) (6 * context.getResources().getDisplayMetrics().density);
         v.tvStatusValue.setLayoutParams(valueParams);
         v.rightPanel.addView(v.tvStatusValue);
-
-        // --- ВИЗУАЛЬНЫЙ БЛОК ФРАКТАЛЬНОГО ОБЪЕКТА (НИЖНЯЯ ЧАСТЬ ПРАВОЙ ПАНЕЛИ) ---
-        BreatheAnimationView breatheView = new BreatheAnimationView(context);
-        v.breatheView = breatheView; // Сохраняем ссылку
-
-        LinearLayout.LayoutParams fractalParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 
-                LinearLayout.LayoutParams.MATCH_PARENT
-        );
-        int marginPx = (int) (8 * context.getResources().getDisplayMetrics().density);
-        fractalParams.setMargins(marginPx, marginPx, marginPx, marginPx);
-        breatheView.setLayoutParams(fractalParams);
-
-        // Добавляем кастомный графический компонент с нативными градиентами в правую панель
-        v.rightPanel.addView(breatheView);
 
         // Добавляем обе половины в общий горизонтальный контейнер нижней части
         bottomSplitLayout.addView(v.logScrollView);
@@ -245,18 +204,6 @@ public class UiBuilder {
         v.mainLayout.addView(bottomSplitLayout);
 
         return v;
-    }
-
-    private static TextView createSensorField(Context context, String text) {
-        TextView tv = new TextView(context);
-        tv.setText(text);
-        tv.setTextSize(12);
-        tv.setTextColor(Color.CYAN);
-        tv.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
-        tv.setLayoutParams(params);
-        return tv;
     }
 
     private static LinearLayout createActionItem(Context context, ImageButton btn, String labelText) {
