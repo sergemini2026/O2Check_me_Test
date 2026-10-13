@@ -233,7 +233,7 @@ public class UiBuilder {
         fractalParams.bottomMargin = (int) (4 * context.getResources().getDisplayMetrics().density);
         breatheView.setLayoutParams(fractalParams);
 
-        // Добавляем кастомный графический компонент в правую панель
+        // Добавляем кастомный графический компонент с нативными градиентами в правую панель
         v.rightPanel.addView(breatheView);
 
         // Добавляем обе половины в общий горизонтальный контейнер нижней части
@@ -260,4 +260,137 @@ public class UiBuilder {
 
     private static LinearLayout createActionItem(Context context, ImageButton btn, String labelText) {
         LinearLayout itemLayout = new LinearLayout(context);
-        itemLayout.
+        itemLayout.setOrientation(LinearLayout.VERTICAL);
+        itemLayout.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+        itemLayout.setLayoutParams(itemParams);
+
+        itemLayout.addView(btn);
+
+        TextView tvLabel = new TextView(context);
+        tvLabel.setText(labelText);
+        tvLabel.setTextSize(11);
+        tvLabel.setTextColor(Color.WHITE);
+        tvLabel.setGravity(Gravity.CENTER);
+        tvLabel.setSingleLine(true);
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        labelParams.setMargins(0, 2, 0, 0);
+        tvLabel.setLayoutParams(labelParams);
+
+        itemLayout.addView(tvLabel);
+
+        return itemLayout;
+    }
+
+    private static Button createButton(Context context, String text, int iconRes) {
+        Button btn = new Button(context);
+        btn.setText(text);
+        btn.setGravity(Gravity.CENTER);
+        btn.setTextColor(Color.WHITE);
+        btn.setTextSize(11);
+        btn.setSingleLine(true);
+
+        int iconPaddingPx = (int) TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_MM, 3, context.getResources().getDisplayMetrics());
+
+        if (iconRes != 0) {
+            Drawable scaledIcon = getScaledDrawable(context, iconRes, 18);
+            btn.setCompoundDrawablesWithIntrinsicBounds(scaledIcon, null, null, null);
+            btn.setCompoundDrawablePadding(iconPaddingPx);
+        }
+
+        int paddingHorizPx = (int) (1 * context.getResources().getDisplayMetrics().density);
+        int paddingVertPx = (int) (2 * context.getResources().getDisplayMetrics().density);
+        btn.setPadding(paddingHorizPx, paddingVertPx, paddingHorizPx, paddingVertPx);
+
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f);
+        params.setMargins(2, 0, 2, 0);
+        btn.setLayoutParams(params);
+
+        if (iconRes != 0) {
+            btn.post(() -> {
+                boolean materialSuccess = false;
+                try {
+                    java.lang.reflect.Method setIconResourceMethod = btn.getClass().getMethod("setIconResource", int.class);
+                    java.lang.reflect.Method setIconGravityMethod = btn.getClass().getMethod("setIconGravity", int.class);
+                    java.lang.reflect.Method setIconPaddingMethod = btn.getClass().getMethod("setIconPadding", int.class);
+
+                    setIconResourceMethod.invoke(btn, iconRes);
+                    setIconGravityMethod.invoke(btn, 0x03); // ICON_GRAVITY_TEXT_START
+                    setIconPaddingMethod.invoke(btn, iconPaddingPx);
+                    materialSuccess = true;
+                } catch (Exception ignored) {
+                }
+
+                if (!materialSuccess) {
+                    int w = btn.getWidth();
+                    if (w > 0) {
+                        Drawable[] drawables = btn.getCompoundDrawables();
+                        int iconWidth = (drawables[0] != null) ? drawables[0].getIntrinsicWidth() : 0;
+                        float textWidth = btn.getPaint().measureText(text);
+
+                        float contentWidth = iconWidth + iconPaddingPx + textWidth;
+                        int pad = Math.max(0, (int) ((w - contentWidth) / 2f));
+                        btn.setPadding(pad, paddingVertPx, pad, paddingVertPx);
+                    }
+                }
+            });
+        }
+
+        return btn;
+    }
+
+    private static Drawable getScaledDrawable(Context context, int resId, int sizeDp) {
+        Drawable d = context.getResources().getDrawable(resId, context.getTheme());
+        int sizePx = (int) (sizeDp * context.getResources().getDisplayMetrics().density);
+
+        if (d instanceof BitmapDrawable) {
+            Bitmap bitmap = ((BitmapDrawable) d).getBitmap();
+            return new BitmapDrawable(context.getResources(),
+                    Bitmap.createScaledBitmap(bitmap, sizePx, sizePx, true));
+        }
+
+        Bitmap bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        d.setBounds(0, 0, canvas.getWidth(), canvas.getHeight());
+        d.draw(canvas);
+
+        return new BitmapDrawable(context.getResources(), bitmap);
+    }
+
+    public static void updateStatusHeader(TextView tvLiveMetrics, int spo2, int hr, float pi, int battery) {
+        updateStatusHeader(tvLiveMetrics, spo2, hr, pi, battery, 0);
+    }
+
+    public static void updateStatusHeader(TextView tvLiveMetrics, int spo2, int hr, float pi, int batteryO2, int batteryH10) {
+        if (tvLiveMetrics == null) return;
+
+        String partO2 = String.format(Locale.US, "SpO2: %d%%", spo2);
+        String partHR = String.format(Locale.US, "  |  HR: %d bpm", hr);
+        String partPI = String.format(Locale.US, "  |  PI: %.1f%%", pi);
+        String partPower = String.format(Locale.US, "  |  Power O2 %d%% / H10 %d%%", batteryO2, batteryH10);
+
+        SpannableStringBuilder builder = new SpannableStringBuilder();
+
+        int start = 0;
+        builder.append(partO2);
+        builder.setSpan(new ForegroundColorSpan(Color.CYAN), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        start = builder.length();
+        builder.append(partHR);
+        builder.setSpan(new ForegroundColorSpan(Color.GREEN), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        start = builder.length();
+        builder.append(partPI);
+        builder.setSpan(new ForegroundColorSpan(Color.YELLOW), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        start = builder.length();
+        builder.append(partPower);
+        builder.setSpan(new ForegroundColorSpan(Color.RED), start, builder.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+        tvLiveMetrics.setText(builder);
+    }
+}
