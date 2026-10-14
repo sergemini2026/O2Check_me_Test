@@ -20,7 +20,7 @@ import com.local.o2test.db.entity.SessionEntity
         RawMetricsEntity::class,
         HrvSnapshotEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -34,7 +34,7 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
-        @JvmStatic // Эта аннотация позволяет вызывать метод из Java как AppDatabase.getInstance(context)
+        @JvmStatic
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
