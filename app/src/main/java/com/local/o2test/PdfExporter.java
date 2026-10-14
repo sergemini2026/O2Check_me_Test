@@ -48,12 +48,12 @@ public class PdfExporter {
         double avgRmssd = 0, avgSdnn = 0, avgSi = 0, avgLfHf = 0, avgSd1 = 0, avgSd2 = 0;
         if (!snapshots.isEmpty()) {
             for (HrvSnapshotEntity s : snapshots) {
-                avgRmssd += s.rmssd;
-                avgSdnn += s.sdnn;
-                avgSi += s.baevskySi;
-                avgLfHf += s.lfHfRatio;
-                avgSd1 += s.sd1;
-                avgSd2 += s.sd2;
+                avgRmssd += s.getRmssd();
+                avgSdnn += s.getSdnn();
+                avgSi += s.getBaevskySi();
+                avgLfHf += s.getLfHfRatio();
+                avgSd1 += s.getSd1();
+                avgSd2 += s.getSd2();
             }
             int size = snapshots.size();
             avgRmssd /= size;
@@ -171,7 +171,7 @@ public class PdfExporter {
             document.finishPage(page2);
 
             // ==========================================
-            // СТРАНИЦЦЫ 3+: Хронологический лог снимков
+            // СТРАНИЦЫ 3+: Хронологический лог снимков
             // ==========================================
             SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
             int rowsPerPage = 22;
@@ -200,7 +200,7 @@ public class PdfExporter {
                 canvasN.drawText("LF/HF", MARGIN + 360, startY, paint);
                 canvasN.drawText("Артефакты", MARGIN + 440, startY, paint);
 
-                paint.setColor(Color.GRAY);
+                paint.setColor(Color.LTGRAY);
                 canvasN.drawLine(MARGIN, startY + 8, PAGE_WIDTH - MARGIN, startY + 8, paint);
 
                 paint.setColor(Color.BLACK);
@@ -212,12 +212,12 @@ public class PdfExporter {
 
                 for (int i = startRow; i < endRow; i++) {
                     HrvSnapshotEntity s = snapshots.get(i);
-                    canvasN.drawText(timeFormat.format(new Date(s.timestamp)), MARGIN, currentY, paint);
-                    canvasN.drawText(String.format(Locale.US, "%.1f", s.rmssd), MARGIN + 80, currentY, paint);
-                    canvasN.drawText(String.format(Locale.US, "%.1f", s.sdnn), MARGIN + 160, currentY, paint);
-                    canvasN.drawText(String.format(Locale.US, "%.1f", s.baevskySi), MARGIN + 240, currentY, paint);
-                    canvasN.drawText(String.format(Locale.US, "%.2f", s.lfHfRatio), MARGIN + 360, currentY, paint);
-                    canvasN.drawText(s.artifactsDetected + " (" + String.format(Locale.US, "%.1f%%", s.artifactPct) + ")", MARGIN + 440, currentY, paint);
+                    canvasN.drawText(timeFormat.format(new Date(s.getTimestamp())), MARGIN, currentY, paint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getRmssd()), MARGIN + 80, currentY, paint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getSdnn()), MARGIN + 160, currentY, paint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getBaevskySi()), MARGIN + 240, currentY, paint);
+                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getLfHfRatio()), MARGIN + 360, currentY, paint);
+                    canvasN.drawText(s.getArtifactsDetected() + " (" + String.format(Locale.US, "%.1f%%", s.getArtifactPct()) + ")", MARGIN + 440, currentY, paint);
 
                     currentY += 25;
                 }
@@ -274,7 +274,7 @@ public class PdfExporter {
         canvas.drawRect(left, top, left + width, top + height, paint);
 
         paint.setStyle(Paint.Style.STROKE);
-        paint.setColor(Color.LIGHT_GRAY);
+        paint.setColor(Color.LTGRAY);
         canvas.drawRect(left, top, left + width, top + height, paint);
 
         // Заголовок графика
@@ -293,8 +293,8 @@ public class PdfExporter {
 
         for (HrvSnapshotEntity s : snapshots) {
             // Масштабируем SD1 и SD2 для визуализации в пределах области графика
-            float px = (float) (centerX + (s.sd1 - 50) * 1.5);
-            float py = (float) (centerY - (s.sd2 - 50) * 1.5);
+            float px = (float) (centerX + (s.getSd1() - 50) * 1.5);
+            float py = (float) (centerY - (s.getSd2() - 50) * 1.5);
             if (px >= left + 10 && px <= left + width - 10 && py >= top + 30 && py <= top + height - 10) {
                 canvas.drawCircle(px, py, 3f, paint);
             }
@@ -311,7 +311,7 @@ public class PdfExporter {
         canvas.drawRect(left, top, left + width, top + height, paint);
 
         paint.setStyle(Paint.Style.STROKE);
-        paint.setColor(Color.LIGHT_GRAY);
+        paint.setColor(Color.LTGRAY);
         canvas.drawRect(left, top, left + width, top + height, paint);
 
         // Заголовок
