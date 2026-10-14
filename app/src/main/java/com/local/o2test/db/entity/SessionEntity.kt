@@ -29,5 +29,6 @@ data class SessionEntity(
     val rmssd: Double,
     val sdnn: Double,
     val lfHfRatio: Double,
-    val stressIndex: Double
+    val stressIndex: Double,
+    val pdfPath: String = "" // Добавлено поле для хранения пути к PDF-отчету сессии
 )
