@@ -14,8 +14,11 @@ import android.text.TextPaint;
 import com.local.o2test.db.entity.HrvSnapshotEntity;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
@@ -24,7 +27,7 @@ import java.util.Locale;
 public class PdfExporter {
 
     public interface PdfExportCallback {
-        void onSuccess(String filePath, String fileName);
+        void onSuccess(String internalPath, String publicPath, String fileName);
         void onError(String errorMessage);
     }
 
@@ -178,7 +181,7 @@ public class PdfExporter {
             document.finishPage(page1);
 
             // ==========================================
-            // СТРАНИЦА 2: Скатертограмма Пуанкаре
+            // СТРАНИЦА 2: Скатертограмма Пуанкаре + Полноценная расшифровка
             // ==========================================
             PdfDocument.PageInfo pageInfo2 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 2).create();
             PdfDocument.Page page2 = document.startPage(pageInfo2);
@@ -190,24 +193,27 @@ public class PdfExporter {
             textPaint.setFakeBoldText(true);
             canvas2.drawText("3. Скатертограмма Пуанкаре и анализ геометрии", MARGIN, 45, textPaint);
 
-            drawPoincarePlot(canvas2, snapshots, MARGIN, 65, PAGE_WIDTH - 2 * MARGIN, 350);
+            drawPoincarePlot(canvas2, snapshots, MARGIN, 65, PAGE_WIDTH - 2 * MARGIN, 340);
 
             textPaint.setTextSize(11);
             textPaint.setFakeBoldText(true);
             textPaint.setColor(Color.parseColor("#0F172A"));
-            canvas2.drawText("Расшифровка показателей Пуанкаре:", MARGIN, 432, textPaint);
+            canvas2.drawText("Расшифровка показателей Пуанкаре:", MARGIN, 420, textPaint);
 
             TextPaint poincareDescPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-            poincareDescPaint.setTextSize(9.5f);
+            poincareDescPaint.setTextSize(9.0f);
             poincareDescPaint.setColor(Color.parseColor("#334155"));
 
+            // ВОЗВРАЩЕНА ПОЛНАЯ РАСШИФРОВКА С ЦВЕТОВОЙ КОДИРОВКОЙ И DFA
             String[] poincareDescriptions = {
                 "• SD1 (поперечная ось): Характеризует краткосрочную (дыхательную) вариабельность и парасимпатический тонус.",
                 "• SD2 (продольная ось): Характеризует долгосрочную вариабельность и общие адаптационные резервы организма.",
+                "• Цветовая кодировка точек: Серые точки — стабильные зоны, синие и голубые — фазы активной вегетативной регуляции.",
+                "• Облако точек (форма кометы): Вытянутая форма указывает на нормальный синусовый ритм и сбалансированность регуляции.",
                 "• DFA alpha1: Оценивает фрактальные корреляции. Значения около 1.0 указывают на сбалансированную работу регуляторных систем."
             };
 
-            int currentDescY = 448;
+            int currentDescY = 434;
             int availableWidth = PAGE_WIDTH - 2 * MARGIN;
 
             for (String desc : poincareDescriptions) {
@@ -218,7 +224,7 @@ public class PdfExporter {
                         .build();
                 layout.draw(canvas2);
                 canvas2.restore();
-                currentDescY += layout.getHeight() + 4;
+                currentDescY += layout.getHeight() + 3;
             }
 
             document.finishPage(page2);
@@ -284,28 +290,48 @@ public class PdfExporter {
                 document.finishPage(pageN);
             }
 
-            File targetDir;
+            // 1. Публичное сохранение (Documents)
+            File publicDir;
             if (customDirPath != null && !customDirPath.isEmpty()) {
-                targetDir = new File(customDirPath);
+                publicDir = new File(customDirPath);
             } else {
-                targetDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+                publicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
             }
-            if (!targetDir.exists()) targetDir.mkdirs();
+            if (!publicDir.exists()) publicDir.mkdirs();
 
             String fileName = "HRV_Report_" + System.currentTimeMillis() + ".pdf";
-            File file = new File(targetDir, fileName);
+            File publicFile = new File(publicDir, fileName);
 
-            document.writeTo(new FileOutputStream(file));
+            FileOutputStream fos = new FileOutputStream(publicFile);
+            document.writeTo(fos);
+            fos.close();
             document.close();
 
+            // 2. Внутреннее копирование (Android/data/com.local.o2test/files/)
+            File internalDir = context.getExternalFilesDir(null);
+            if (internalDir != null && !internalDir.exists()) internalDir.mkdirs();
+            File internalFile = new File(internalDir, fileName);
+
+            copyFile(publicFile, internalFile);
+
             if (callback != null) {
-                callback.onSuccess(file.getAbsolutePath(), fileName);
+                callback.onSuccess(internalFile.getAbsolutePath(), publicFile.getAbsolutePath(), fileName);
             }
 
         } catch (IOException e) {
             document.close();
             if (callback != null) {
                 callback.onError(e.getMessage());
+            }
+        }
+    }
+
+    private static void copyFile(File src, File dst) throws IOException {
+        try (InputStream in = new FileInputStream(src); OutputStream out = new FileOutputStream(dst)) {
+            byte[] buf = new byte[4096];
+            int len;
+            while ((len = in.read(buf)) > 0) {
+                out.write(buf, 0, len);
             }
         }
     }
