@@ -20,6 +20,7 @@ data class HrvSnapshotEntity(
     val sd2: Double,
     val sd1sd2Ratio: Double,
     val baevskySi: Double,
+    val sampleEntropy: Double = 0.0, // Новое поле: Энтропия сердечного ритма
     val artifactsDetected: Int,
     val artifactPct: Double
 ) {
@@ -37,6 +38,7 @@ data class HrvSnapshotEntity(
         sd2 = m.sd2,
         sd1sd2Ratio = m.sd1sd2Ratio,
         baevskySi = m.baevskySi,
+        sampleEntropy = m.sampleEntropy,
         artifactsDetected = m.artifactsDetected,
         artifactPct = m.artifactPct
     )
