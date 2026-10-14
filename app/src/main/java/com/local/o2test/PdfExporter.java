@@ -179,7 +179,7 @@ public class PdfExporter {
             document.finishPage(page1);
 
             // ==========================================
-            // СТРАНИЦА 2: Скатертограмма Пуанкаре
+            // СТРАНИЦА 2: Скатертограмма Пуанкаре + расшифровка с StaticLayout
             // ==========================================
             PdfDocument.PageInfo pageInfo2 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 2).create();
             PdfDocument.Page page2 = document.startPage(pageInfo2);
@@ -196,20 +196,33 @@ public class PdfExporter {
             textPaint.setTextSize(11);
             textPaint.setFakeBoldText(true);
             textPaint.setColor(Color.parseColor("#0F172A"));
-            canvas2.drawText("Расшифровка показателей Пуанкаре:", MARGIN, 435, textPaint);
+            canvas2.drawText("Расшифровка показателей Пуанкаре:", MARGIN, 432, textPaint);
 
-            textPaint.setTextSize(10f);
-            textPaint.setFakeBoldText(false);
-            textPaint.setColor(Color.parseColor("#334155"));
-            
-            int textY = 455;
-            canvas2.drawText("• SD1 (поперечная ось): Характеризует краткосрочную (дыхательную) вариабельность и парасимпатический тонус.", MARGIN, textY, textPaint);
-            textY += 18;
-            canvas2.drawText("• SD2 (продольная ось): Характеризует долгосрочную вариабельность и общие адаптационные резервы организма.", MARGIN, textY, textPaint);
-            textY += 18;
-            canvas2.drawText("• Цветовая кодировка точек: Серые точки — стабильные зоны, синие и голубые — фазы активной вегетативной регуляции.", MARGIN, textY, textPaint);
-            textY += 18;
-            canvas2.drawText("• Облако точек (форма кометы): Вытянутая форма указывает на нормальный синусовый ритм и сбалансированность регуляции.", MARGIN, textY, textPaint);
+            // Подготовка TextPaint и списка строк для корректного переноса текста (StaticLayout)
+            TextPaint poincareDescPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+            poincareDescPaint.setTextSize(9.5f);
+            poincareDescPaint.setColor(Color.parseColor("#334155"));
+
+            String[] poincareDescriptions = {
+                "• SD1 (поперечная ось): Характеризует краткосрочную (дыхательную) вариабельность и парасимпатический тонус.",
+                "• SD2 (продольная ось): Характеризует долгосрочную вариабельность и общие адаптационные резервы организма.",
+                "• Цветовая кодировка точек: Серые точки — стабильные зоны, синие и голубые — фазы активной вегетативной регуляции.",
+                "• Облако точек (форма кометы): Вытянутая форма указывает на нормальный синусовый ритм и сбалансированность регуляции."
+            };
+
+            int currentDescY = 448;
+            int availableWidth = PAGE_WIDTH - 2 * MARGIN;
+
+            for (String desc : poincareDescriptions) {
+                canvas2.save();
+                canvas2.translate(MARGIN, currentDescY);
+                StaticLayout layout = StaticLayout.Builder.obtain(desc, 0, desc.length(), poincareDescPaint, availableWidth)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .build();
+                layout.draw(canvas2);
+                canvas2.restore();
+                currentDescY += layout.getHeight() + 4; // Динамический отступ с учетом высоты многострочного блока
+            }
 
             document.finishPage(page2);
 
@@ -369,7 +382,6 @@ public class PdfExporter {
         Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         strokePaint.setStyle(Paint.Style.STROKE);
 
-        // Фон области графика
         fillPaint.setColor(Color.parseColor("#F8FAFC"));
         canvas.drawRect(left, top, left + width, top + height, fillPaint);
 
@@ -377,20 +389,17 @@ public class PdfExporter {
         strokePaint.setStrokeWidth(1f);
         canvas.drawRect(left, top, left + width, top + height, strokePaint);
 
-        // Заголовок графика
         Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         textPaint.setColor(Color.parseColor("#0F172A"));
         textPaint.setTextSize(10.5f);
         textPaint.setFakeBoldText(true);
         canvas.drawText(title, left + 10, top + 16, textPaint);
 
-        // Отступ слева под шкалу значений SpO2
         int plotLeft = left + 45;
         int plotTop = top + 26;
         int plotWidth = width - 60;
         int plotHeight = height - 36;
 
-        // Рисуем сетку и шкалу SpO2 (85%, 90%, 95%, 100%)
         textPaint.setTextSize(8f);
         textPaint.setFakeBoldText(false);
         textPaint.setColor(Color.parseColor("#64748B"));
