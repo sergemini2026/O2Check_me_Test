@@ -497,16 +497,49 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 );
                 long sessionId = db.sessionDao().insertSessionSync(session);
 
-                // Сохраняем пакет валидированных HRV снимков через DAO
+                // Формируем список сущностей для БД и список снимков для отчета
+                List<HrvSnapshotEntity> entityList = new ArrayList<>();
                 if (!capturedSnapshots.isEmpty()) {
-                    List<HrvSnapshotEntity> entityList = new ArrayList<>();
                     for (SessionSnapshot snapshot : capturedSnapshots) {
                         entityList.add(new HrvSnapshotEntity(snapshot.getTimestamp(), snapshot.getMetrics()));
                     }
                     db.hrvSnapshotDao().insertAll(entityList);
                 }
 
-                runOnUiThread(() -> onLog("Сессия #" + sessionId + " и " + capturedSnapshots.size() + " HRV снимков зарегистрированы в базе данных Room"));
+                // Собираем сырые RR-интервалы из собранных точек сеанса для гистограммы
+                List<Integer> sessionRrList = new ArrayList<>();
+                for (DataPoint dp : points) {
+                    if (dp.getRrMs() > 0) {
+                        sessionRrList.add(dp.getRrMs());
+                    }
+                }
+
+                runOnUiThread(() -> {
+                    onLog("Сессия #" + sessionId + " и " + capturedSnapshots.size() + " HRV снимков зарегистрированы в базе данных Room");
+
+                    // Запуск генерации PDF-отчета
+                    PdfExporter.generateHrvPdfReport(
+                            MainActivity.this,
+                            activeProfileName,
+                            currentWorkoutMode,
+                            sessionStartTime,
+                            endTime,
+                            entityList,     // Список HrvSnapshotEntity из базы
+                            sessionRrList,  // Список сырых RR-интервалов
+                            new PdfExporter.PdfExportCallback() {
+                                @Override
+                                public void onSuccess(String filePath, String fileNamePdf) {
+                                    onLog("PDF успешно создан: " + fileNamePdf);
+                                    Toast.makeText(MainActivity.this, "Отчет сохранен в Документы", Toast.LENGTH_LONG).show();
+                                }
+                                @Override
+                                public void onError(String errorMessage) {
+                                    onLog("Ошибка создания PDF: " + errorMessage);
+                                }
+                            }
+                    );
+                });
+
             } catch (Exception e) {
                 runOnUiThread(() -> onLog("Ошибка записи сессии в БД: " + e.getMessage()));
             }
