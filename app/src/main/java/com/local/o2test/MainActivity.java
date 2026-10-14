@@ -573,6 +573,19 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                 endTime,
                                 entityList,
                                 sessionRrList,
+                                points, // Передаем реальные точки DataPoint для графика SpO2
+                                customPath,
+                                new PdfExporter.PdfExportCallback() {
+                                @Override
+            public void onSuccess(String filePath, String fileNamePdf) {
+                onLog("PDF успешно создан: " + fileNamePdf);
+                Toast.makeText(MainActivity.this, "Отчет сохранен", Toast.LENGTH_LONG).show();
+            }
+            @Override
+            public void onError(String errorMessage) {
+                onLog("Ошибка создания PDF: " + errorMessage);
+            }
+        }
                                 customPath,
                                 new PdfExporter.PdfExportCallback() {
                                     @Override
