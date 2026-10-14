@@ -543,8 +543,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 List<HrvSnapshotEntity> entityList = new ArrayList<>();
                 if (!capturedSnapshots.isEmpty()) {
                     for (SessionSnapshot snapshot : capturedSnapshots) {
-                        if (snapshot.getMetrics().getBaevskySi() > 0 && snapshot.getMetrics().getBaevskySi() <= 300) {
-                            entityList.add(new HrvSnapshotEntity(snapshot.getTimestamp(), snapshot.getMetrics()));
+                        HrvSnapshotEntity entity = new HrvSnapshotEntity(snapshot.getTimestamp(), snapshot.getMetrics());
+                        if (entity.getBaevskySi() > 0 && entity.getBaevskySi() <= 300) {
+                            entityList.add(entity);
                         }
                     }
                     if (!entityList.isEmpty()) {
