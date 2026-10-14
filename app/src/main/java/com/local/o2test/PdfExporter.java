@@ -48,7 +48,7 @@ public class PdfExporter {
         SimpleDateFormat sdf = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.US);
 
         // Расчет средних значений с фильтрацией артефактов
-        double avgRmssd = 0, avgSdnn = 0, avgSi = 0, avgLfHf = 0, avgSd1 = 0, avgSd2 = 0;
+        double avgRmssd = 0, avgSdnn = 0, avgSi = 0, avgLfHf = 0, avgSd1 = 0, avgSd2 = 0, avgSampEn = 0;
         int validCount = 0;
         if (!snapshots.isEmpty()) {
             for (HrvSnapshotEntity s : snapshots) {
@@ -59,6 +59,7 @@ public class PdfExporter {
                 avgLfHf += s.getLfHfRatio();
                 avgSd1 += s.getSd1();
                 avgSd2 += s.getSd2();
+                avgSampEn += s.getSampleEntropy();
                 validCount++;
             }
             if (validCount > 0) {
@@ -68,6 +69,7 @@ public class PdfExporter {
                 avgLfHf /= validCount;
                 avgSd1 /= validCount;
                 avgSd2 /= validCount;
+                avgSampEn /= validCount;
             }
         }
 
@@ -112,16 +114,17 @@ public class PdfExporter {
             textPaint.setFakeBoldText(true);
             canvas1.drawText("1. Сводные вегетативные показатели", MARGIN, 110, textPaint);
 
-            drawMetricRow(canvas1, 130, "RMSSD (мск):", String.format(Locale.US, "%.1f", avgRmssd), "Норма: 20-100");
-            drawMetricRow(canvas1, 148, "SDNN (мск):", String.format(Locale.US, "%.1f", avgSdnn), "Общая вариабельность");
-            drawMetricRow(canvas1, 166, "Индекс Баевского (SI):", String.format(Locale.US, "%.1f у.е.", avgSi), "Индекс напряжения");
-            drawMetricRow(canvas1, 184, "Баланс LF/HF:", String.format(Locale.US, "%.2f", avgLfHf), "Симпато-вагальный баланс");
+            drawMetricRow(canvas1, 128, "RMSSD (мск):", String.format(Locale.US, "%.1f", avgRmssd), "Норма: 20-100");
+            drawMetricRow(canvas1, 144, "SDNN (мск):", String.format(Locale.US, "%.1f", avgSdnn), "Общая вариабельность");
+            drawMetricRow(canvas1, 160, "Индекс Баевского (SI):", String.format(Locale.US, "%.1f у.е.", avgSi), "Индекс напряжения");
+            drawMetricRow(canvas1, 176, "Баланс LF/HF:", String.format(Locale.US, "%.2f", avgLfHf), "Симпато-вагальный баланс");
+            drawMetricRow(canvas1, 192, "Энтропия (SampEn):", String.format(Locale.US, "%.2f", avgSampEn), "Хаотичность / Сложность");
 
             // Блок 2: Клиническая интерпретация состояния
             textPaint.setTextSize(12);
             textPaint.setFakeBoldText(true);
             textPaint.setColor(Color.parseColor("#0F172A"));
-            canvas1.drawText("2. Клиническая интерпретация состояния", MARGIN, 212, textPaint);
+            canvas1.drawText("2. Клиническая интерпретация состояния", MARGIN, 218, textPaint);
 
             String statusTitle, statusDesc;
             int statusColor;
@@ -146,10 +149,10 @@ public class PdfExporter {
 
             // Контейнер клинической интерпретации
             fillPaint.setColor(Color.parseColor("#F8FAFC"));
-            canvas1.drawRect(MARGIN, 222, PAGE_WIDTH - MARGIN, 280, fillPaint);
+            canvas1.drawRect(MARGIN, 226, PAGE_WIDTH - MARGIN, 282, fillPaint);
             strokePaint.setColor(statusColor);
             strokePaint.setStrokeWidth(1f);
-            canvas1.drawRect(MARGIN, 222, PAGE_WIDTH - MARGIN, 280, strokePaint);
+            canvas1.drawRect(MARGIN, 226, PAGE_WIDTH - MARGIN, 282, strokePaint);
 
             TextPaint titlePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
             titlePaint.setTextSize(11);
@@ -161,13 +164,13 @@ public class PdfExporter {
             descPaint.setColor(Color.parseColor("#1E293B"));
 
             canvas1.save();
-            canvas1.translate(MARGIN + 12, 230);
+            canvas1.translate(MARGIN + 12, 234);
             StaticLayout.Builder.obtain(statusTitle, 0, statusTitle.length(), titlePaint, PAGE_WIDTH - 2 * MARGIN - 24)
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
             canvas1.restore();
 
             canvas1.save();
-            canvas1.translate(MARGIN + 12, 248);
+            canvas1.translate(MARGIN + 12, 252);
             StaticLayout.Builder.obtain(statusDesc, 0, statusDesc.length(), descPaint, PAGE_WIDTH - 2 * MARGIN - 24)
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
             canvas1.restore();
@@ -198,7 +201,6 @@ public class PdfExporter {
             textPaint.setColor(Color.parseColor("#0F172A"));
             canvas2.drawText("Расшифровка показателей Пуанкаре:", MARGIN, 432, textPaint);
 
-            // Подготовка TextPaint и списка строк для корректного переноса текста (StaticLayout)
             TextPaint poincareDescPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
             poincareDescPaint.setTextSize(9.5f);
             poincareDescPaint.setColor(Color.parseColor("#334155"));
@@ -221,7 +223,7 @@ public class PdfExporter {
                         .build();
                 layout.draw(canvas2);
                 canvas2.restore();
-                currentDescY += layout.getHeight() + 4; // Динамический отступ с учетом высоты многострочного блока
+                currentDescY += layout.getHeight() + 4;
             }
 
             document.finishPage(page2);
@@ -251,11 +253,12 @@ public class PdfExporter {
                 textPaint.setFakeBoldText(true);
                 textPaint.setColor(Color.parseColor("#0F172A"));
                 canvasN.drawText("Время", MARGIN, startY, textPaint);
-                canvasN.drawText("RMSSD", MARGIN + 80, startY, textPaint);
-                canvasN.drawText("SDNN", MARGIN + 160, startY, textPaint);
-                canvasN.drawText("SI (Баевский)", MARGIN + 240, startY, textPaint);
-                canvasN.drawText("LF/HF", MARGIN + 360, startY, textPaint);
-                canvasN.drawText("Артефакты", MARGIN + 440, startY, textPaint);
+                canvasN.drawText("RMSSD", MARGIN + 70, startY, textPaint);
+                canvasN.drawText("SDNN", MARGIN + 140, startY, textPaint);
+                canvasN.drawText("SI", MARGIN + 210, startY, textPaint);
+                canvasN.drawText("LF/HF", MARGIN + 280, startY, textPaint);
+                canvasN.drawText("SampEn", MARGIN + 350, startY, textPaint);
+                canvasN.drawText("Артефакты", MARGIN + 430, startY, textPaint);
 
                 strokePaint.setColor(Color.parseColor("#CBD5E1"));
                 strokePaint.setStrokeWidth(1f);
@@ -271,11 +274,12 @@ public class PdfExporter {
                 for (int i = startRow; i < endRow; i++) {
                     HrvSnapshotEntity s = snapshots.get(i);
                     canvasN.drawText(timeFormat.format(new Date(s.getTimestamp())), MARGIN, currentY, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getRmssd()), MARGIN + 80, currentY, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getSdnn()), MARGIN + 160, currentY, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getBaevskySi()), MARGIN + 240, currentY, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getLfHfRatio()), MARGIN + 360, currentY, textPaint);
-                    canvasN.drawText(s.getArtifactsDetected() + " (" + String.format(Locale.US, "%.1f%%", s.getArtifactPct()) + ")", MARGIN + 440, currentY, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getRmssd()), MARGIN + 70, currentY, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getSdnn()), MARGIN + 140, currentY, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getBaevskySi()), MARGIN + 210, currentY, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getLfHfRatio()), MARGIN + 280, currentY, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getSampleEntropy()), MARGIN + 350, currentY, textPaint);
+                    canvasN.drawText(s.getArtifactsDetected() + " (" + String.format(Locale.US, "%.1f%%", s.getArtifactPct()) + ")", MARGIN + 430, currentY, textPaint);
 
                     currentY += 22;
                 }
