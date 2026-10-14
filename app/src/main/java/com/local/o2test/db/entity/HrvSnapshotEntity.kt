@@ -20,11 +20,11 @@ data class HrvSnapshotEntity(
     val sd2: Double,
     val sd1sd2Ratio: Double,
     val baevskySi: Double,
-    val sampleEntropy: Double = 0.0, // Новое поле: Энтропия сердечного ритма
+    val sampleEntropy: Double = 0.0,
+    val dfaAlpha1: Double = 1.0, // Новое поле: DFA alpha1
     val artifactsDetected: Int,
     val artifactPct: Double
 ) {
-    // Вторичный конструктор для удобного маппинга из нашего Java-класса Metrics
     constructor(timestamp: Long, m: HrvCalculator.Metrics) : this(
         timestamp = timestamp,
         rmssd = m.rmssd,
@@ -39,6 +39,7 @@ data class HrvSnapshotEntity(
         sd1sd2Ratio = m.sd1sd2Ratio,
         baevskySi = m.baevskySi,
         sampleEntropy = m.sampleEntropy,
+        dfaAlpha1 = m.dfaAlpha1,
         artifactsDetected = m.artifactsDetected,
         artifactPct = m.artifactPct
     )
