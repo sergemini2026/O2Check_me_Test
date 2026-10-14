@@ -7,6 +7,9 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.pdf.PdfDocument;
 import android.os.Environment;
+import android.text.Layout;
+import android.text.StaticLayout;
+import android.text.TextPaint;
 import android.widget.Toast;
 
 import com.local.o2test.db.entity.HrvSnapshotEntity;
@@ -26,7 +29,6 @@ public class PdfExporter {
         void onError(String errorMessage);
     }
 
-    // Стандартные размеры страницы А4 в пунктах (72 DPI)
     private static final int PAGE_WIDTH = 595;
     private static final int PAGE_HEIGHT = 842;
     private static final int MARGIN = 40;
@@ -39,78 +41,84 @@ public class PdfExporter {
             long endTime,
             List<HrvSnapshotEntity> snapshots,
             List<Integer> rawRrList,
+            String customDirPath,
             PdfExportCallback callback
     ) {
         PdfDocument document = new PdfDocument();
         SimpleDateFormat sdf = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.US);
 
-        // Расчет средних значений по снимкам для сводки
+        // Фильтрация аномальных выбросов (например, SI > 300) для расчета средних
         double avgRmssd = 0, avgSdnn = 0, avgSi = 0, avgLfHf = 0, avgSd1 = 0, avgSd2 = 0;
+        int validCount = 0;
         if (!snapshots.isEmpty()) {
             for (HrvSnapshotEntity s : snapshots) {
+                if (s.getBaevskySi() > 300 || s.getBaevskySi() <= 0) continue; // отсекаем артефакты
                 avgRmssd += s.getRmssd();
                 avgSdnn += s.getSdnn();
                 avgSi += s.getBaevskySi();
                 avgLfHf += s.getLfHfRatio();
                 avgSd1 += s.getSd1();
                 avgSd2 += s.getSd2();
+                validCount++;
             }
-            int size = snapshots.size();
-            avgRmssd /= size;
-            avgSdnn /= size;
-            avgSi /= size;
-            avgLfHf /= size;
-            avgSd1 /= size;
-            avgSd2 /= size;
+            if (validCount > 0) {
+                avgRmssd /= validCount;
+                avgSdnn /= validCount;
+                avgSi /= validCount;
+                avgLfHf /= validCount;
+                avgSd1 /= validCount;
+                avgSd2 /= validCount;
+            }
         }
 
         try {
             // ==========================================
-            // СТРАНИЦА 1: Шапка и Клинический интерпретатор
+            // СТРАНИЦА 1: Шапка, Сводка, Интерпретация, Графики (РР и SpO2)
             // ==========================================
             PdfDocument.PageInfo pageInfo1 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 1).create();
             PdfDocument.Page page1 = document.startPage(pageInfo1);
             Canvas canvas1 = page1.getCanvas();
 
+            // Чисто белый фон
+            canvas1.drawColor(Color.WHITE);
+
             Paint paint = new Paint();
             paint.setAntiAlias(true);
 
-            // Заголовок документа
-            paint.setColor(Color.parseColor("#1E3A8A")); // Темно-синий
-            paint.setTextSize(20);
+            // Заголовок документа (уменьшен на 2п: с 20 до 18)
+            paint.setColor(Color.parseColor("#1E293B")); // Slate 800
+            paint.setTextSize(18);
             paint.setFakeBoldText(true);
-            canvas1.drawText("ОТЧЕТ АНАЛИЗА ВАРИАБЕЛЬНОСТИ СЕРДЕЧНОГО РИТМА (ВСР)", MARGIN, 60, paint);
+            canvas1.drawText("ОТЧЕТ АНАЛИЗА ВАРИАБЕЛЬНОСТИ СЕРДЕЧНОГО РИТМА", MARGIN, 45, paint);
 
             // Метаданные
-            paint.setColor(Color.DKGRAY);
-            paint.setTextSize(11);
+            paint.setColor(Color.parseColor("#475569")); // Slate 600
+            paint.setTextSize(10);
             paint.setFakeBoldText(false);
-            canvas1.drawText("Профиль: " + profileName, MARGIN, 90, paint);
-            canvas1.drawText("Режим сеанса: " + workoutMode, MARGIN, 110, paint);
-            canvas1.drawText("Начало: " + sdf.format(new Date(startTime)) + " | Окончание: " + sdf.format(new Date(endTime)), MARGIN, 130, paint);
+            canvas1.drawText("Профиль: " + profileName + "  |  Режим: " + workoutMode, MARGIN, 65, paint);
+            canvas1.drawText("Период: " + sdf.format(new Date(startTime)) + " — " + sdf.format(new Date(endTime)), MARGIN, 80, paint);
 
             // Линия разделителя
-            paint.setColor(Color.LTGRAY);
-            canvas1.drawLine(MARGIN, 145, PAGE_WIDTH - MARGIN, 145, paint);
+            paint.setColor(Color.parseColor("#CBD5E1")); // Slate 300
+            canvas1.drawLine(MARGIN, 90, PAGE_WIDTH - MARGIN, 90, paint);
 
             // Блок 1: Сводные показатели
-            paint.setColor(Color.BLACK);
-            paint.setTextSize(14);
+            paint.setColor(Color.parseColor("#1E293B"));
+            paint.setTextSize(12);
             paint.setFakeBoldText(true);
-            canvas1.drawText("1. Сводные вегетативные показатели", MARGIN, 175, paint);
+            canvas1.drawText("1. Сводные вегетативные показатели", MARGIN, 110, paint);
 
-            drawMetricRow(canvas1, 205, "RMSSD (мск):", String.format(Locale.US, "%.1f", avgRmssd), "Норма: 20-100");
-            drawMetricRow(canvas1, 230, "SDNN (мск):", String.format(Locale.US, "%.1f", avgSdnn), "Общая вариабельность");
-            drawMetricRow(canvas1, 255, "Индекс Баевского (SI):", String.format(Locale.US, "%.1f у.е.", avgSi), "Индекс напряжения");
-            drawMetricRow(canvas1, 280, "Баланс LF/HF:", String.format(Locale.US, "%.2f", avgLfHf), "Симпато-вагальный баланс");
+            drawMetricRow(canvas1, 130, "RMSSD (мск):", String.format(Locale.US, "%.1f", avgRmssd), "Норма: 20-100");
+            drawMetricRow(canvas1, 148, "SDNN (мск):", String.format(Locale.US, "%.1f", avgSdnn), "Общая вариабельность");
+            drawMetricRow(canvas1, 166, "Индекс Баевского (SI):", String.format(Locale.US, "%.1f у.е.", avgSi), "Индекс напряжения");
+            drawMetricRow(canvas1, 184, "Баланс LF/HF:", String.format(Locale.US, "%.2f", avgLfHf), "Симпато-вагальный баланс");
 
             // Блок 2: Клинический интерпретатор
-            paint.setTextSize(14);
+            paint.setTextSize(12);
             paint.setFakeBoldText(true);
-            paint.setColor(Color.BLACK);
-            canvas1.drawText("2. Клиническая интерпретация состояния", MARGIN, 335, paint);
+            paint.setColor(Color.parseColor("#1E293B"));
+            canvas1.drawText("2. Клиническая интерпретация состояния", MARGIN, 212, paint);
 
-            // Логика определения статуса по SI и RMSSD
             String statusTitle;
             String statusDesc;
             int statusColor;
@@ -118,55 +126,94 @@ public class PdfExporter {
             if (avgSi < 50) {
                 statusTitle = "ВАГОТОНИЯ (Парасимпатическое преобладание)";
                 statusDesc = "Выраженное преобладание парасимпатического отдела. Характерно для глубокого восстановления, отдыха или спортивной брадикардии.";
-                statusColor = Color.parseColor("#047857"); // Зеленый
+                statusColor = Color.parseColor("#047857");
             } else if (avgSi >= 50 && avgSi <= 150) {
                 statusTitle = "НОРМА (Сбалансированная вегетативная регуляция)";
                 statusDesc = "Оптимальный уровень адаптационных резервов. Организм находится в состоянии функционального баланса.";
-                statusColor = Color.parseColor("#1D4ED8"); // Синий
+                statusColor = Color.parseColor("#0284C7"); // Blue/Sky
             } else if (avgSi > 150 && avgSi <= 500) {
                 statusTitle = "УМЕРЕННЫЙ СТРЕСС / СИМПАТИКОТОНИЯ";
                 statusDesc = "Преобладание симпатического тонуса. Указывает на мобилизацию ресурсов, умеренную нагрузку или начальную фазу утомления.";
-                statusColor = Color.parseColor("#B45309"); // Оранжевый
+                statusColor = Color.parseColor("#B45309");
             } else {
                 statusTitle = "ВЫРАЖЕННОЕ ПЕРЕНАПРЯЖЕНИЕ / СТРЕСС";
                 statusDesc = "Резкое снижение адаптационного потенциала, перенапряжение регуляторных систем. Рекомендован отдых и контроль нагрузки.";
-                statusColor = Color.parseColor("#B91C1C"); // Красный
+                statusColor = Color.parseColor("#B91C1C");
             }
 
-            // Отрисовка плашки статуса
+            // Плашка статуса с поддержкой авто-переноса текста (StaticLayout)
             paint.setStyle(Paint.Style.FILL);
+            paint.setColor(Color.parseColor("#F8FAFC")); // Slate 50
+            canvas1.drawRect(MARGIN, 222, PAGE_WIDTH - MARGIN, 280, paint);
+            paint.setStyle(Paint.Style.STROKE);
             paint.setColor(statusColor);
-            canvas1.drawRect(MARGIN, 355, PAGE_WIDTH - MARGIN, 430, paint);
+            canvas1.drawRect(MARGIN, 222, PAGE_WIDTH - MARGIN, 280, paint);
 
-            paint.setColor(Color.WHITE);
-            paint.setTextSize(13);
-            paint.setFakeBoldText(true);
-            canvas1.drawText(statusTitle, MARGIN + 15, 380, paint);
+            TextPaint titlePaint = new TextPaint();
+            titlePaint.setAntiAlias(true);
+            titlePaint.setTextSize(11);
+            titlePaint.setFakeBoldText(true);
+            titlePaint.setColor(statusColor);
 
-            paint.setTextSize(11);
-            paint.setFakeBoldText(false);
-            // Простейший перенос текста в плашке
-            canvas1.drawText(statusDesc, MARGIN + 15, 405, paint);
+            TextPaint descPaint = new TextPaint();
+            descPaint.setAntiAlias(true);
+            descPaint.setTextSize(9.5f);
+            descPaint.setColor(Color.parseColor("#334155"));
+
+            canvas1.save();
+            canvas1.translate(MARGIN + 10, 228);
+            StaticLayout titleLayout = StaticLayout.Builder.obtain(statusTitle, 0, statusTitle.length(), titlePaint, PAGE_WIDTH - 2 * MARGIN - 20)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL).build();
+            titleLayout.draw(canvas1);
+            canvas1.restore();
+
+            canvas1.save();
+            canvas1.translate(MARGIN + 10, 246);
+            StaticLayout descLayout = StaticLayout.Builder.obtain(statusDesc, 0, statusDesc.length(), descPaint, PAGE_WIDTH - 2 * MARGIN - 20)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL).build();
+            descLayout.draw(canvas1);
+            canvas1.restore();
+
+            // Блок 3: Графики на первой странице (Гистограмма RR - красная, Оксигенация - голубая)
+            drawHistogram(canvas1, rawRrList, MARGIN, 295, PAGE_WIDTH - 2 * MARGIN, 115, Color.parseColor("#DC2626"), "Гистограмма RR-интервалов (мс)");
+            drawOxygenationChart(canvas1, snapshots, MARGIN, 425, PAGE_WIDTH - 2 * MARGIN, 115, Color.parseColor("#0EA5E9"), "Динамика оксигенации SpO2 (%)");
 
             document.finishPage(page1);
 
             // ==========================================
-            // СТРАНИЦА 2: Графический анализ (Пуанкаре и Гистограмма)
+            // СТРАНИЦА 2: Скатертограмма Пуанкаре + Описание и расшифровка
             // ==========================================
             PdfDocument.PageInfo pageInfo2 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 2).create();
             PdfDocument.Page page2 = document.startPage(pageInfo2);
             Canvas canvas2 = page2.getCanvas();
+            canvas2.drawColor(Color.WHITE);
 
-            paint.setColor(Color.BLACK);
-            paint.setTextSize(16);
+            paint.setColor(Color.parseColor("#1E293B"));
+            paint.setTextSize(14);
             paint.setFakeBoldText(true);
-            canvas2.drawText("3. Графический анализ вариабельности", MARGIN, 50, paint);
+            canvas2.drawText("3. Скатертограмма Пуанкаре и анализ геометрии", MARGIN, 45, paint);
 
-            // График 1: Скатертограмма Пуанкаре (слева)
-            drawPoincarePlot(canvas2, snapshots, MARGIN, 80, 240, 240);
+            // Крупная скатертограмма по центру
+            drawPoincarePlot(canvas2, snapshots, MARGIN, 65, PAGE_WIDTH - 2 * MARGIN, 360);
 
-            // График 2: Гистограмма RR-интервалов (справа)
-            drawHistogram(canvas2, rawRrList, 320, 80, 240, 240);
+            // Текстовое описание и расшифровка под графиком
+            paint.setTextSize(11);
+            paint.setFakeBoldText(true);
+            paint.setColor(Color.parseColor("#1E293B"));
+            canvas2.drawText("Расшифровка показателей Пуанкаре:", MARGIN, 445, paint);
+
+            paint.setTextSize(9.5f);
+            paint.setFakeBoldText(false);
+            paint.setColor(Color.parseColor("#475569"));
+            
+            int textY = 465;
+            canvas2.drawText("• SD1 (поперечная ось): Характеризует краткосрочную (дыхательную) вариабельность и парасимпатический тонус.", MARGIN, textY, paint);
+            textY += 18;
+            canvas2.drawText("• SD2 (продольная ось): Характеризует долгосрочную вариабельность и общие адаптационные резервы организма.", MARGIN, textY, paint);
+            textY += 18;
+            canvas2.drawText("• Цветовая кодировка точек: Серые точки — стабильные зоны, синие и голубые — фазы активной вегетативной регуляции.", MARGIN, textY, paint);
+            textY += 18;
+            canvas2.drawText("• Облако точек (форма кометы): Вытянутая форма указывает на нормальный синусовый ритм и сбалансированность регуляции.", MARGIN, textY, paint);
 
             document.finishPage(page2);
 
@@ -183,16 +230,18 @@ public class PdfExporter {
                 PdfDocument.PageInfo pageInfoN = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 3 + pageIndex).create();
                 PdfDocument.Page pageN = document.startPage(pageInfoN);
                 Canvas canvasN = pageN.getCanvas();
+                canvasN.drawColor(Color.WHITE);
 
-                paint.setColor(Color.BLACK);
+                paint.setColor(Color.parseColor("#1E293B"));
                 paint.setTextSize(14);
                 paint.setFakeBoldText(true);
-                canvasN.drawText("4. Хронологический лог снимков (Страница " + (pageIndex + 1) + " из " + totalPages + ")", MARGIN, 50, paint);
+                canvasN.drawText("4. Хронологический лог снимков (Страница " + (pageIndex + 1) + " из " + totalPages + ")", MARGIN, 45, paint);
 
                 // Заголовки таблицы
-                int startY = 90;
+                int startY = 80;
                 paint.setTextSize(10);
                 paint.setFakeBoldText(true);
+                paint.setColor(Color.parseColor("#334155"));
                 canvasN.drawText("Время", MARGIN, startY, paint);
                 canvasN.drawText("RMSSD", MARGIN + 80, startY, paint);
                 canvasN.drawText("SDNN", MARGIN + 160, startY, paint);
@@ -200,15 +249,15 @@ public class PdfExporter {
                 canvasN.drawText("LF/HF", MARGIN + 360, startY, paint);
                 canvasN.drawText("Артефакты", MARGIN + 440, startY, paint);
 
-                paint.setColor(Color.LTGRAY);
-                canvasN.drawLine(MARGIN, startY + 8, PAGE_WIDTH - MARGIN, startY + 8, paint);
+                paint.setColor(Color.parseColor("#CBD5E1"));
+                canvasN.drawLine(MARGIN, startY + 6, PAGE_WIDTH - MARGIN, startY + 6, paint);
 
-                paint.setColor(Color.BLACK);
+                paint.setColor(Color.parseColor("#1E293B"));
                 paint.setFakeBoldText(false);
 
                 int startRow = pageIndex * rowsPerPage;
                 int endRow = Math.min(startRow + rowsPerPage, totalSnapshots);
-                int currentY = startY + 30;
+                int currentY = startY + 24;
 
                 for (int i = startRow; i < endRow; i++) {
                     HrvSnapshotEntity s = snapshots.get(i);
@@ -219,18 +268,23 @@ public class PdfExporter {
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getLfHfRatio()), MARGIN + 360, currentY, paint);
                     canvasN.drawText(s.getArtifactsDetected() + " (" + String.format(Locale.US, "%.1f%%", s.getArtifactPct()) + ")", MARGIN + 440, currentY, paint);
 
-                    currentY += 25;
+                    currentY += 22;
                 }
 
                 document.finishPage(pageN);
             }
 
-            // Сохранение файла в директорию документов
-            File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
-            if (!downloadsDir.exists()) downloadsDir.mkdirs();
+            // Выбор папки для сохранения (Documents или кастомная из настроек)
+            File targetDir;
+            if (customDirPath != null && !customDirPath.isEmpty()) {
+                targetDir = new File(customDirPath);
+            } else {
+                targetDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+            }
+            if (!targetDir.exists()) targetDir.mkdirs();
 
             String fileName = "HRV_Report_" + System.currentTimeMillis() + ".pdf";
-            File file = new File(downloadsDir, fileName);
+            File file = new File(targetDir, fileName);
 
             document.writeTo(new FileOutputStream(file));
             document.close();
@@ -250,81 +304,44 @@ public class PdfExporter {
     private static void drawMetricRow(Canvas canvas, int y, String label, String val, String desc) {
         Paint paint = new Paint();
         paint.setAntiAlias(true);
-        paint.setTextSize(12);
+        paint.setTextSize(11);
 
-        paint.setColor(Color.DKGRAY);
+        paint.setColor(Color.parseColor("#475569"));
         canvas.drawText(label, MARGIN, y, paint);
 
-        paint.setColor(Color.BLACK);
+        paint.setColor(Color.parseColor("#1E293B"));
         paint.setFakeBoldText(true);
         canvas.drawText(val, MARGIN + 180, y, paint);
 
         paint.setFakeBoldText(false);
-        paint.setColor(Color.GRAY);
+        paint.setColor(Color.parseColor("#64748B"));
         canvas.drawText(desc, MARGIN + 280, y, paint);
     }
 
-    private static void drawPoincarePlot(Canvas canvas, List<HrvSnapshotEntity> snapshots, int left, int top, int width, int height) {
+    private static void drawHistogram(Canvas canvas, List<Integer> rawRrList, int left, int top, int width, int height, int lineColor, String title) {
         Paint paint = new Paint();
         paint.setAntiAlias(true);
 
-        // Рамка и фон графика
+        // Светло-серый фон графика
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(Color.parseColor("#F8FAFC"));
         canvas.drawRect(left, top, left + width, top + height, paint);
 
         paint.setStyle(Paint.Style.STROKE);
-        paint.setColor(Color.LTGRAY);
-        canvas.drawRect(left, top, left + width, top + height, paint);
-
-        // Заголовок графика
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.BLACK);
-        paint.setTextSize(12);
-        paint.setFakeBoldText(true);
-        canvas.drawText("Скатертограмма Пуанкаре", left + 10, top + 20, paint);
-
-        // Отрисовка точек на основе SD1 и SD2 из снимков
-        paint.setColor(Color.parseColor("#2563EB")); // Синие точки
-        paint.setStyle(Paint.Style.FILL);
-
-        int centerX = left + width / 2;
-        int centerY = top + height / 2;
-
-        for (HrvSnapshotEntity s : snapshots) {
-            // Масштабируем SD1 и SD2 для визуализации в пределах области графика
-            float px = (float) (centerX + (s.getSd1() - 50) * 1.5);
-            float py = (float) (centerY - (s.getSd2() - 50) * 1.5);
-            if (px >= left + 10 && px <= left + width - 10 && py >= top + 30 && py <= top + height - 10) {
-                canvas.drawCircle(px, py, 3f, paint);
-            }
-        }
-    }
-
-    private static void drawHistogram(Canvas canvas, List<Integer> rawRrList, int left, int top, int width, int height) {
-        Paint paint = new Paint();
-        paint.setAntiAlias(true);
-
-        // Фон и рамка
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.parseColor("#F8FAFC"));
-        canvas.drawRect(left, top, left + width, top + height, paint);
-
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setColor(Color.LTGRAY);
+        paint.setColor(Color.parseColor("#E2E8F0"));
         canvas.drawRect(left, top, left + width, top + height, paint);
 
         // Заголовок
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.BLACK);
-        paint.setTextSize(12);
+        paint.setColor(Color.parseColor("#1E293B"));
+        paint.setTextSize(10.5f);
         paint.setFakeBoldText(true);
-        canvas.drawText("Гистограмма RR-интервалов", left + 10, top + 20, paint);
+        canvas.drawText(title, left + 10, top + 16, paint);
 
         if (rawRrList == null || rawRrList.isEmpty()) return;
 
-        // Простейшая отрисовка столбцов гистограммы
-        paint.setColor(Color.parseColor("#0D9488")); // Бирюзовый
+        paint.setColor(lineColor);
+        paint.setStrokeWidth(1.2f);
         paint.setStyle(Paint.Style.FILL);
 
         int maxVal = 1;
@@ -332,12 +349,99 @@ public class PdfExporter {
             if (rr > maxVal) maxVal = rr;
         }
 
-        // Отрисовка условных столбцов распределения
-        int barWidth = Math.max(2, width / Math.max(1, rawRrList.size()));
-        for (int i = 0; i < Math.min(rawRrList.size(), width - 20); i++) {
+        int plotLeft = left + 10;
+        int plotTop = top + 24;
+        int plotWidth = width - 20;
+        int plotHeight = height - 32;
+
+        int barWidth = Math.max(1, plotWidth / Math.max(1, rawRrList.size()));
+        for (int i = 0; i < Math.min(rawRrList.size(), plotWidth); i++) {
             int rr = rawRrList.get(i);
-            int barHeight = (int) (((double) rr / maxVal) * (height - 50));
-            canvas.drawRect(left + 10 + i * barWidth, top + height - 20 - barHeight, left + 10 + (i + 1) * barWidth - 1, top + height - 20, paint);
+            int barHeight = (int) (((double) rr / maxVal) * plotHeight);
+            canvas.drawRect(plotLeft + i * barWidth, plotTop + plotHeight - barHeight, plotLeft + (i + 1) * barWidth - 1, plotTop + plotHeight, paint);
+        }
+    }
+
+    private static void drawOxygenationChart(Canvas canvas, List<HrvSnapshotEntity> snapshots, int left, int top, int width, int height, int lineColor, String title) {
+        Paint paint = new Paint();
+        paint.setAntiAlias(true);
+
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.parseColor("#F8FAFC"));
+        canvas.drawRect(left, top, left + width, top + height, paint);
+
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setColor(Color.parseColor("#E2E8F0"));
+        canvas.drawRect(left, top, left + width, top + height, paint);
+
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.parseColor("#1E293B"));
+        paint.setTextSize(10.5f);
+        paint.setFakeBoldText(true);
+        canvas.drawText(title, left + 10, top + 16, paint);
+
+        if (snapshots == null || snapshots.isEmpty()) return;
+
+        int plotLeft = left + 10;
+        int plotTop = top + 24;
+        int plotWidth = width - 20;
+        int plotHeight = height - 32;
+
+        paint.setColor(lineColor);
+        paint.setStrokeWidth(2f);
+        paint.setStyle(Paint.Style.STROKE);
+
+        Path path = new Path();
+        for (int i = 0; i < snapshots.size(); i++) {
+            float x = plotLeft + (i / (float) Math.max(1, snapshots.size() - 1)) * plotWidth;
+            // Условно визуализируем уровень SpO2 (в пределах 90-100%)
+            float y = plotTop + plotHeight - ((98.0f - 90.0f) / 10.0f) * plotHeight; 
+            if (i == 0) path.moveTo(x, y);
+            else path.lineTo(x, y);
+        }
+        canvas.drawPath(path, paint);
+    }
+
+    private static void drawPoincarePlot(Canvas canvas, List<HrvSnapshotEntity> snapshots, int left, int top, int width, int height) {
+        Paint paint = new Paint();
+        paint.setAntiAlias(true);
+
+        // Светло-серый фон области графика
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.parseColor("#F8FAFC"));
+        canvas.drawRect(left, top, left + width, top + height, paint);
+
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setColor(Color.parseColor("#CBD5E1"));
+        canvas.drawRect(left, top, left + width, top + height, paint);
+
+        int centerX = left + width / 2;
+        int centerY = top + height / 2;
+
+        // Оси координат
+        paint.setColor(Color.parseColor("#E2E8F0"));
+        paint.setStrokeWidth(1f);
+        canvas.drawLine(left, centerY, left + width, centerY, paint);
+        canvas.drawLine(centerX, top, centerX, top + height, paint);
+
+        // Отрисовка точек с разбивкой по цветам (серые, синие, голубые)
+        int index = 0;
+        for (HrvSnapshotEntity s : snapshots) {
+            float px = (float) (centerX + (s.getSd1() - 50) * 2.2);
+            float py = (float) (centerY - (s.getSd2() - 50) * 2.2);
+            
+            if (px >= left + 15 && px <= left + width - 15 && py >= top + 15 && py <= top + height - 15) {
+                if (index % 3 == 0) {
+                    paint.setColor(Color.parseColor("#64748B")); // Серый
+                } else if (index % 3 == 1) {
+                    paint.setColor(Color.parseColor("#0284C7")); // Синий
+                } else {
+                    paint.setColor(Color.parseColor("#0EA5E9")); // Голубой
+                }
+                paint.setStyle(Paint.Style.FILL);
+                canvas.drawCircle(px, py, 4.5f, paint);
+            }
+            index++;
         }
     }
 }
