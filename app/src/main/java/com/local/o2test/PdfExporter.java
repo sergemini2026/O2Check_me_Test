@@ -27,7 +27,7 @@ import java.util.Locale;
 public class PdfExporter {
 
     public interface PdfExportCallback {
-        void onSuccess(String internalPath, String publicPath, String fileName);
+        void onSuccess(String filePath, String fileName);
         void onError(String errorMessage);
     }
 
@@ -54,10 +54,10 @@ public class PdfExporter {
         int validCount = 0;
         if (!snapshots.isEmpty()) {
             for (HrvSnapshotEntity s : snapshots) {
-                if (s.getBaevskySi() > 300 || s.getBaevskySi() <= 0) continue;
+                if (s.getStressIndex() > 300 || s.getStressIndex() <= 0) continue;
                 avgRmssd += s.getRmssd();
                 avgSdnn += s.getSdnn();
-                avgSi += s.getBaevskySi();
+                avgSi += s.getStressIndex();
                 avgLfHf += s.getLfHfRatio();
                 avgSd1 += s.getSd1();
                 avgSd2 += s.getSd2();
@@ -181,7 +181,7 @@ public class PdfExporter {
             document.finishPage(page1);
 
             // ==========================================
-            // СТРАНИЦА 2: Скатертограмма Пуанкаре + Полноценная расшифровка
+            // СТРАНИЦА 2: Скатертограмма Пуанкаре + Расшифровка
             // ==========================================
             PdfDocument.PageInfo pageInfo2 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 2).create();
             PdfDocument.Page page2 = document.startPage(pageInfo2);
@@ -204,7 +204,6 @@ public class PdfExporter {
             poincareDescPaint.setTextSize(9.0f);
             poincareDescPaint.setColor(Color.parseColor("#334155"));
 
-            // ВОЗВРАЩЕНА ПОЛНАЯ РАСШИФРОВКА С ЦВЕТОВОЙ КОДИРОВКОЙ И DFA
             String[] poincareDescriptions = {
                 "• SD1 (поперечная ось): Характеризует краткосрочную (дыхательную) вариабельность и парасимпатический тонус.",
                 "• SD2 (продольная ось): Характеризует долгосрочную вариабельность и общие адаптационные резервы организма.",
@@ -278,7 +277,7 @@ public class PdfExporter {
                     canvasN.drawText(timeFormat.format(new Date(s.getTimestamp())), MARGIN, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.1f", s.getRmssd()), MARGIN + 65, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.1f", s.getSdnn()), MARGIN + 125, currentY, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getBaevskySi()), MARGIN + 185, currentY, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getStressIndex()), MARGIN + 185, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getLfHfRatio()), MARGIN + 240, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getSampleEntropy()), MARGIN + 300, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getDfaAlpha1()), MARGIN + 360, currentY, textPaint);
@@ -290,7 +289,7 @@ public class PdfExporter {
                 document.finishPage(pageN);
             }
 
-            // 1. Публичное сохранение (Documents)
+            // 1. Сохранение в публичные Документы
             File publicDir;
             if (customDirPath != null && !customDirPath.isEmpty()) {
                 publicDir = new File(customDirPath);
@@ -307,7 +306,7 @@ public class PdfExporter {
             fos.close();
             document.close();
 
-            // 2. Внутреннее копирование (Android/data/com.local.o2test/files/)
+            // 2. Внутреннее копирование для открытия из сессий
             File internalDir = context.getExternalFilesDir(null);
             if (internalDir != null && !internalDir.exists()) internalDir.mkdirs();
             File internalFile = new File(internalDir, fileName);
@@ -315,7 +314,8 @@ public class PdfExporter {
             copyFile(publicFile, internalFile);
 
             if (callback != null) {
-                callback.onSuccess(internalFile.getAbsolutePath(), publicFile.getAbsolutePath(), fileName);
+                // Передаем путь внутреннего файла, чтобы сессии открывали его напрямую
+                callback.onSuccess(internalFile.getAbsolutePath(), fileName);
             }
 
         } catch (IOException e) {
