@@ -104,6 +104,39 @@ public class ProfileDialogHelper {
         inputWeight.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         layout.addView(inputWeight);
 
+        // Поле выбора пола
+        LinearLayout genderLayout = new LinearLayout(context);
+        genderLayout.setOrientation(LinearLayout.HORIZONTAL);
+        genderLayout.setPadding(0, 15, 0, 10);
+
+        TextView tvGenderLabel = new TextView(context);
+        tvGenderLabel.setText("Пол: ");
+        tvGenderLabel.setTextSize(16);
+        LinearLayout.LayoutParams genderLabelParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, 
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        genderLabelParams.gravity = Gravity.CENTER_VERTICAL;
+        tvGenderLabel.setLayoutParams(genderLabelParams);
+
+        final Spinner spinnerGender = new Spinner(context);
+        String[] genders = {"Мужской", "Женский"};
+        ArrayAdapter<String> genderAdapter = new ArrayAdapter<>(context, android.R.layout.simple_spinner_item, genders);
+        genderAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerGender.setAdapter(genderAdapter);
+        spinnerGender.setSelection(0); // По умолчанию "Мужской"
+
+        LinearLayout.LayoutParams genderSpinnerParams = new LinearLayout.LayoutParams(
+                0, 
+                LinearLayout.LayoutParams.WRAP_CONTENT, 
+                1.0f
+        );
+        spinnerGender.setLayoutParams(genderSpinnerParams);
+
+        genderLayout.addView(tvGenderLabel);
+        genderLayout.addView(spinnerGender);
+        layout.addView(genderLayout);
+
         final EditText inputSysBp = new EditText(context);
         inputSysBp.setHint("Систолическое АД (мм рт. ст.)");
         inputSysBp.setInputType(InputType.TYPE_CLASS_NUMBER);
@@ -160,13 +193,14 @@ public class ProfileDialogHelper {
             int age = parseOrDefault(inputAge.getText().toString().trim(), 30);
             float height = parseFloatOrDefault(inputHeight.getText().toString().trim(), 175.0f);
             float weight = parseFloatOrDefault(inputWeight.getText().toString().trim(), 70.0f);
+            String gender = spinnerGender.getSelectedItem().toString();
             int sysBp = parseOrDefault(inputSysBp.getText().toString().trim(), 120);
             int diaBp = parseOrDefault(inputDiaBp.getText().toString().trim(), 80);
             String fitness = spinnerFitness.getSelectedItem().toString();
 
             dbExecutor.execute(() -> {
                 try {
-                    ProfileEntity newProfile = new ProfileEntity(0, name, age, weight, height, sysBp, diaBp, fitness, System.currentTimeMillis());
+                    ProfileEntity newProfile = new ProfileEntity(0, name, age, weight, height, sysBp, diaBp, fitness, gender, System.currentTimeMillis());
                     long id = db.profileDao().insertProfileSync(newProfile);
                     ((android.app.Activity) context).runOnUiThread(() -> {
                         callback.onProfileAuthorized(id, name);
