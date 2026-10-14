@@ -11,6 +11,7 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.IBinder;
 import android.text.InputType;
 import android.text.Layout;
@@ -149,10 +150,13 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
                 return;
             }
-            saveData();
+            showExportChoiceDialog();
         });
 
-        ui.btnSettings.setOnClickListener(v -> onLog("Открытие настроек..."));
+        ui.btnSettings.setOnClickListener(v -> {
+            showSettingsDialog();
+        });
+
         ui.btnExit.setOnClickListener(v -> finish());
 
         if (ui.btnWorkout != null) {
@@ -188,6 +192,43 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         // Проверка и запрос мастер-пароля при старте программы
         checkMasterPasswordOnStart();
+    }
+
+    private void showExportChoiceDialog() {
+        CharSequence[] options = {"Экспорт в PDF (Отчет)", "Экспорт в CSV (Сырые данные)"};
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(getCenteredTitle("Выберите формат сохранения"));
+        builder.setItems(options, (dialog, which) -> {
+            if (which == 0) {
+                List<DataPoint> copyForExport;
+                synchronized (sessionData) { copyForExport = new ArrayList<>(sessionData); }
+                saveSessionToDatabase(copyForExport, true);
+            } else {
+                saveData();
+            }
+        });
+        builder.show();
+    }
+
+    private void showSettingsDialog() {
+        CharSequence[] paths = {"Папка Документы (Documents)", "Папка Загрузки (Downloads)"};
+        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+        
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(getCenteredTitle("Настройки: Путь сохранения отчетов"));
+        builder.setItems(paths, (dialog, which) -> {
+            String dirPath;
+            if (which == 0) {
+                dirPath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS).getAbsolutePath();
+                Toast.makeText(this, "Выбрана папка: Documents", Toast.LENGTH_SHORT).show();
+            } else {
+                dirPath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath();
+                Toast.makeText(this, "Выбрана папка: Downloads", Toast.LENGTH_SHORT).show();
+            }
+            prefs.edit().putString("custom_export_path", dirPath).apply();
+            onLog("[НАСТРОЙКИ] Путь экспорта изменен: " + dirPath);
+        });
+        builder.show();
     }
 
     private void updateRightPanelStatus() {
@@ -457,7 +498,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             @Override
             public void onSuccess(String filePath, String fileName) {
                 onLog("Успешно сохранено в CSV: " + fileName);
-                saveSessionToDatabase(fileName, copyForExport);
+                saveSessionToDatabase(copyForExport, false);
             }
             @Override
             public void onError(String errorMessage) {
@@ -466,16 +507,18 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         });
     }
 
-    private void saveSessionToDatabase(String fileName, List<DataPoint> points) {
+    private void saveSessionToDatabase(List<DataPoint> points, boolean generatePdf) {
         if (activeProfileId == -1L) return;
 
-        // Атомарно забираем буфер готовых снимков из сервиса, пока он активен/связан
         final List<SessionSnapshot> capturedSnapshots;
         if (isBound && hrvService != null) {
             capturedSnapshots = hrvService.flushSnapshotBuffer();
         } else {
             capturedSnapshots = new ArrayList<>();
         }
+
+        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+        String customPath = prefs.getString("custom_export_path", null);
 
         dbExecutor.execute(() -> {
             try {
@@ -497,16 +540,18 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 );
                 long sessionId = db.sessionDao().insertSessionSync(session);
 
-                // Формируем список сущностей для БД и список снимков для отчета
                 List<HrvSnapshotEntity> entityList = new ArrayList<>();
                 if (!capturedSnapshots.isEmpty()) {
                     for (SessionSnapshot snapshot : capturedSnapshots) {
-                        entityList.add(new HrvSnapshotEntity(snapshot.getTimestamp(), snapshot.getMetrics()));
+                        if (snapshot.getMetrics().getBaevskySi() > 0 && snapshot.getMetrics().getBaevskySi() <= 300) {
+                            entityList.add(new HrvSnapshotEntity(snapshot.getTimestamp(), snapshot.getMetrics()));
+                        }
                     }
-                    db.hrvSnapshotDao().insertAll(entityList);
+                    if (!entityList.isEmpty()) {
+                        db.hrvSnapshotDao().insertAll(entityList);
+                    }
                 }
 
-                // Собираем сырые RR-интервалы из собранных точек сеанса для гистограммы (используем прямое поле rrMs)
                 List<Integer> sessionRrList = new ArrayList<>();
                 for (DataPoint dp : points) {
                     if (dp.rrMs > 0) {
@@ -515,29 +560,32 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 }
 
                 runOnUiThread(() -> {
-                    onLog("Сессия #" + sessionId + " и " + capturedSnapshots.size() + " HRV снимков зарегистрированы в базе данных Room");
+                    onLog("Сессия #" + sessionId + " и " + entityList.size() + " HRV снимков зарегистрированы в БД");
 
-                    // Запуск генерации PDF-отчета
-                    PdfExporter.generateHrvPdfReport(
-                            MainActivity.this,
-                            activeProfileName,
-                            currentWorkoutMode,
-                            sessionStartTime,
-                            endTime,
-                            entityList,     // Список HrvSnapshotEntity из базы
-                            sessionRrList,  // Список сырых RR-интервалов
-                            new PdfExporter.PdfExportCallback() {
-                                @Override
-                                public void onSuccess(String filePath, String fileNamePdf) {
-                                    onLog("PDF успешно создан: " + fileNamePdf);
-                                    Toast.makeText(MainActivity.this, "Отчет сохранен в Документы", Toast.LENGTH_LONG).show();
+                    if (generatePdf) {
+                        onLog("Генерация PDF отчета...");
+                        PdfExporter.generateHrvPdfReport(
+                                MainActivity.this,
+                                activeProfileName,
+                                currentWorkoutMode,
+                                sessionStartTime,
+                                endTime,
+                                entityList,
+                                sessionRrList,
+                                customPath,
+                                new PdfExporter.PdfExportCallback() {
+                                    @Override
+                                    public void onSuccess(String filePath, String fileNamePdf) {
+                                        onLog("PDF успешно создан: " + fileNamePdf);
+                                        Toast.makeText(MainActivity.this, "Отчет сохранен", Toast.LENGTH_LONG).show();
+                                    }
+                                    @Override
+                                    public void onError(String errorMessage) {
+                                        onLog("Ошибка создания PDF: " + errorMessage);
+                                    }
                                 }
-                                @Override
-                                public void onError(String errorMessage) {
-                                    onLog("Ошибка создания PDF: " + errorMessage);
-                                }
-                            }
-                    );
+                        );
+                    }
                 });
 
             } catch (Exception e) {
