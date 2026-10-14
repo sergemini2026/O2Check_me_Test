@@ -1,26 +1,47 @@
 package com.local.o2test;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.net.Uri;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
+import android.text.TextUtils;
 import android.text.style.ForegroundColorSpan;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ListView;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import androidx.appcompat.app.AlertDialog;
+import androidx.core.content.FileProvider;
+
+import com.local.o2test.db.entity.ProfileEntity;
+import com.local.o2test.db.entity.SessionEntity;
+
+import java.io.File;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 
 public class UiBuilder {
+
+    public interface ProfileCallback {
+        void onProfileSelected(ProfileEntity profile);
+    }
 
     public static class Views {
         public LinearLayout mainLayout;
@@ -229,6 +250,79 @@ public class UiBuilder {
         return v;
     }
 
+    public static void showSessionsDialog(Context context, ProfileEntity profile, List<SessionEntity> sessions) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(context);
+        
+        TextView title = new TextView(context);
+        title.setText("Сессии: " + profile.getName());
+        title.setTextSize(18);
+        title.setPadding(30, 30, 30, 10);
+        title.setTextColor(0xFFFFFFFF);
+        builder.setCustomTitle(title);
+
+        LinearLayout layout = new LinearLayout(context);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(20, 10, 20, 10);
+
+        if (sessions == null || sessions.isEmpty()) {
+            TextView emptyText = new TextView(context);
+            emptyText.setText("Сохраненных сессий не найдено.");
+            emptyText.setTextColor(0xFFA0A0A0);
+            emptyText.setPadding(10, 20, 10, 20);
+            layout.addView(emptyText);
+        } else {
+            ListView listView = new ListView(context);
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US);
+
+            List<String> sessionStrings = new ArrayList<>();
+            for (int i = 0; i < sessions.size(); i++) {
+                SessionEntity s = sessions.get(i);
+                int sessionNumber = sessions.size() - i;
+                sessionStrings.add("Сессия #" + sessionNumber + " | " + sdf.format(new Date(s.getStartTime())) + 
+                                  " | " + s.getWorkoutMode() + " | SpO2: " + s.getAvgSpo2() + "%");
+            }
+
+            ArrayAdapter<String> adapter = new ArrayAdapter<>(context, android.R.layout.simple_list_item_1, sessionStrings);
+            listView.setAdapter(adapter);
+
+            listView.setOnItemClickListener((parent, view, position, id) -> {
+                SessionEntity session = sessions.get(position);
+                if (!TextUtils.isEmpty(session.getPdfPath())) {
+                    File file = new File(session.getPdfPath());
+                    if (file.exists()) {
+                        try {
+                            Uri uri = FileProvider.getUriForFile(context, context.getPackageName() + ".provider", file);
+                            Intent intent = new Intent(Intent.ACTION_VIEW);
+                            intent.setDataAndType(uri, "application/pdf");
+                            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                            context.startActivity(intent);
+                        } catch (Exception e) {
+                            Toast.makeText(context, "Ошибка открытия PDF: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                        }
+                    } else {
+                        Toast.makeText(context, "Файл отчета не найден: " + session.getPdfPath(), Toast.LENGTH_SHORT).show();
+                    }
+                } else {
+                    Toast.makeText(context, "Для данной сессии нет сохраненного PDF", Toast.LENGTH_SHORT).show();
+                }
+            });
+
+            layout.addView(listView);
+        }
+
+        builder.setView(layout);
+        builder.setNegativeButton("ЗАКРЫТЬ", (dialog, which) -> dialog.dismiss());
+
+        AlertDialog dialog = builder.create();
+        dialog.show();
+
+        if (dialog.getWindow() != null) {
+            int width = (int) (context.getResources().getDisplayMetrics().widthPixels * 0.85);
+            int height = (int) (context.getResources().getDisplayMetrics().heightPixels * 0.70);
+            dialog.getWindow().setLayout(width, height);
+        }
+    }
+
     private static TextView createSensorField(Context context, String text) {
         TextView tv = new TextView(context);
         tv.setText(text);
@@ -302,7 +396,7 @@ public class UiBuilder {
                     java.lang.reflect.Method setIconPaddingMethod = btn.getClass().getMethod("setIconPadding", int.class);
 
                     setIconResourceMethod.invoke(btn, iconRes);
-                    setIconGravityMethod.invoke(btn, 0x03); // ICON_GRAVITY_TEXT_START
+                    setIconGravityMethod.invoke(btn, 0x03);
                     setIconPaddingMethod.invoke(btn, iconPaddingPx);
                     materialSuccess = true;
                 } catch (Exception ignored) {
