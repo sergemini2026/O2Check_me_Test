@@ -2,6 +2,7 @@ package com.local.o2test.db.entity
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.local.o2test.HrvCalculator
 
 @Entity(tableName = "profiles")
 data class ProfileEntity(
@@ -14,5 +15,6 @@ data class ProfileEntity(
     val baselineSystolicBp: Int = 120,
     val baselineDiastolicBp: Int = 80,
     val fitnessLevel: String = "Средний", // Низкий, Средний, Высокий, Максимальный
+    val gender: String = "Мужской", // Новое поле: Пол
     val createdAt: Long = System.currentTimeMillis()
 )
