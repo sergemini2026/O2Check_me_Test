@@ -506,11 +506,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     db.hrvSnapshotDao().insertAll(entityList);
                 }
 
-                // Собираем сырые RR-интервалы из собранных точек сеанса для гистограммы
+                // Собираем сырые RR-интервалы из собранных точек сеанса для гистограммы (используем прямое поле rrMs)
                 List<Integer> sessionRrList = new ArrayList<>();
                 for (DataPoint dp : points) {
-                    if (dp.getRrMs() > 0) {
-                        sessionRrList.add(dp.getRrMs());
+                    if (dp.rrMs > 0) {
+                        sessionRrList.add(dp.rrMs);
                     }
                 }
 
