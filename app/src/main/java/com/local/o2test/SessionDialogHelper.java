@@ -69,8 +69,8 @@ public class SessionDialogHelper {
             for (int i = 0; i < sessions.size(); i++) {
                 SessionEntity s = sessions.get(i);
                 int sessionNumber = sessions.size() - i;
-                // Компактный формат строки для гарантированного размещения в широком окне
-                sessionStrings.add(String.format(Locale.US, "Сес #%d | %s | %s | SpO2: %d%%",
+                // Строго без "Сес", только номер и параметры
+                sessionStrings.add(String.format(Locale.US, "#%d | %s | %s | SpO2: %d%%",
                         sessionNumber, sdf.format(new Date(s.getStartTime())), s.getWorkoutMode(), s.getAvgSpo2()));
             }
 
@@ -91,7 +91,6 @@ public class SessionDialogHelper {
                 SessionEntity session = sessions.get(position);
                 File targetFile = null;
 
-                // 1. Проверяем сохраненный путь
                 if (!TextUtils.isEmpty(session.getPdfPath())) {
                     File f = new File(session.getPdfPath());
                     if (f.exists()) {
@@ -99,12 +98,10 @@ public class SessionDialogHelper {
                     }
                 }
 
-                // 2. Если путь пуст или файл не найден, ищем в публичной папке Documents
                 if (targetFile == null || !targetFile.exists()) {
                     File docDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
                     File[] pdfs = docDir.listFiles((dir, name) -> name.endsWith(".pdf"));
                     if (pdfs != null && pdfs.length > 0) {
-                        // Берем самый последний созданный PDF в документах
                         targetFile = pdfs[0];
                         for (File p : pdfs) {
                             if (p.lastModified() > targetFile.lastModified()) {
@@ -130,11 +127,10 @@ public class SessionDialogHelper {
         AlertDialog dialog = builder.create();
         dialog.show();
 
-        // Принудительное расширение окна диалога до 85% ширины экрана
+        // Компактные пропорции: ширина 85%, высота по содержимому (WRAP_CONTENT)
         if (dialog.getWindow() != null) {
             int width = (int) (context.getResources().getDisplayMetrics().widthPixels * 0.85);
-            int height = (int) (context.getResources().getDisplayMetrics().heightPixels * 0.65);
-            dialog.getWindow().setLayout(width, height);
+            dialog.getWindow().setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
     }
 
@@ -151,8 +147,12 @@ public class SessionDialogHelper {
             Uri uri = FileProvider.getUriForFile(context, context.getPackageName() + ".provider", file);
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setDataAndType(uri, "application/pdf");
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(intent);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+            // Принудительный вызов системного окна выбора приложения (Chooser)
+            Intent chooser = Intent.createChooser(intent, "Открыть PDF с помощью:");
+            chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(chooser);
         } catch (Exception e) {
             Toast.makeText(context, "Ошибка открытия PDF: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
