@@ -17,9 +17,9 @@ import androidx.room.PrimaryKey
     ],
     indices = [Index(value = ["profileId"])]
 )
-data class SessionEntity(
+data class SessionEntity @JvmOverloads constructor(
     @PrimaryKey(autoGenerate = true)
-    val id: Long = 0,
+    val id: Long = 0L,
     val profileId: Long,
     val workoutMode: String,
     val startTime: Long,
@@ -30,5 +30,5 @@ data class SessionEntity(
     val sdnn: Double,
     val lfHfRatio: Double,
     val stressIndex: Double,
-    val pdfPath: String = "" // Добавлено поле для хранения пути к PDF-отчету сессии
+    val pdfPath: String = ""
 )
