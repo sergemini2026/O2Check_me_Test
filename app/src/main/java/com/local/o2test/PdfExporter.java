@@ -54,10 +54,10 @@ public class PdfExporter {
         int validCount = 0;
         if (!snapshots.isEmpty()) {
             for (HrvSnapshotEntity s : snapshots) {
-                if (s.getStressIndex() > 300 || s.getStressIndex() <= 0) continue;
+                if (s.getBaevskySi() > 300 || s.getBaevskySi() <= 0) continue;
                 avgRmssd += s.getRmssd();
                 avgSdnn += s.getSdnn();
-                avgSi += s.getStressIndex();
+                avgSi += s.getBaevskySi();
                 avgLfHf += s.getLfHfRatio();
                 avgSd1 += s.getSd1();
                 avgSd2 += s.getSd2();
@@ -277,7 +277,7 @@ public class PdfExporter {
                     canvasN.drawText(timeFormat.format(new Date(s.getTimestamp())), MARGIN, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.1f", s.getRmssd()), MARGIN + 65, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.1f", s.getSdnn()), MARGIN + 125, currentY, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getStressIndex()), MARGIN + 185, currentY, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getBaevskySi()), MARGIN + 185, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getLfHfRatio()), MARGIN + 240, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getSampleEntropy()), MARGIN + 300, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getDfaAlpha1()), MARGIN + 360, currentY, textPaint);
@@ -314,7 +314,6 @@ public class PdfExporter {
             copyFile(publicFile, internalFile);
 
             if (callback != null) {
-                // Передаем путь внутреннего файла, чтобы сессии открывали его напрямую
                 callback.onSuccess(internalFile.getAbsolutePath(), fileName);
             }
 
