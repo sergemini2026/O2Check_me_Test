@@ -14,19 +14,29 @@ public class HrvCalculator {
         public final double hfPower;
         public final double totalPower;
         public final double lfHfRatio;
-        // Новые поля для Пуанкаре и Баевского
         public final double sd1;
         public final double sd2;
         public final double sd1sd2Ratio;
         public final double baevskySi;
+        public final double sampleEntropy; // Новое поле: Энтропия сердечного ритма
         public final int artifactsDetected;
         public final double artifactPct;
-        public final boolean isValid; // Флаг прохождения Sanity Check
+        public final boolean isValid;
 
+        // Сохраняем старый конструктор для совместимости (сигнатура не нарушена)
         public Metrics(double rmssd, double sdnn, double pnn50, double lfPower, 
                        double hfPower, double totalPower, double lfHfRatio, 
                        double sd1, double sd2, double sd1sd2Ratio, double baevskySi,
                        int artifactsDetected, double artifactPct, boolean isValid) {
+            this(rmssd, sdnn, pnn50, lfPower, hfPower, totalPower, lfHfRatio, 
+                 sd1, sd2, sd1sd2Ratio, baevskySi, 0.0, artifactsDetected, artifactPct, isValid);
+        }
+
+        // Новый расширенный конструктор
+        public Metrics(double rmssd, double sdnn, double pnn50, double lfPower, 
+                       double hfPower, double totalPower, double lfHfRatio, 
+                       double sd1, double sd2, double sd1sd2Ratio, double baevskySi,
+                       double sampleEntropy, int artifactsDetected, double artifactPct, boolean isValid) {
             this.rmssd = rmssd;
             this.sdnn = sdnn;
             this.pnn50 = pnn50;
@@ -38,6 +48,7 @@ public class HrvCalculator {
             this.sd2 = sd2;
             this.sd1sd2Ratio = sd1sd2Ratio;
             this.baevskySi = baevskySi;
+            this.sampleEntropy = sampleEntropy;
             this.artifactsDetected = artifactsDetected;
             this.artifactPct = artifactPct;
             this.isValid = isValid;
@@ -46,7 +57,7 @@ public class HrvCalculator {
 
     public static Metrics calculate(List<Integer> rawRrList) {
         if (rawRrList == null || rawRrList.size() < 10) {
-            return new Metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100.0, false);
+            return new Metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0, 100.0, false);
         }
 
         // ==========================================
@@ -77,7 +88,7 @@ public class HrvCalculator {
         }
 
         if (cleanRr.size() < 10) {
-            return new Metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, artifacts, 100.0, false);
+            return new Metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, artifacts, 100.0, false);
         }
 
         int N = cleanRr.size();
@@ -115,7 +126,7 @@ public class HrvCalculator {
         double sdnn = Math.sqrt(sumSdnnSq / (N - 1));
 
         // ==========================================
-        // 2.1. СКАТЕРОГРАММА ПУАНКАРЕ (SD1, SD2)
+        // 2.1. СКАТЕРОГРАММА ПУАНКАРЕ (SD1, SD2)[span_3](start_span)[span_3](end_span)
         // ==========================================
         double sumSqPerp = 0.0;
         double sumSqLong = 0.0;
@@ -136,14 +147,21 @@ public class HrvCalculator {
         double sd1sd2Ratio = (sd2 > 0) ? (sd1 / sd2) : 0.0;
 
         // ==========================================
-        // 2.2. ИНДЕКС НАПРЯЖЕНИЯ БАЕВСКОГО (SI)
+        // 2.2. ИНДЕКС НАПРЯЖЕНИЯ БАЕВСКОГО (SI)[span_4](start_span)[span_4](end_span)
         // ==========================================
         List<Integer> cleanRrInt = new ArrayList<>();
         for (double d : cleanRr) cleanRrInt.add((int) Math.round(d));
         double baevskySi = calculateBaevskySI(cleanRrInt);
 
         // ==========================================
-        // 3. РЕСЕМПЛИРОВАНИЕ В 4 Гц И СПЕКТР (Уэлч)[span_3](start_span)[span_3](end_span)
+        // 2.3. РАСЧЕТ ЭНТРОПИИ (Sample Entropy / SampEn)[span_5](start_span)[span_5](end_span)
+        // ==========================================
+        double rTol = 0.2 * sdnn;
+        if (rTol < 1.0) rTol = 1.0;
+        double sampleEntropy = calculateSampleEntropy(cleanRr, 2, rTol);
+
+        // ==========================================
+        // 3. РЕСЕМПЛИРОВАНИЕ В 4 Гц И СПЕКТР (Уэлч)[span_6](start_span)[span_6](end_span)
         // ==========================================
         double[] timeStamps = new double[N];
         double currentTime = 0;
@@ -229,16 +247,53 @@ public class HrvCalculator {
         }
 
         // ==========================================
-        // 4. ПОСТРАСЧЕТНАЯ ВАЛИДАЦИЯ (Sanity Check)
+        // 4. ПОСТРАСЧЕТНАЯ ВАЛИДАЦИЯ (Sanity Check)[span_7](start_span)[span_7](end_span)
         // ==========================================
         boolean isValid = validateMetrics(rmssd, baevskySi, sd1sd2Ratio, artifactPct);
 
         return new Metrics(rmssd, sdnn, pnn50, lfPower, hfPower, totalPower, lfHfRatio, 
-                           sd1, sd2, sd1sd2Ratio, baevskySi, artifacts, artifactPct, isValid);
+                           sd1, sd2, sd1sd2Ratio, baevskySi, sampleEntropy, artifacts, artifactPct, isValid);
     }
 
     /**
-     * Расчет индекса напряжения Баевского по гистограмме с шагом 50 мс
+     * Алгоритм расчета Sample Entropy (SampEn)[span_8](start_span)[span_8](end_span)
+     */
+    private static double calculateSampleEntropy(List<Double> cleanRr, int m, double r) {
+        int N = cleanRr.size();
+        if (N <= m + 1) return 0.0;
+
+        double[] data = new double[N];
+        for (int i = 0; i < N; i++) data[i] = cleanRr.get(i);
+
+        long A = 0; // совпадения для длины m + 1
+        long B = 0; // совпадения для длины m
+
+        for (int i = 0; i < N - m; i++) {
+            for (int j = i + 1; j < N - m; j++) {
+                boolean matchM = true;
+                for (int k = 0; k < m; k++) {
+                    if (Math.abs(data[i + k] - data[j + k]) > r) {
+                        matchM = false;
+                        break;
+                    }
+                }
+                if (matchM) {
+                    B++;
+                    if (i < N - m - 1 && j < N - m - 1) {
+                        if (Math.abs(data[i + m] - data[j + m]) <= r) {
+                            A++;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (B == 0 || A == 0) return 0.0;
+        return -Math.log((double) A / (double) B);
+    }
+
+    /**
+     * Расчет индекса напряжения Баевского по гистограмме с шагом 50 мс[span_9](start_span)[span_9](end_span)
      */
     private static double calculateBaevskySI(List<Integer> rrIntervals) {
         if (rrIntervals.isEmpty()) return 0.0;
@@ -277,17 +332,17 @@ public class HrvCalculator {
     }
 
     /**
-     * Защитный барьер: проверка на физиологическую адекватность и избыток артефактов
+     * Защитный барьер: проверка на физиологическую адекватность и избыток артефактов[span_10](start_span)[span_10](end_span)
      */
     private static boolean validateMetrics(double rmssd, double baevskySi, double sd1sd2Ratio, double artifactPct) {
         if (rmssd < 3.0 || rmssd > 250.0) return false;
         if (baevskySi < 5.0 || baevskySi > 4000.0) return false;
         if (sd1sd2Ratio < 0.05 || sd1sd2Ratio > 3.0) return false;
-        if (artifactPct > 30.0) return false; // Если артефактов больше 30%, окно забраковывается
+        if (artifactPct > 30.0) return false;
         return true;
     }
 
-    // --- Интерполяция PCHIP (Monotone Piecewise Cubic Hermite) ---[span_4](start_span)[span_4](end_span)
+    // --- Интерполяция PCHIP (Monotone Piecewise Cubic Hermite) ---[span_11](start_span)[span_11](end_span)
     private static double[] pchipInterpolate(double[] x, double[] y, int numSamples, double dt) {
         int n = x.length;
         double[] resampled = new double[numSamples];
@@ -356,7 +411,7 @@ public class HrvCalculator {
         return d;
     }
 
-    // --- Smoothness Priors Detrending ---[span_5](start_span)[span_5](end_span)
+    // --- Smoothness Priors Detrending ---[span_12](start_span)[span_12](end_span)
     private static double[] smoothnessPriorsDetrend(double[] y, double lambda) {
         int N = y.length;
         double[] zTrend = new double[N];
@@ -423,7 +478,7 @@ public class HrvCalculator {
         return zTrend;
     }
 
-    // --- FFT ---[span_6](start_span)[span_6](end_span)
+    // --- FFT ---[span_13](start_span)[span_13](end_span)
     private static void fft(double[] real, double[] imag) {
         int n = real.length;
         if (n <= 1) return;
@@ -471,7 +526,7 @@ public class HrvCalculator {
         }
     }
 
-    // --- BLE Parser ---[span_7](start_span)[span_7](end_span)
+    // --- BLE Parser ---[span_14](start_span)[span_14](end_span)
     public static List<Integer> parseRrIntervals(byte[] data) {
         List<Integer> rrList = new ArrayList<>();
         if (data == null || data.length < 2) return rrList;
