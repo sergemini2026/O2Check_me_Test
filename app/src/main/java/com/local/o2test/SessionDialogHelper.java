@@ -203,13 +203,13 @@ public class SessionDialogHelper {
                                     }
                                 }
 
-                                // Резервная очистка в Documents по временному штампу сессии
+                                // Точная проверка: файл создан в интервале от начала сессии до 3 минут после ее завершения
                                 if (!deleted && docDir.exists()) {
                                     File[] pdfs = docDir.listFiles((dir, name) -> name.endsWith(".pdf"));
                                     if (pdfs != null) {
                                         for (File pdf : pdfs) {
-                                            long diff = Math.abs(pdf.lastModified() - session.getStartTime());
-                                            if (diff < 120000) {
+                                            long fileTime = pdf.lastModified();
+                                            if (fileTime >= session.getStartTime() - 10000 && fileTime <= session.getEndTime() + 180000) {
                                                 pdf.delete();
                                             }
                                         }
