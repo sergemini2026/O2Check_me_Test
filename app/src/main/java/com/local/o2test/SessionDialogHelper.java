@@ -2,11 +2,14 @@ package com.local.o2test;
 
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Environment;
 import android.text.TextUtils;
+import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
+import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
@@ -22,8 +25,10 @@ import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 
 public class SessionDialogHelper {
@@ -39,95 +44,189 @@ public class SessionDialogHelper {
             List<SessionEntity> sessions = db.sessionDao().getSessionsByProfileSync(profileId);
 
             ((android.app.Activity) context).runOnUiThread(() -> {
-                showDialog(context, profileName, sessions);
+                showDialog(context, dbExecutor, profileId, profileName, sessions);
             });
         });
     }
 
-    private static void showDialog(Context context, String profileName, List<SessionEntity> sessions) {
+    private static void showDialog(Context context, ExecutorService dbExecutor, long profileId, String profileName, List<SessionEntity> sessions) {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
+
+        // Кастомный корневой макет для размещения заголовка, списка и кнопок управления
+        LinearLayout rootLayout = new LinearLayout(context);
+        rootLayout.setOrientation(LinearLayout.VERTICAL);
+        rootLayout.setPadding(20, 20, 20, 20);
 
         TextView title = new TextView(context);
         title.setText("Сессии: " + profileName);
         title.setTextSize(18);
-        title.setPadding(30, 30, 30, 10);
+        title.setPadding(10, 10, 10, 15);
         title.setTextColor(0xFFFFFFFF);
-        builder.setCustomTitle(title);
-
-        LinearLayout layout = new LinearLayout(context);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(20, 10, 20, 10);
+        rootLayout.addView(title);
 
         if (sessions == null || sessions.isEmpty()) {
             TextView emptyText = newTextView(context, "Сохраненных сессий не найдено.");
-            layout.addView(emptyText);
-        } else {
-            ListView listView = new ListView(context);
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US);
+            rootLayout.addView(emptyText);
 
-            List<String> sessionStrings = new ArrayList<>();
-            for (int i = 0; i < sessions.size(); i++) {
-                SessionEntity s = sessions.get(i);
-                int sessionNumber = sessions.size() - i;
-                // Строго без "Сес", только номер и параметры
-                sessionStrings.add(String.format(Locale.US, "#%d | %s | %s | SpO2: %d%%",
-                        sessionNumber, sdf.format(new Date(s.getStartTime())), s.getWorkoutMode(), s.getAvgSpo2()));
+            builder.setView(rootLayout);
+            builder.setNegativeButton("ЗАКРЫТЬ", (dialog, which) -> dialog.dismiss());
+            AlertDialog dialog = builder.create();
+            dialog.show();
+            return;
+        }
+
+        ListView listView = new ListView(context);
+        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1.0f);
+        listView.setLayoutParams(listParams);
+        rootLayout.addView(listView);
+
+        // Панель кнопок внизу ("Удалить" и "Закрыть")
+        LinearLayout buttonLayout = new LinearLayout(context);
+        buttonLayout.setOrientation(LinearLayout.HORIZONTAL);
+        buttonLayout.setGravity(Gravity.END);
+        buttonLayout.setPadding(0, 15, 0, 0);
+
+        Button btnDelete = new Button(context);
+        btnDelete.setText("УДАЛИТЬ");
+        btnDelete.setTextColor(0xFFFF5252);
+        btnDelete.setBackgroundColor(Color.TRANSPARENT);
+
+        Button btnClose = new Button(context);
+        btnClose.setText("ЗАКРЫТЬ");
+        btnClose.setTextColor(0xFFFFFFFF);
+        btnClose.setBackgroundColor(Color.TRANSPARENT);
+
+        buttonLayout.addView(btnDelete);
+        buttonLayout.addView(btnClose);
+        rootLayout.addView(buttonLayout);
+
+        builder.setView(rootLayout);
+        AlertDialog dialog = builder.create();
+
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US);
+        Set<Integer> selectedPositions = new HashSet<>();
+
+        List<String> sessionStrings = new ArrayList<>();
+        for (int i = 0; i < sessions.size(); i++) {
+            SessionEntity s = sessions.get(i);
+            int sessionNumber = sessions.size() - i;
+            sessionStrings.add(String.format(Locale.US, "#%d | %s | %s | SpO2: %d%%",
+                    sessionNumber, sdf.format(new Date(s.getStartTime())), s.getWorkoutMode(), s.getAvgSpo2()));
+        }
+
+        ArrayAdapter<String> adapter = new ArrayAdapter<String>(context, android.R.layout.simple_list_item_1, sessionStrings) {
+            @Override
+            public android.view.View getView(int position, android.view.View convertView, ViewGroup parent) {
+                TextView tv = (TextView) super.getView(position, convertView, parent);
+                tv.setTextSize(13f);
+                tv.setTextColor(0xFFFFFFFF);
+                tv.setSingleLine(true);
+                tv.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+
+                // Визуальная подсветка выбранных сессий
+                if (selectedPositions.contains(position)) {
+                    tv.setBackgroundColor(Color.parseColor("#334155"));
+                } else {
+                    tv.setBackgroundColor(Color.TRANSPARENT);
+                }
+                return tv;
+            }
+        };
+        listView.setAdapter(adapter);
+
+        // Долгое нажатие — активация (выделение/снятие выделения) сессии
+        listView.setOnItemLongClickListener((parent, view, position, id) -> {
+            if (selectedPositions.contains(position)) {
+                selectedPositions.remove(position);
+            } else {
+                selectedPositions.add(position);
+            }
+            adapter.notifyDataSetChanged();
+            return true;
+        });
+
+        // Обычное нажатие — открытие PDF-отчета
+        listView.setOnItemClickListener((parent, view, position, id) -> {
+            SessionEntity session = sessions.get(position);
+            File targetFile = null;
+
+            if (!TextUtils.isEmpty(session.getPdfPath())) {
+                File f = new File(session.getPdfPath());
+                if (f.exists()) {
+                    targetFile = f;
+                }
             }
 
-            ArrayAdapter<String> adapter = new ArrayAdapter<String>(context, android.R.layout.simple_list_item_1, sessionStrings) {
-                @Override
-                public android.view.View getView(int position, android.view.View convertView, ViewGroup parent) {
-                    TextView tv = (TextView) super.getView(position, convertView, parent);
-                    tv.setTextSize(13f);
-                    tv.setTextColor(0xFFFFFFFF);
-                    tv.setSingleLine(true);
-                    tv.setEllipsize(TextUtils.TruncateAt.MIDDLE);
-                    return tv;
-                }
-            };
-            listView.setAdapter(adapter);
-
-            listView.setOnItemClickListener((parent, view, position, id) -> {
-                SessionEntity session = sessions.get(position);
-                File targetFile = null;
-
-                if (!TextUtils.isEmpty(session.getPdfPath())) {
-                    File f = new File(session.getPdfPath());
-                    if (f.exists()) {
-                        targetFile = f;
-                    }
-                }
-
-                if (targetFile == null || !targetFile.exists()) {
-                    File docDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
-                    File[] pdfs = docDir.listFiles((dir, name) -> name.endsWith(".pdf"));
-                    if (pdfs != null && pdfs.length > 0) {
-                        targetFile = pdfs[0];
-                        for (File p : pdfs) {
-                            if (p.lastModified() > targetFile.lastModified()) {
-                                targetFile = p;
-                            }
+            if (targetFile == null || !targetFile.exists()) {
+                File docDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+                File[] pdfs = docDir.listFiles((dir, name) -> name.endsWith(".pdf"));
+                if (pdfs != null && pdfs.length > 0) {
+                    targetFile = pdfs[0];
+                    for (File p : pdfs) {
+                        if (p.lastModified() > targetFile.lastModified()) {
+                            targetFile = p;
                         }
                     }
                 }
+            }
 
-                if (targetFile != null && targetFile.exists()) {
-                    openPdfFile(context, targetFile);
-                } else {
-                    Toast.makeText(context, "PDF-отчет для этой сессии не найден в папке Documents", Toast.LENGTH_SHORT).show();
-                }
-            });
+            if (targetFile != null && targetFile.exists()) {
+                openPdfFile(context, targetFile);
+            } else {
+                Toast.makeText(context, "PDF-отчет для этой сессии не найден", Toast.LENGTH_SHORT).show();
+            }
+        });
 
-            layout.addView(listView);
-        }
+        // Обработка кнопки удаления
+        btnDelete.setOnClickListener(v -> {
+            if (selectedPositions.isEmpty()) {
+                Toast.makeText(context, "Сначала выберите сессии долгим нажатием", Toast.LENGTH_SHORT).show();
+                return;
+            }
 
-        builder.setView(layout);
-        builder.setNegativeButton("ЗАКРЫТЬ", (dialog, which) -> dialog.dismiss());
+            new AlertDialog.Builder(context)
+                    .setTitle("Удаление сессий")
+                    .setMessage("Удалить выбранные сессии (" + selectedPositions.size() + ") и связанные с ними PDF-файлы?")
+                    .setPositiveButton("Удалить", (d, w) -> {
+                        dbExecutor.execute(() -> {
+                            AppDatabase db = AppDatabase.getInstance(context);
+                            List<SessionEntity> toDelete = new ArrayList<>();
+                            for (int pos : selectedPositions) {
+                                if (pos >= 0 && pos < sessions.size()) {
+                                    toDelete.add(sessions.get(pos));
+                                }
+                            }
 
-        AlertDialog dialog = builder.create();
+                            for (SessionEntity session : toDelete) {
+                                // Удаление из БД
+                                db.sessionDao().deleteSessionSync(session.getId());
+
+                                // Удаление локального/внутреннего PDF файла
+                                if (!TextUtils.isEmpty(session.getPdfPath())) {
+                                    File f = new File(session.getPdfPath());
+                                    if (f.exists()) f.delete();
+                                }
+                            }
+
+                            // Обновление списка сессий после удаления
+                            List<SessionEntity> updatedSessions = db.sessionDao().getSessionsByProfileSync(profileId);
+                            ((android.app.Activity) context).runOnUiThread(() -> {
+                                dialog.dismiss();
+                                Toast.makeText(context, "Выбранные сессии удалены", Toast.LENGTH_SHORT).show();
+                                // Переоткрываем обновленный диалог сессий
+                                showDialog(context, dbExecutor, profileId, profileName, updatedSessions);
+                            });
+                        });
+                    })
+                    .setNegativeButton("Отмена", null)
+                    .show();
+        });
+
+        btnClose.setOnClickListener(v -> dialog.dismiss());
+
         dialog.show();
 
-        // Компактные пропорции: ширина 85%, высота по содержимому (WRAP_CONTENT)
         if (dialog.getWindow() != null) {
             int width = (int) (context.getResources().getDisplayMetrics().widthPixels * 0.85);
             dialog.getWindow().setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -149,7 +248,6 @@ public class SessionDialogHelper {
             intent.setDataAndType(uri, "application/pdf");
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
-            // Принудительный вызов системного окна выбора приложения (Chooser)
             Intent chooser = Intent.createChooser(intent, "Открыть PDF с помощью:");
             chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(chooser);
