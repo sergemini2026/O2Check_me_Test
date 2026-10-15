@@ -192,30 +192,23 @@ public class SessionDialogHelper {
                                 }
                             }
 
-                            File docDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
-
                             for (SessionEntity session : toDelete) {
                                 db.sessionDao().deleteSessionSync(session.getId());
 
-                                boolean deleted = false;
+                                // Если у сессии сохранен путь или имя файла, удаляем через ContentResolver[span_1](start_span)[span_1](end_span)
                                 if (!TextUtils.isEmpty(session.getPdfPath())) {
-                                    File f = new File(session.getPdfPath());
-                                    if (f.exists()) {
-                                        deleted = deleteFileWithMediaStore(context, f);
-                                    }
-                                }
-
-                                // Резервная очистка в Documents по временному штампу сессии
-                                if (!deleted && docDir.exists()) {
-                                    File[] pdfs = docDir.listFiles((dir, name) -> name.endsWith(".pdf"));
-                                    if (pdfs != null) {
-                                        for (File pdf : pdfs) {
-                                            long fileTime = pdf.lastModified();
-                                            if (fileTime >= session.getStartTime() - 30000 && fileTime <= session.getEndTime() + 600000) {
-                                                deleteFileWithMediaStore(context, pdf);
-                                            }
-                                        }
-                                    }
+                                    try {
+                                        File f = new File(session.getPdfPath());
+                                        String fileName = f.getName();
+                                        
+                                        context.getContentResolver().delete(
+                                            MediaStore.Files.getContentUri("external"),
+                                            MediaStore.MediaColumns.DISPLAY_NAME + "=?",
+                                            new String[]{fileName}
+                                        );
+                                        
+                                        if (f.exists()) f.delete();
+                                    } catch (Exception ignored) {}
                                 }
                             }
 
@@ -239,32 +232,6 @@ public class SessionDialogHelper {
             int width = (int) (context.getResources().getDisplayMetrics().widthPixels * 0.85);
             dialog.getWindow().setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
-    }
-
-    /**
-     * Надежное удаление через MediaStore по имени файла (DISPLAY_NAME)
-     */
-    private static boolean deleteFileWithMediaStore(Context context, File file) {
-        if (file == null) return true;
-
-        // 1. Прямое удаление файла
-        try {
-            if (file.exists() && file.delete()) {
-                return true;
-            }
-        } catch (Exception ignored) {}
-
-        // 2. Удаление через MediaStore API по имени файла
-        try {
-            String fileName = file.getName();
-            ContentResolver resolver = context.getContentResolver();
-            Uri collection = MediaStore.Files.getContentUri("external");
-            String selection = MediaStore.MediaColumns.DISPLAY_NAME + "=?";
-            String[] selectionArgs = new String[]{fileName};
-            resolver.delete(collection, selection, selectionArgs);
-        } catch (Exception ignored) {}
-
-        return !file.exists();
     }
 
     private static TextView newTextView(Context context, String text) {
