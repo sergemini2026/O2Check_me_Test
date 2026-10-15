@@ -12,14 +12,12 @@ interface SessionDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSession(session: SessionEntity): Long
 
-    // Синхронный метод для MainActivity
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertSessionSync(session: SessionEntity): Long
 
     @Query("SELECT * FROM sessions WHERE profileId = :profileId ORDER BY startTime DESC")
     fun getSessionsByProfile(profileId: Long): Flow<List<SessionEntity>>
 
-    // Синхронный метод для MainActivity
     @Query("SELECT * FROM sessions WHERE profileId = :profileId ORDER BY startTime DESC")
     fun getSessionsByProfileSync(profileId: Long): List<SessionEntity>
 
@@ -28,4 +26,8 @@ interface SessionDao {
 
     @Query("DELETE FROM sessions WHERE id = :sessionId")
     suspend fun deleteSession(sessionId: Long)
+
+    // Синхронный метод удаления для выполнения в Executor
+    @Query("DELETE FROM sessions WHERE id = :sessionId")
+    fun deleteSessionSync(sessionId: Long)
 }
