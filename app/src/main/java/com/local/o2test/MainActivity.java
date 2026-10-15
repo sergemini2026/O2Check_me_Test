@@ -149,7 +149,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 openProfilesManager();
                 return;
             }
-            showExportChoiceDialog();
+            saveSessionAutomatically();
         });
 
         ui.btnSettings.setOnClickListener(v -> {
@@ -192,20 +192,23 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         checkMasterPasswordOnStart();
     }
 
-    private void showExportChoiceDialog() {
-        CharSequence[] options = {"Экспорт в PDF (Отчет)", "Экспорт в CSV (Сырые данные)"};
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(getCenteredTitle("Выберите формат сохранения"));
-        builder.setItems(options, (dialog, which) -> {
-            if (which == 0) {
-                List<DataPoint> copyForExport;
-                synchronized (sessionData) { copyForExport = new ArrayList<>(sessionData); }
-                saveSessionToDatabase(copyForExport, true);
-            } else {
-                saveData();
+    private void saveSessionAutomatically() {
+        onLog("Сохранение сессии в CSV и PDF...");
+        List<DataPoint> copyForExport;
+        synchronized (sessionData) { copyForExport = new ArrayList<>(sessionData); }
+        
+        CsvExporter.saveSessionToCsv(this, copyForExport, new CsvExporter.ExportCallback() {
+            @Override
+            public void onSuccess(String filePath, String fileName) {
+                onLog("CSV успешно сохранен: " + fileName);
+                saveSessionToDatabase(copyForExport, filePath);
+            }
+            @Override
+            public void onError(String errorMessage) {
+                onLog("Ошибка сохранения CSV: " + errorMessage);
+                saveSessionToDatabase(copyForExport, "");
             }
         });
-        builder.show();
     }
 
     private void showSettingsDialog() {
@@ -372,7 +375,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
             @Override
             public void onProfileDeleted(long deletedProfileId) {
-                // Если удален текущий активный профиль — принудительно останавливаем сессию
                 if (activeProfileId == deletedProfileId) {
                     if (isRecording) {
                         stopMonitoring();
@@ -505,25 +507,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         onLog("Мониторинг остановлен");
     }
 
-    private void saveData() {
-        onLog("Сохранение данных в CSV и БД...");
-        List<DataPoint> copyForExport;
-        synchronized (sessionData) { copyForExport = new ArrayList<>(sessionData); }
-        
-        CsvExporter.saveSessionToCsv(this, copyForExport, new CsvExporter.ExportCallback() {
-            @Override
-            public void onSuccess(String filePath, String fileName) {
-                onLog("Успешно сохранено в CSV: " + fileName);
-                saveSessionToDatabase(copyForExport, false);
-            }
-            @Override
-            public void onError(String errorMessage) {
-                onLog("Ошибка сохранения CSV: " + errorMessage);
-            }
-        });
-    }
-
-    private void saveSessionToDatabase(List<DataPoint> points, boolean generatePdf) {
+    private void saveSessionToDatabase(List<DataPoint> points, String csvPath) {
         if (activeProfileId == -1L) return;
 
         final List<SessionSnapshot> capturedSnapshots;
@@ -552,7 +536,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         45.0,
                         50.0,
                         1.2,
-                        35.0
+                        35.0,
+                        "",
+                        csvPath
                 );
                 long sessionId = db.sessionDao().insertSessionSync(session);
 
@@ -577,37 +563,33 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 }
 
                 runOnUiThread(() -> {
-                    onLog("Сессия #" + sessionId + " и " + entityList.size() + " HRV снимков зарегистрированы в БД");
+                    onLog("Сессия #" + sessionId + " зарегистрирована в БД. Генерация PDF отчета...");
+                    PdfExporter.generateHrvPdfReport(
+                            MainActivity.this,
+                            activeProfileName,
+                            currentWorkoutMode,
+                            sessionStartTime,
+                            endTime,
+                            entityList,
+                            sessionRrList,
+                            points,
+                            customPath,
+                            new PdfExporter.PdfExportCallback() {
+                                @Override
+                                public void onSuccess(String pdfFilePath, String fileNamePdf) {
+                                    dbExecutor.execute(() -> {
+                                        db.sessionDao().updatePathsSync(sessionId, pdfFilePath, csvPath);
+                                    });
 
-                    if (generatePdf) {
-                        onLog("Генерация PDF отчета...");
-                        PdfExporter.generateHrvPdfReport(
-                                MainActivity.this,
-                                activeProfileName,
-                                currentWorkoutMode,
-                                sessionStartTime,
-                                endTime,
-                                entityList,
-                                sessionRrList,
-                                points,
-                                customPath,
-                                new PdfExporter.PdfExportCallback() {
-                                    @Override
-                                    public void onSuccess(String filePath, String fileNamePdf) {
-                                        dbExecutor.execute(() -> {
-                                            db.sessionDao().updatePdfPathSync(sessionId, filePath);
-                                        });
-
-                                        onLog("PDF успешно создан: " + fileNamePdf);
-                                        Toast.makeText(MainActivity.this, "Отчет сохранен", Toast.LENGTH_LONG).show();
-                                    }
-                                    @Override
-                                    public void onError(String errorMessage) {
-                                        onLog("Ошибка создания PDF: " + errorMessage);
-                                    }
+                                    onLog("PDF успешно создан: " + fileNamePdf);
+                                    Toast.makeText(MainActivity.this, "Сессия и отчеты успешно сохранены", Toast.LENGTH_LONG).show();
                                 }
-                        );
-                    }
+                                @Override
+                                public void onError(String errorMessage) {
+                                    onLog("Ошибка создания PDF: " + errorMessage);
+                                }
+                            }
+                    );
                 });
 
             } catch (Exception e) {
