@@ -1,12 +1,17 @@
 package com.local.o2test;
 
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.pdf.PdfDocument;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Environment;
+import android.provider.MediaStore;
 import android.text.Layout;
 import android.text.StaticLayout;
 import android.text.TextPaint;
@@ -289,37 +294,62 @@ public class PdfExporter {
                 document.finishPage(pageN);
             }
 
-            // 1. Сохранение в публичные Документы
-            File publicDir;
-            if (customDirPath != null && !customDirPath.isEmpty()) {
-                publicDir = new File(customDirPath);
-            } else {
-                publicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
-            }
-            if (!publicDir.exists()) publicDir.mkdirs();
-
+            // ==========================================
+            // 1. Сохранение в публичные Документы через MediaStore (Android 10+) или Legacy
+            // ==========================================
             String fileName = "HRV_Report_" + System.currentTimeMillis() + ".pdf";
-            File publicFile = new File(publicDir, fileName);
+            Uri publicUri = null;
+            File legacyFile = null;
 
-            FileOutputStream fos = new FileOutputStream(publicFile);
-            document.writeTo(fos);
-            fos.close();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
+                values.put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf");
+                values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOCUMENTS);
+
+                ContentResolver resolver = context.getContentResolver();
+                Uri collection = MediaStore.Files.getContentUri("external");
+                publicUri = resolver.insert(collection, values);
+
+                if (publicUri != null) {
+                    try (OutputStream fos = resolver.openOutputStream(publicUri)) {
+                        document.writeTo(fos);
+                    }
+                }
+            } else {
+                File publicDir;
+                if (customDirPath != null && !customDirPath.isEmpty()) {
+                    publicDir = new File(customDirPath);
+                } else {
+                    publicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+                }
+                if (!publicDir.exists()) publicDir.mkdirs();
+                legacyFile = new File(publicDir, fileName);
+                try (FileOutputStream fos = new FileOutputStream(legacyFile)) {
+                    document.writeTo(fos);
+                }
+            }
             document.close();
 
-            // Регистрация файла в MediaStore для корректного удаления через Android Scoped Storage
-            android.media.MediaScannerConnection.scanFile(
-                    context,
-                    new String[]{publicFile.getAbsolutePath()},
-                    new String[]{"application/pdf"},
-                    null
-            );
-
+            // ==========================================
             // 2. Внутреннее копирование для открытия из сессий
+            // ==========================================
             File internalDir = context.getExternalFilesDir(null);
             if (internalDir != null && !internalDir.exists()) internalDir.mkdirs();
             File internalFile = new File(internalDir, fileName);
 
-            copyFile(publicFile, internalFile);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && publicUri != null) {
+                try (InputStream in = context.getContentResolver().openInputStream(publicUri);
+                     OutputStream out = new FileOutputStream(internalFile)) {
+                    byte[] buf = new byte[4096];
+                    int len;
+                    while ((len = in.read(buf)) > 0) {
+                        out.write(buf, 0, len);
+                    }
+                }
+            } else if (legacyFile != null) {
+                copyFile(legacyFile, internalFile);
+            }
 
             if (callback != null) {
                 callback.onSuccess(internalFile.getAbsolutePath(), fileName);
