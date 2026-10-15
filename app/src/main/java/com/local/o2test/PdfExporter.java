@@ -198,7 +198,7 @@ public class PdfExporter {
             textPaint.setFakeBoldText(true);
             canvas2.drawText("3. Скатертограмма Пуанкаре и анализ геометрии", MARGIN, 45, textPaint);
 
-            drawPoincarePlot(canvas2, snapshots, MARGIN, 65, PAGE_WIDTH - 2 * MARGIN, 340);
+            drawPoincarePlot(canvas2, rawRrList, MARGIN, 65, PAGE_WIDTH - 2 * MARGIN, 340);
 
             textPaint.setTextSize(11);
             textPaint.setFakeBoldText(true);
@@ -496,13 +496,14 @@ public class PdfExporter {
         canvas.drawPath(path, strokePaint);
     }
 
-    private static void drawPoincarePlot(Canvas canvas, List<HrvSnapshotEntity> snapshots, int left, int top, int width, int height) {
+    private static void drawPoincarePlot(Canvas canvas, List<Integer> rawRrList, int left, int top, int width, int height) {
         Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         fillPaint.setStyle(Paint.Style.FILL);
 
         Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         strokePaint.setStyle(Paint.Style.STROKE);
 
+        // Фон графика
         fillPaint.setColor(Color.parseColor("#F8FAFC"));
         canvas.drawRect(left, top, left + width, top + height, fillPaint);
 
@@ -510,30 +511,58 @@ public class PdfExporter {
         strokePaint.setStrokeWidth(1f);
         canvas.drawRect(left, top, left + width, top + height, strokePaint);
 
-        int centerX = left + width / 2;
-        int centerY = top + height / 2;
+        // Оси и сетка внутри графика
+        int plotLeft = left + 40;
+        int plotTop = top + 20;
+        int plotWidth = width - 60;
+        int plotHeight = height - 50;
 
-        strokePaint.setColor(Color.parseColor("#E2E8F0"));
-        strokePaint.setStrokeWidth(1f);
-        canvas.drawLine(left, centerY, left + width, centerY, strokePaint);
-        canvas.drawLine(centerX, top, centerX, top + height, strokePaint);
-
-        int index = 0;
-        for (HrvSnapshotEntity s : snapshots) {
-            float px = (float) (centerX + (s.getSd1() - 50) * 2.2);
-            float py = (float) (centerY - (s.getSd2() - 50) * 2.2);
-
-            if (px >= left + 15 && px <= left + width - 15 && py >= top + 15 && py <= top + height - 15) {
-                if (index % 3 == 0) {
-                    fillPaint.setColor(Color.parseColor("#64748B"));
-                } else if (index % 3 == 1) {
-                    fillPaint.setColor(Color.parseColor("#0284C7"));
-                } else {
-                    fillPaint.setColor(Color.parseColor("#0EA5E9"));
-                }
-                canvas.drawCircle(px, py, 4.5f, fillPaint);
-            }
-            index++;
+        if (rawRrList == null || rawRrList.size() < 2) {
+            Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            textPaint.setColor(Color.parseColor("#64748B"));
+            textPaint.setTextSize(11f);
+            canvas.drawText("Недостаточно данных RR для построения Пуанкаре", left + 20, top + height / 2, textPaint);
+            return;
         }
+
+        // Автоматическое определение минимального и максимального RR для масштаба (кратно 100 мс)
+        int minRr = 500;
+        int maxRr = 1300;
+        for (int rr : rawRrList) {
+            if (rr > 300 && rr < 2500) {
+                if (rr < minRr) minRr = (rr / 100) * 100;
+                if (rr > maxRr) maxRr = ((rr / 100) + 1) * 100;
+            }
+        }
+        if (maxRr <= minRr) maxRr = minRr + 500;
+
+        // Линия идентичности y = x (диагональ)
+        strokePaint.setColor(Color.parseColor("#94A3B8"));
+        strokePaint.setStrokeWidth(1.5f);
+        canvas.drawLine(plotLeft, plotTop + plotHeight, plotLeft + plotWidth, plotTop, strokePaint);
+
+        // Отрисовка точек Пуанкаре (RR_n по X, RR_n+1 по Y)
+        fillPaint.setColor(Color.parseColor("#0284C7")); // Синий цвет точек
+        for (int i = 0; i < rawRrList.size() - 1; i++) {
+            int rrN = rawRrList.get(i);
+            int rrN1 = rawRrList.get(i + 1);
+
+            if (rrN >= 300 && rrN <= 2000 && rrN1 >= 300 && rrN1 <= 2000) {
+                float x = plotLeft + ((float) (rrN - minRr) / (maxRr - minRr)) * plotWidth;
+                float y = plotTop + plotHeight - ((float) (rrN1 - minRr) / (maxRr - minRr)) * plotHeight;
+
+                if (x >= plotLeft && x <= plotLeft + plotWidth && y >= plotTop && y <= plotTop + plotHeight) {
+                    canvas.drawCircle(x, y, 2.0f, fillPaint);
+                }
+            }
+        }
+
+        // Подписи осей
+        Paint labelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        labelPaint.setColor(Color.parseColor("#475569"));
+        labelPaint.setTextSize(9f);
+        canvas.drawText(minRr + " мс", plotLeft, plotTop + plotHeight + 15, labelPaint);
+        canvas.drawText(maxRr + " мс", plotLeft + plotWidth - 40, plotTop + plotHeight + 15, labelPaint);
+        canvas.drawText("RR(n) мс", plotLeft + plotWidth / 2 - 20, plotTop + plotHeight + 28, labelPaint);
     }
 }
