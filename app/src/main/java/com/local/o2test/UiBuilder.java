@@ -254,7 +254,9 @@ public class UiBuilder {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
         
         TextView title = new TextView(context);
-        title.setText("Сессии: " + profile.getName());
+        // Используем раздельные поля firstName и lastName вместо единого getName()
+        String fullName = profile.getFirstName() + (TextUtils.isEmpty(profile.getLastName()) ? "" : " " + profile.getLastName());
+        title.setText("Сессии: " + fullName);
         title.setTextSize(18);
         title.setPadding(30, 30, 30, 10);
         title.setTextColor(0xFFFFFFFF);
