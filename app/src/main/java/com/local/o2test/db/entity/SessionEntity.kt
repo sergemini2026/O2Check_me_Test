@@ -30,5 +30,6 @@ data class SessionEntity @JvmOverloads constructor(
     val sdnn: Double,
     val lfHfRatio: Double,
     val stressIndex: Double,
-    val pdfPath: String = ""
+    val pdfPath: String = "",
+    val csvPath: String = ""
 )
