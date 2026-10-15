@@ -126,8 +126,9 @@ public class ProfileDialogHelper {
 
         List<String> profileNames = new ArrayList<>();
         for (ProfileEntity p : profiles) {
+            String fullName = (p.getLastName().isEmpty()) ? p.getFirstName() : (p.getFirstName() + " " + p.getLastName());
             profileNames.add(String.format("ID: %d | %s | Возраст: %d | Вес: %.1fкг",
-                    p.getId(), p.getName(), p.getAge(), p.getWeightKg()));
+                    p.getId(), fullName, p.getAge(), p.getWeightKg()));
         }
 
         ArrayAdapter<String> adapter = new ArrayAdapter<String>(context, android.R.layout.simple_list_item_1, profileNames) {
@@ -161,9 +162,10 @@ public class ProfileDialogHelper {
 
         listView.setOnItemClickListener((parent, view, position, id) -> {
             ProfileEntity selected = profiles.get(position);
+            String fullName = (selected.getLastName().isEmpty()) ? selected.getFirstName() : (selected.getFirstName() + " " + selected.getLastName());
             dialog.dismiss();
-            callback.onProfileAuthorized(selected.getId(), selected.getName());
-            Toast.makeText(context, "Активный профиль: " + selected.getName(), Toast.LENGTH_SHORT).show();
+            callback.onProfileAuthorized(selected.getId(), fullName);
+            Toast.makeText(context, "Активный профиль: " + fullName, Toast.LENGTH_SHORT).show();
         });
 
         btnCreate.setOnClickListener(v -> {
@@ -197,7 +199,6 @@ public class ProfileDialogHelper {
                                 if (pos >= 0 && pos < profiles.size()) {
                                     ProfileEntity profile = profiles.get(pos);
                                     
-                                    // Удаляем файлы отчетов с диска и из MediaStore
                                     List<SessionEntity> sessions = db.sessionDao().getSessionsByProfileSync(profile.getId());
                                     for (SessionEntity session : sessions) {
                                         if (!TextUtils.isEmpty(session.getPdfPath())) {
@@ -239,7 +240,6 @@ public class ProfileDialogHelper {
 
         if (dialog.getWindow() != null) {
             int width = (int) (context.getResources().getDisplayMetrics().widthPixels * 0.90);
-            // Возвращаем WRAP_CONTENT для высоты, чтобы окно масштабировалось по содержимому с прокруткой
             dialog.getWindow().setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
     }
@@ -253,10 +253,19 @@ public class ProfileDialogHelper {
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(40, 20, 40, 20);
 
-        final EditText inputName = new EditText(context);
-        inputName.setHint("Имя / Логин");
-        if (isEditMode) inputName.setText(editingProfile.getName());
-        layout.addView(inputName);
+        final EditText inputFirstName = new EditText(context);
+        inputFirstName.setHint("Имя");
+        
+        final EditText inputLastName = new EditText(context);
+        inputLastName.setHint("Фамилия");
+
+        if (isEditMode) {
+            inputFirstName.setText(editingProfile.getFirstName());
+            inputLastName.setText(editingProfile.getLastName());
+        }
+
+        layout.addView(inputFirstName);
+        layout.addView(inputLastName);
 
         final EditText inputAge = new EditText(context);
         inputAge.setHint("Возраст (лет)");
@@ -368,8 +377,10 @@ public class ProfileDialogHelper {
 
         builder.setView(layout);
         builder.setPositiveButton(isEditMode ? "Сохранить" : "Создать", (dialog, which) -> {
-            String name = inputName.getText().toString().trim();
-            if (name.isEmpty()) {
+            String firstName = inputFirstName.getText().toString().trim();
+            String lastName = inputLastName.getText().toString().trim();
+
+            if (firstName.isEmpty()) {
                 Toast.makeText(context, "Укажите имя профиля!", Toast.LENGTH_SHORT).show();
                 return;
             }
@@ -386,18 +397,20 @@ public class ProfileDialogHelper {
 
             dbExecutor.execute(() -> {
                 try {
-                    ProfileEntity profile = new ProfileEntity(profileId, name, age, weight, height, sysBp, diaBp, fitness, gender, createdAt);
+                    // Создаем сущность с раздельными полями firstName и lastName
+                    ProfileEntity profile = new ProfileEntity(profileId, firstName, lastName, age, weight, height, sysBp, diaBp, fitness, gender, createdAt);
+                    String fullName = firstName + (lastName.isEmpty() ? "" : " " + lastName);
+
                     if (isEditMode) {
-                        // Используем update вместо insert/replace, чтобы не сбрасывать ID и не удалять сессии
                         db.profileDao().updateProfileSync(profile);
                         ((android.app.Activity) context).runOnUiThread(() -> {
-                            callback.onProfileAuthorized(profileId, name);
+                            callback.onProfileAuthorized(profileId, fullName);
                             Toast.makeText(context, "Профиль успешно обновлен!", Toast.LENGTH_SHORT).show();
                         });
                     } else {
                         long id = db.profileDao().insertProfileSync(profile);
                         ((android.app.Activity) context).runOnUiThread(() -> {
-                            callback.onProfileAuthorized(id, name);
+                            callback.onProfileAuthorized(id, fullName);
                             Toast.makeText(context, "Профиль успешно создан и активирован!", Toast.LENGTH_SHORT).show();
                         });
                     }
