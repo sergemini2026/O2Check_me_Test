@@ -52,7 +52,6 @@ public class SessionDialogHelper {
     private static void showDialog(Context context, ExecutorService dbExecutor, long profileId, String profileName, List<SessionEntity> sessions) {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
 
-        // Кастомный корневой макет для размещения заголовка, списка и кнопок управления
         LinearLayout rootLayout = new LinearLayout(context);
         rootLayout.setOrientation(LinearLayout.VERTICAL);
         rootLayout.setPadding(20, 20, 20, 20);
@@ -81,7 +80,6 @@ public class SessionDialogHelper {
         listView.setLayoutParams(listParams);
         rootLayout.addView(listView);
 
-        // Панель кнопок внизу ("Удалить" и "Закрыть")
         LinearLayout buttonLayout = new LinearLayout(context);
         buttonLayout.setOrientation(LinearLayout.HORIZONTAL);
         buttonLayout.setGravity(Gravity.END);
@@ -124,7 +122,6 @@ public class SessionDialogHelper {
                 tv.setSingleLine(true);
                 tv.setEllipsize(TextUtils.TruncateAt.MIDDLE);
 
-                // Визуальная подсветка выбранных сессий
                 if (selectedPositions.contains(position)) {
                     tv.setBackgroundColor(Color.parseColor("#334155"));
                 } else {
@@ -135,7 +132,6 @@ public class SessionDialogHelper {
         };
         listView.setAdapter(adapter);
 
-        // Долгое нажатие — активация (выделение/снятие выделения) сессии
         listView.setOnItemLongClickListener((parent, view, position, id) -> {
             if (selectedPositions.contains(position)) {
                 selectedPositions.remove(position);
@@ -146,16 +142,13 @@ public class SessionDialogHelper {
             return true;
         });
 
-        // Обычное нажатие — открытие PDF-отчета
         listView.setOnItemClickListener((parent, view, position, id) -> {
             SessionEntity session = sessions.get(position);
             File targetFile = null;
 
             if (!TextUtils.isEmpty(session.getPdfPath())) {
                 File f = new File(session.getPdfPath());
-                if (f.exists()) {
-                    targetFile = f;
-                }
+                if (f.exists()) targetFile = f;
             }
 
             if (targetFile == null || !targetFile.exists()) {
@@ -178,7 +171,6 @@ public class SessionDialogHelper {
             }
         });
 
-        // Обработка кнопки удаления
         btnDelete.setOnClickListener(v -> {
             if (selectedPositions.isEmpty()) {
                 Toast.makeText(context, "Сначала выберите сессии долгим нажатием", Toast.LENGTH_SHORT).show();
@@ -198,23 +190,37 @@ public class SessionDialogHelper {
                                 }
                             }
 
+                            File docDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+
                             for (SessionEntity session : toDelete) {
-                                // Удаление из БД
                                 db.sessionDao().deleteSessionSync(session.getId());
 
-                                // Удаление локального/внутреннего PDF файла
+                                boolean deleted = false;
                                 if (!TextUtils.isEmpty(session.getPdfPath())) {
                                     File f = new File(session.getPdfPath());
-                                    if (f.exists()) f.delete();
+                                    if (f.exists()) {
+                                        deleted = f.delete();
+                                    }
+                                }
+
+                                // Резервная очистка в Documents по временному штампу сессии
+                                if (!deleted && docDir.exists()) {
+                                    File[] pdfs = docDir.listFiles((dir, name) -> name.endsWith(".pdf"));
+                                    if (pdfs != null) {
+                                        for (File pdf : pdfs) {
+                                            long diff = Math.abs(pdf.lastModified() - session.getStartTime());
+                                            if (diff < 120000) {
+                                                pdf.delete();
+                                            }
+                                        }
+                                    }
                                 }
                             }
 
-                            // Обновление списка сессий после удаления
                             List<SessionEntity> updatedSessions = db.sessionDao().getSessionsByProfileSync(profileId);
                             ((android.app.Activity) context).runOnUiThread(() -> {
                                 dialog.dismiss();
-                                Toast.makeText(context, "Выбранные сессии удалены", Toast.LENGTH_SHORT).show();
-                                // Переоткрываем обновленный диалог сессий
+                                Toast.makeText(context, "Сессии и файлы успешно удалены", Toast.LENGTH_SHORT).show();
                                 showDialog(context, dbExecutor, profileId, profileName, updatedSessions);
                             });
                         });
