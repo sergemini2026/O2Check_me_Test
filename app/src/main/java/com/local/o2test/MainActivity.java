@@ -45,7 +45,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private O2BleManager bleManager;
     private PolarH10Manager polarManager;
     private UiBuilder.Views ui;
-    private OxygenSensorManager oxygenSensorManager; // Менеджер кислородных датчиков
+    private OxygenSensorManager oxygenSensorManager;
 
     private HrvForegroundService hrvService;
     private boolean isBound = false;
@@ -80,7 +80,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             hrvService = binder.getService();
             isBound = true;
             
-            // Синхронизируем состояние записи с сервисом вместо жесткого сброса в false
             if (hrvService != null) {
                 isRecording = hrvService.isRecording();
             } else {
@@ -113,10 +112,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         polarManager = new PolarH10Manager(this, polarCallback);
 
         ui = UiBuilder.buildUi(this);
-        oxygenSensorManager = new OxygenSensorManager(ui); // Инициализация менеджера датчиков
+        oxygenSensorManager = new OxygenSensorManager(ui);
         UiBuilder.updateStatusHeader(ui.tvLiveMetrics, 0, 0, 0f, 0, 0);
 
-        // ИСХОДНОЕ СОСТОЯНИЕ: блокируем все, кроме Профилей, Настроек и Выхода
         setInterfaceAuthorizedState(false);
         updateMetricsDisplay("--", "--", "--", "--");
         updateRightPanelStatus();
@@ -190,7 +188,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         setContentView(ui.mainLayout);
 
-        // Проверка и запрос мастер-пароля при старте программы
         checkMasterPasswordOnStart();
     }
 
@@ -573,11 +570,16 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                 endTime,
                                 entityList,
                                 sessionRrList,
-                                points, // Передаем реальные точки DataPoint для графика SpO2
+                                points,
                                 customPath,
                                 new PdfExporter.PdfExportCallback() {
                                     @Override
                                     public void onSuccess(String filePath, String fileNamePdf) {
+                                        // СОХРАНЯЕМ ПУТЬ К PDF В БАЗУ ДАННЫХ СИНХРОННО ЧЕРЕЗ BACKGROUND EXECUTOR
+                                        dbExecutor.execute(() -> {
+                                            db.sessionDao().updatePdfPathSync(sessionId, filePath);
+                                        });
+
                                         onLog("PDF успешно создан: " + fileNamePdf);
                                         Toast.makeText(MainActivity.this, "Отчет сохранен", Toast.LENGTH_LONG).show();
                                     }
