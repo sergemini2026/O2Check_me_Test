@@ -16,7 +16,6 @@ interface ProfileDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertProfileSync(profile: ProfileEntity): Long
 
-    // Безопасное обновление профиля без сброса ID и каскадного удаления сессий
     @Update
     fun updateProfileSync(profile: ProfileEntity)
 
@@ -25,6 +24,10 @@ interface ProfileDao {
 
     @Query("SELECT * FROM profiles ORDER BY id DESC")
     fun getAllProfilesSync(): List<ProfileEntity>
+
+    // Метод для поиска профилей по имени или фамилии (следующий шаг)
+    @Query("SELECT * FROM profiles WHERE firstName LIKE '%' || :query || '%' OR lastName LIKE '%' || :query || '%' ORDER BY id DESC")
+    fun searchProfilesSync(query: String): List<ProfileEntity>
 
     @Query("SELECT * FROM profiles WHERE id = :id")
     suspend fun getProfileById(id: Long): ProfileEntity?
