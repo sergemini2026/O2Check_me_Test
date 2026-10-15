@@ -232,4 +232,278 @@ public class PdfExporter {
             // СТРАНИЦЫ 3+: Хронологический лог снимков
             // ==========================================
             SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
-            int rowsPerPage = 2
+            int rowsPerPage = 22;
+            int totalSnapshots = snapshots.size();
+            int totalPages = (int) Math.ceil((double) totalSnapshots / rowsPerPage);
+            if (totalPages < 1) totalPages = 1;
+
+            for (int pageIndex = 0; pageIndex < totalPages; pageIndex++) {
+                PdfDocument.PageInfo pageInfoN = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 3 + pageIndex).create();
+                PdfDocument.Page pageN = document.startPage(pageInfoN);
+                Canvas canvasN = pageN.getCanvas();
+                canvasN.drawColor(Color.WHITE);
+
+                textPaint.setColor(Color.parseColor("#0F172A"));
+                textPaint.setTextSize(14);
+                textPaint.setFakeBoldText(true);
+                canvasN.drawText("4. Хронологический лог снимков (Страница " + (pageIndex + 1) + " из " + totalPages + ")", MARGIN, 45, textPaint);
+
+                int startY = 80;
+                textPaint.setTextSize(9.5f);
+                textPaint.setFakeBoldText(true);
+                textPaint.setColor(Color.parseColor("#0F172A"));
+                canvasN.drawText("Время", MARGIN, startY, textPaint);
+                canvasN.drawText("RMSSD", MARGIN + 65, startY, textPaint);
+                canvasN.drawText("SDNN", MARGIN + 125, startY, textPaint);
+                canvasN.drawText("SI", MARGIN + 185, startY, textPaint);
+                canvasN.drawText("LF/HF", MARGIN + 240, startY, textPaint);
+                canvasN.drawText("SampEn", MARGIN + 300, startY, textPaint);
+                canvasN.drawText("DFA α1", MARGIN + 360, startY, textPaint);
+                canvasN.drawText("Артефакты", MARGIN + 430, startY, textPaint);
+
+                strokePaint.setColor(Color.parseColor("#CBD5E1"));
+                strokePaint.setStrokeWidth(1f);
+                canvasN.drawLine(MARGIN, startY + 6, PAGE_WIDTH - MARGIN, startY + 6, strokePaint);
+
+                textPaint.setColor(Color.parseColor("#1E293B"));
+                textPaint.setFakeBoldText(false);
+
+                int startRow = pageIndex * rowsPerPage;
+                int endRow = Math.min(startRow + rowsPerPage, totalSnapshots);
+                int currentY = startY + 24;
+
+                for (int i = startRow; i < endRow; i++) {
+                    HrvSnapshotEntity s = snapshots.get(i);
+                    canvasN.drawText(timeFormat.format(new Date(s.getTimestamp())), MARGIN, currentY, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getRmssd()), MARGIN + 65, currentY, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getSdnn()), MARGIN + 125, currentY, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getBaevskySi()), MARGIN + 185, currentY, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getLfHfRatio()), MARGIN + 240, currentY, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getSampleEntropy()), MARGIN + 300, currentY, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getDfaAlpha1()), MARGIN + 360, currentY, textPaint);
+                    canvasN.drawText(s.getArtifactsDetected() + " (" + String.format(Locale.US, "%.1f%%", s.getArtifactPct()) + ")", MARGIN + 430, currentY, textPaint);
+
+                    currentY += 22;
+                }
+
+                document.finishPage(pageN);
+            }
+
+            // 1. Сохранение в публичные Документы
+            File publicDir;
+            if (customDirPath != null && !customDirPath.isEmpty()) {
+                publicDir = new File(customDirPath);
+            } else {
+                publicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+            }
+            if (!publicDir.exists()) publicDir.mkdirs();
+
+            String fileName = "HRV_Report_" + System.currentTimeMillis() + ".pdf";
+            File publicFile = new File(publicDir, fileName);
+
+            FileOutputStream fos = new FileOutputStream(publicFile);
+            document.writeTo(fos);
+            fos.close();
+            document.close();
+
+            // Регистрация файла в MediaStore для корректного удаления через Android Scoped Storage
+            android.media.MediaScannerConnection.scanFile(
+                    context,
+                    new String[]{publicFile.getAbsolutePath()},
+                    new String[]{"application/pdf"},
+                    null
+            );
+
+            // 2. Внутреннее копирование для открытия из сессий
+            File internalDir = context.getExternalFilesDir(null);
+            if (internalDir != null && !internalDir.exists()) internalDir.mkdirs();
+            File internalFile = new File(internalDir, fileName);
+
+            copyFile(publicFile, internalFile);
+
+            if (callback != null) {
+                callback.onSuccess(internalFile.getAbsolutePath(), fileName);
+            }
+
+        } catch (IOException e) {
+            document.close();
+            if (callback != null) {
+                callback.onError(e.getMessage());
+            }
+        }
+    }
+
+    private static void copyFile(File src, File dst) throws IOException {
+        try (InputStream in = new FileInputStream(src); OutputStream out = new FileOutputStream(dst)) {
+            byte[] buf = new byte[4096];
+            int len;
+            while ((len = in.read(buf)) > 0) {
+                out.write(buf, 0, len);
+            }
+        }
+    }
+
+    private static void drawMetricRow(Canvas canvas, int y, String label, String val, String desc) {
+        Paint rowPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        rowPaint.setTextSize(11);
+
+        rowPaint.setColor(Color.parseColor("#334155"));
+        rowPaint.setFakeBoldText(false);
+        canvas.drawText(label, MARGIN, y, rowPaint);
+
+        rowPaint.setColor(Color.parseColor("#0F172A"));
+        rowPaint.setFakeBoldText(true);
+        canvas.drawText(val, MARGIN + 180, y, rowPaint);
+
+        rowPaint.setFakeBoldText(false);
+        rowPaint.setColor(Color.parseColor("#64748B"));
+        canvas.drawText(desc, MARGIN + 280, y, rowPaint);
+    }
+
+    private static void drawHistogram(Canvas canvas, List<Integer> rawRrList, int left, int top, int width, int height, int lineColor, String title) {
+        Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        fillPaint.setStyle(Paint.Style.FILL);
+
+        Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        strokePaint.setStyle(Paint.Style.STROKE);
+
+        fillPaint.setColor(Color.parseColor("#F8FAFC"));
+        canvas.drawRect(left, top, left + width, top + height, fillPaint);
+
+        strokePaint.setColor(Color.parseColor("#CBD5E1"));
+        strokePaint.setStrokeWidth(1f);
+        canvas.drawRect(left, top, left + width, top + height, strokePaint);
+
+        Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        textPaint.setColor(Color.parseColor("#0F172A"));
+        textPaint.setTextSize(10.5f);
+        textPaint.setFakeBoldText(true);
+        canvas.drawText(title, left + 10, top + 16, textPaint);
+
+        if (rawRrList == null || rawRrList.isEmpty()) return;
+
+        int minRr = 400, maxRr = 1200;
+        int binCount = 35;
+        int binWidth = Math.max(1, (maxRr - minRr) / binCount);
+        int[] bins = new int[binCount];
+        int maxFreq = 1;
+
+        for (int rr : rawRrList) {
+            int binIdx = (rr - minRr) / binWidth;
+            if (binIdx >= 0 && binIdx < binCount) {
+                bins[binIdx]++;
+                if (bins[binIdx] > maxFreq) maxFreq = bins[binIdx];
+            }
+        }
+
+        int plotLeft = left + 15;
+        int plotTop = top + 26;
+        int plotWidth = width - 30;
+        int plotHeight = height - 36;
+
+        fillPaint.setColor(lineColor);
+        float barW = (float) plotWidth / binCount;
+        for (int i = 0; i < binCount; i++) {
+            float barH = ((float) bins[i] / maxFreq) * plotHeight;
+            canvas.drawRect(plotLeft + i * barW, plotTop + plotHeight - barH, plotLeft + (i + 1) * barW - 1, plotTop + plotHeight, fillPaint);
+        }
+    }
+
+    private static void drawOxygenationChart(Canvas canvas, List<DataPoint> dataPoints, int left, int top, int width, int height, int lineColor, String title) {
+        Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        fillPaint.setStyle(Paint.Style.FILL);
+
+        Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        strokePaint.setStyle(Paint.Style.STROKE);
+
+        fillPaint.setColor(Color.parseColor("#F8FAFC"));
+        canvas.drawRect(left, top, left + width, top + height, fillPaint);
+
+        strokePaint.setColor(Color.parseColor("#CBD5E1"));
+        strokePaint.setStrokeWidth(1f);
+        canvas.drawRect(left, top, left + width, top + height, strokePaint);
+
+        Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        textPaint.setColor(Color.parseColor("#0F172A"));
+        textPaint.setTextSize(10.5f);
+        textPaint.setFakeBoldText(true);
+        canvas.drawText(title, left + 10, top + 16, textPaint);
+
+        int plotLeft = left + 45;
+        int plotTop = top + 26;
+        int plotWidth = width - 60;
+        int plotHeight = height - 36;
+
+        textPaint.setTextSize(8f);
+        textPaint.setFakeBoldText(false);
+        textPaint.setColor(Color.parseColor("#64748B"));
+
+        strokePaint.setColor(Color.parseColor("#E2E8F0"));
+        strokePaint.setStrokeWidth(0.5f);
+
+        float[] levels = {100f, 95f, 90f, 85f};
+        for (float lvl : levels) {
+            float y = plotTop + ((100f - lvl) / 15.0f) * plotHeight;
+            canvas.drawLine(plotLeft, y, plotLeft + plotWidth, y, strokePaint);
+            canvas.drawText(String.format(Locale.US, "%.0f%%", lvl), left + 12, y + 3, textPaint);
+        }
+
+        if (dataPoints == null || dataPoints.isEmpty()) return;
+
+        strokePaint.setColor(lineColor);
+        strokePaint.setStrokeWidth(2f);
+
+        Path path = new Path();
+        int size = dataPoints.size();
+        for (int i = 0; i < size; i++) {
+            DataPoint dp = dataPoints.get(i);
+            float x = plotLeft + (i / (float) Math.max(1, size - 1)) * plotWidth;
+            float spo2Val = Math.max(85f, Math.min(100f, (float) dp.spo2));
+            float y = plotTop + ((100f - spo2Val) / 15.0f) * plotHeight;
+            if (i == 0) path.moveTo(x, y);
+            else path.lineTo(x, y);
+        }
+        canvas.drawPath(path, strokePaint);
+    }
+
+    private static void drawPoincarePlot(Canvas canvas, List<HrvSnapshotEntity> snapshots, int left, int top, int width, int height) {
+        Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        fillPaint.setStyle(Paint.Style.FILL);
+
+        Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        strokePaint.setStyle(Paint.Style.STROKE);
+
+        fillPaint.setColor(Color.parseColor("#F8FAFC"));
+        canvas.drawRect(left, top, left + width, top + height, fillPaint);
+
+        strokePaint.setColor(Color.parseColor("#CBD5E1"));
+        strokePaint.setStrokeWidth(1f);
+        canvas.drawRect(left, top, left + width, top + height, strokePaint);
+
+        int centerX = left + width / 2;
+        int centerY = top + height / 2;
+
+        strokePaint.setColor(Color.parseColor("#E2E8F0"));
+        strokePaint.setStrokeWidth(1f);
+        canvas.drawLine(left, centerY, left + width, centerY, strokePaint);
+        canvas.drawLine(centerX, top, centerX, top + height, strokePaint);
+
+        int index = 0;
+        for (HrvSnapshotEntity s : snapshots) {
+            float px = (float) (centerX + (s.getSd1() - 50) * 2.2);
+            float py = (float) (centerY - (s.getSd2() - 50) * 2.2);
+
+            if (px >= left + 15 && px <= left + width - 15 && py >= top + 15 && py <= top + height - 15) {
+                if (index % 3 == 0) {
+                    fillPaint.setColor(Color.parseColor("#64748B"));
+                } else if (index % 3 == 1) {
+                    fillPaint.setColor(Color.parseColor("#0284C7"));
+                } else {
+                    fillPaint.setColor(Color.parseColor("#0EA5E9"));
+                }
+                canvas.drawCircle(px, py, 4.5f, fillPaint);
+            }
+            index++;
+        }
+    }
+}
