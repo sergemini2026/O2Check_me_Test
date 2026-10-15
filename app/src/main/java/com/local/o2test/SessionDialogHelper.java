@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Environment;
+import android.provider.MediaStore;
 import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.ViewGroup;
@@ -199,18 +200,18 @@ public class SessionDialogHelper {
                                 if (!TextUtils.isEmpty(session.getPdfPath())) {
                                     File f = new File(session.getPdfPath());
                                     if (f.exists()) {
-                                        deleted = f.delete();
+                                        deleted = deleteFileWithFallback(context, f);
                                     }
                                 }
 
-                                // Точная проверка: файл создан в интервале от начала сессии до 3 минут после ее завершения
+                                // Резервная очистка в Documents по временному штампу сессии (с запасом 10 минут)
                                 if (!deleted && docDir.exists()) {
                                     File[] pdfs = docDir.listFiles((dir, name) -> name.endsWith(".pdf"));
                                     if (pdfs != null) {
                                         for (File pdf : pdfs) {
                                             long fileTime = pdf.lastModified();
-                                            if (fileTime >= session.getStartTime() - 10000 && fileTime <= session.getEndTime() + 180000) {
-                                                pdf.delete();
+                                            if (fileTime >= session.getStartTime() - 30000 && fileTime <= session.getEndTime() + 600000) {
+                                                deleteFileWithFallback(context, pdf);
                                             }
                                         }
                                     }
@@ -237,6 +238,33 @@ public class SessionDialogHelper {
             int width = (int) (context.getResources().getDisplayMetrics().widthPixels * 0.85);
             dialog.getWindow().setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
+    }
+
+    /**
+     * Надежное удаление файла с поддержкой Scoped Storage (Android 10+) через MediaStore
+     */
+    private static boolean deleteFileWithFallback(Context context, File file) {
+        if (file == null || !file.exists()) return true;
+
+        try {
+            if (file.delete()) {
+                return true;
+            }
+        } catch (Exception ignored) {}
+
+        // Fallback через MediaStore для общих папок
+        try {
+            String filePath = file.getAbsolutePath();
+            String selection = MediaStore.MediaColumns.DATA + "=?";
+            String[] selectionArgs = new String[]{filePath};
+            context.getContentResolver().delete(
+                    MediaStore.Files.getContentUri("external"),
+                    selection,
+                    selectionArgs
+            );
+        } catch (Exception ignored) {}
+
+        return !file.exists();
     }
 
     private static TextView newTextView(Context context, String text) {
