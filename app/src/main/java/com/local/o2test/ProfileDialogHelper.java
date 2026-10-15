@@ -3,7 +3,6 @@ package com.local.o2test;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.graphics.Color;
-import android.os.Environment;
 import android.provider.MediaStore;
 import android.text.InputType;
 import android.text.Layout;
@@ -39,6 +38,7 @@ public class ProfileDialogHelper {
     public interface ProfileCallback {
         void onProfileAuthorized(long profileId, String profileName);
         void onLog(String message);
+        void onProfileDeleted(long deletedProfileId);
     }
 
     private static SpannableString getCenteredTitle(String title) {
@@ -88,7 +88,6 @@ public class ProfileDialogHelper {
         listView.setLayoutParams(listParams);
         rootLayout.addView(listView);
 
-        // Панель кнопок внизу: Создать, Редактировать, Удалить, Закрыть
         LinearLayout buttonLayout = new LinearLayout(context);
         buttonLayout.setOrientation(LinearLayout.HORIZONTAL);
         buttonLayout.setGravity(Gravity.END);
@@ -102,7 +101,7 @@ public class ProfileDialogHelper {
         Button btnEdit = new Button(context);
         btnEdit.setText("РЕДАКТИРОВАТЬ");
         btnEdit.setTextColor(0xFF38BDF8);
-        btnEdit.setBackgroundColor(Color.TRANSPARENT); // Исправлена опечатка
+        btnEdit.setBackgroundColor(Color.TRANSPARENT);
 
         Button btnDelete = new Button(context);
         btnDelete.setText("УДАЛИТЬ");
@@ -150,7 +149,6 @@ public class ProfileDialogHelper {
         };
         listView.setAdapter(adapter);
 
-        // Долгое нажатие для выделения профиля
         listView.setOnItemLongClickListener((parent, view, position, id) -> {
             if (selectedPositions.contains(position)) {
                 selectedPositions.remove(position);
@@ -161,7 +159,6 @@ public class ProfileDialogHelper {
             return true;
         });
 
-        // Обычное нажатие — авторизация/выбор профиля
         listView.setOnItemClickListener((parent, view, position, id) -> {
             ProfileEntity selected = profiles.get(position);
             dialog.dismiss();
@@ -169,13 +166,11 @@ public class ProfileDialogHelper {
             Toast.makeText(context, "Активный профиль: " + selected.getName(), Toast.LENGTH_SHORT).show();
         });
 
-        // Кнопка создания нового профиля
         btnCreate.setOnClickListener(v -> {
             dialog.dismiss();
             showCreateProfileDialog(context, db, dbExecutor, callback, null);
         });
 
-        // Кнопка редактирования выбранного профиля (доступна, если выбран ровно 1 профиль)
         btnEdit.setOnClickListener(v -> {
             if (selectedPositions.size() != 1) {
                 Toast.makeText(context, "Выберите ровно один профиль для редактирования", Toast.LENGTH_SHORT).show();
@@ -187,7 +182,6 @@ public class ProfileDialogHelper {
             showCreateProfileDialog(context, db, dbExecutor, callback, profileToEdit);
         });
 
-        // Кнопка удаления выбранных профилей со всеми связанными сессиями и PDF
         btnDelete.setOnClickListener(v -> {
             if (selectedPositions.isEmpty()) {
                 Toast.makeText(context, "Сначала выберите профиль(и) долгим нажатием", Toast.LENGTH_SHORT).show();
@@ -199,23 +193,28 @@ public class ProfileDialogHelper {
                     .setMessage("Удалить выбранные профили (" + selectedPositions.size() + "), а также все их сессии и PDF-отчеты?")
                     .setPositiveButton("Удалить", (d, w) -> {
                         dbExecutor.execute(() -> {
-                            List<ProfileEntity> toDelete = new ArrayList<>();
                             for (int pos : selectedPositions) {
                                 if (pos >= 0 && pos < profiles.size()) {
-                                    toDelete.add(profiles.get(pos));
-                                }
-                            }
-
-                            for (ProfileEntity profile : toDelete) {
-                                // 1. Получаем все сессии профиля для удаления связанных PDF
-                                List<SessionEntity> sessions = db.sessionDao().getSessionsByProfileSync(profile.getId());
-                                for (SessionEntity session : sessions) {
-                                    if (!TextUtils.isEmpty(session.getPdfPath())) {
-                                        deleteFileWithMediaStore(context, new File(session.getPdfPath()));
+                                    ProfileEntity profile = profiles.get(pos);
+                                    
+                                    // Удаляем файлы отчетов с диска и из MediaStore
+                                    List<SessionEntity> sessions = db.sessionDao().getSessionsByProfileSync(profile.getId());
+                                    for (SessionEntity session : sessions) {
+                                        if (!TextUtils.isEmpty(session.getPdfPath())) {
+                                            File file = new File(session.getPdfPath());
+                                            if (file.exists()) {
+                                                file.delete();
+                                            }
+                                            deleteFileWithMediaStore(context, file);
+                                        }
                                     }
+                                    
+                                    db.profileDao().deleteProfileSync(profile.getId());
+                                    
+                                    ((android.app.Activity) context).runOnUiThread(() -> {
+                                        callback.onProfileDeleted(profile.getId());
+                                    });
                                 }
-                                // 2. Удаляем сам профиль (сессии удалятся каскадно через БД ForeignKey)
-                                db.profileDao().deleteProfileSync(profile.getId());
                             }
 
                             List<ProfileEntity> updatedProfiles = db.profileDao().getAllProfilesSync();
@@ -240,8 +239,8 @@ public class ProfileDialogHelper {
 
         if (dialog.getWindow() != null) {
             int width = (int) (context.getResources().getDisplayMetrics().widthPixels * 0.90);
-            int height = (int) (context.getResources().getDisplayMetrics().heightPixels * 0.75);
-            dialog.getWindow().setLayout(width, height);
+            // Возвращаем WRAP_CONTENT для высоты, чтобы окно масштабировалось по содержимому с прокруткой
+            dialog.getWindow().setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
     }
 
@@ -277,7 +276,6 @@ public class ProfileDialogHelper {
         if (isEditMode) inputWeight.setText(String.valueOf(editingProfile.getWeightKg()));
         layout.addView(inputWeight);
 
-        // Поле выбора пола
         LinearLayout genderLayout = new LinearLayout(context);
         genderLayout.setOrientation(LinearLayout.HORIZONTAL);
         genderLayout.setPadding(0, 15, 0, 10);
@@ -326,7 +324,6 @@ public class ProfileDialogHelper {
         inputDiaBp.setText(isEditMode ? String.valueOf(editingProfile.getBaselineDiastolicBp()) : "80");
         layout.addView(inputDiaBp);
 
-        // Поле выбора фитнес уровня
         LinearLayout fitnessLayout = new LinearLayout(context);
         fitnessLayout.setOrientation(LinearLayout.HORIZONTAL);
         fitnessLayout.setPadding(0, 15, 0, 10);
@@ -390,11 +387,20 @@ public class ProfileDialogHelper {
             dbExecutor.execute(() -> {
                 try {
                     ProfileEntity profile = new ProfileEntity(profileId, name, age, weight, height, sysBp, diaBp, fitness, gender, createdAt);
-                    long id = db.profileDao().insertProfileSync(profile);
-                    ((android.app.Activity) context).runOnUiThread(() -> {
-                        callback.onProfileAuthorized(id, name);
-                        Toast.makeText(context, isEditMode ? "Профиль успешно обновлен!" : "Профиль успешно создан и активирован!", Toast.LENGTH_SHORT).show();
-                    });
+                    if (isEditMode) {
+                        // Используем update вместо insert/replace, чтобы не сбрасывать ID и не удалять сессии
+                        db.profileDao().updateProfileSync(profile);
+                        ((android.app.Activity) context).runOnUiThread(() -> {
+                            callback.onProfileAuthorized(profileId, name);
+                            Toast.makeText(context, "Профиль успешно обновлен!", Toast.LENGTH_SHORT).show();
+                        });
+                    } else {
+                        long id = db.profileDao().insertProfileSync(profile);
+                        ((android.app.Activity) context).runOnUiThread(() -> {
+                            callback.onProfileAuthorized(id, name);
+                            Toast.makeText(context, "Профиль успешно создан и активирован!", Toast.LENGTH_SHORT).show();
+                        });
+                    }
                 } catch (Exception e) {
                     ((android.app.Activity) context).runOnUiThread(() -> 
                         Toast.makeText(context, "Ошибка сохранения: " + e.getMessage(), Toast.LENGTH_SHORT).show()
@@ -408,12 +414,6 @@ public class ProfileDialogHelper {
 
     private static boolean deleteFileWithMediaStore(Context context, File file) {
         if (file == null) return true;
-        try {
-            if (file.exists() && file.delete()) {
-                return true;
-            }
-        } catch (Exception ignored) {}
-
         try {
             String fileName = file.getName();
             ContentResolver resolver = context.getContentResolver();
