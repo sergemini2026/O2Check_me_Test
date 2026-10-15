@@ -1,33 +1,35 @@
-package com.local.o2test.db.dao;
+package com.local.o2test.db.dao
 
-import androidx.room.Dao;
-import androidx.room.Insert;
-import androidx.room.OnConflictStrategy;
-import androidx.room.Query;
-import com.local.o2test.db.entity.ProfileEntity;
-import kotlinx.coroutines.flow.Flow;
-import java.util.List;
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import com.local.o2test.db.entity.ProfileEntity
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ProfileDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProfile(profile: ProfileEntity): Long
 
+    // Синхронный метод для вставки/обновления профиля из фонового потока
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    long insertProfileSync(ProfileEntity profile); // Синхронный метод для вставки/обновления
+    fun insertProfileSync(profile: ProfileEntity): Long
 
     @Query("SELECT * FROM profiles ORDER BY id DESC")
-    Flow<List<ProfileEntity>> getAllProfiles();
+    fun getAllProfiles(): Flow<List<ProfileEntity>>
 
+    // Синхронный метод получения списка профилей для диалога
     @Query("SELECT * FROM profiles ORDER BY id DESC")
-    List<ProfileEntity> getAllProfilesSync(); // Синхронный метод получения списка
+    fun getAllProfilesSync(): List<ProfileEntity>
 
     @Query("SELECT * FROM profiles WHERE id = :id")
-    suspend fun getProfileById(id: Long): ProfileEntity?;
+    suspend fun getProfileById(id: Long): ProfileEntity?
 
     @Query("DELETE FROM profiles WHERE id = :id")
-    suspend fun deleteProfile(id: Long);
+    suspend fun deleteProfile(id: Long)
 
+    // Синхронный метод удаления профиля из фонового потока
     @Query("DELETE FROM profiles WHERE id = :id")
-    void deleteProfileSync(long id); // Синхронный метод удаления
+    fun deleteProfileSync(id: Long)
 }
