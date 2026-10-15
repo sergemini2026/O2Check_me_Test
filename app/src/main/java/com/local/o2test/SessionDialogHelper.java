@@ -1,6 +1,5 @@
 package com.local.o2test;
 
-import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
@@ -181,7 +180,7 @@ public class SessionDialogHelper {
 
             new AlertDialog.Builder(context)
                     .setTitle("Удаление сессий")
-                    .setMessage("Удалить выбранные сессии (" + selectedPositions.size() + ") и связанные с ними PDF-файлы?")
+                    .setMessage("Удалить выбранные сессии (" + selectedPositions.size() + ") и связанные с ними файлы (PDF и CSV)?")
                     .setPositiveButton("Удалить", (d, w) -> {
                         dbExecutor.execute(() -> {
                             AppDatabase db = AppDatabase.getInstance(context);
@@ -195,18 +194,30 @@ public class SessionDialogHelper {
                             for (SessionEntity session : toDelete) {
                                 db.sessionDao().deleteSessionSync(session.getId());
 
-                                // Если у сессии сохранен путь или имя файла, удаляем через ContentResolver[span_1](start_span)[span_1](end_span)
+                                // Удаление PDF файла
                                 if (!TextUtils.isEmpty(session.getPdfPath())) {
                                     try {
                                         File f = new File(session.getPdfPath());
                                         String fileName = f.getName();
-                                        
                                         context.getContentResolver().delete(
                                             MediaStore.Files.getContentUri("external"),
                                             MediaStore.MediaColumns.DISPLAY_NAME + "=?",
                                             new String[]{fileName}
                                         );
-                                        
+                                        if (f.exists()) f.delete();
+                                    } catch (Exception ignored) {}
+                                }
+
+                                // Удаление CSV файла
+                                if (!TextUtils.isEmpty(session.getCsvPath())) {
+                                    try {
+                                        File f = new File(session.getCsvPath());
+                                        String fileName = f.getName();
+                                        context.getContentResolver().delete(
+                                            MediaStore.Files.getContentUri("external"),
+                                            MediaStore.MediaColumns.DISPLAY_NAME + "=?",
+                                            new String[]{fileName}
+                                        );
                                         if (f.exists()) f.delete();
                                     } catch (Exception ignored) {}
                                 }
