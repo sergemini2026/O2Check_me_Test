@@ -1,5 +1,6 @@
 package com.local.o2test;
 
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
@@ -200,18 +201,18 @@ public class SessionDialogHelper {
                                 if (!TextUtils.isEmpty(session.getPdfPath())) {
                                     File f = new File(session.getPdfPath());
                                     if (f.exists()) {
-                                        deleted = deleteFileWithFallback(context, f);
+                                        deleted = deleteFileWithMediaStore(context, f);
                                     }
                                 }
 
-                                // Резервная очистка в Documents по временному штампу сессии (с запасом 10 минут)
+                                // Резервная очистка в Documents по временному штампу сессии
                                 if (!deleted && docDir.exists()) {
                                     File[] pdfs = docDir.listFiles((dir, name) -> name.endsWith(".pdf"));
                                     if (pdfs != null) {
                                         for (File pdf : pdfs) {
                                             long fileTime = pdf.lastModified();
                                             if (fileTime >= session.getStartTime() - 30000 && fileTime <= session.getEndTime() + 600000) {
-                                                deleteFileWithFallback(context, pdf);
+                                                deleteFileWithMediaStore(context, pdf);
                                             }
                                         }
                                     }
@@ -241,27 +242,26 @@ public class SessionDialogHelper {
     }
 
     /**
-     * Надежное удаление файла с поддержкой Scoped Storage (Android 10+) через MediaStore
+     * Надежное удаление через MediaStore по имени файла (DISPLAY_NAME)
      */
-    private static boolean deleteFileWithFallback(Context context, File file) {
-        if (file == null || !file.exists()) return true;
+    private static boolean deleteFileWithMediaStore(Context context, File file) {
+        if (file == null) return true;
 
+        // 1. Прямое удаление файла
         try {
-            if (file.delete()) {
+            if (file.exists() && file.delete()) {
                 return true;
             }
         } catch (Exception ignored) {}
 
-        // Fallback через MediaStore для общих папок
+        // 2. Удаление через MediaStore API по имени файла
         try {
-            String filePath = file.getAbsolutePath();
-            String selection = MediaStore.MediaColumns.DATA + "=?";
-            String[] selectionArgs = new String[]{filePath};
-            context.getContentResolver().delete(
-                    MediaStore.Files.getContentUri("external"),
-                    selection,
-                    selectionArgs
-            );
+            String fileName = file.getName();
+            ContentResolver resolver = context.getContentResolver();
+            Uri collection = MediaStore.Files.getContentUri("external");
+            String selection = MediaStore.MediaColumns.DISPLAY_NAME + "=?";
+            String[] selectionArgs = new String[]{fileName};
+            resolver.delete(collection, selection, selectionArgs);
         } catch (Exception ignored) {}
 
         return !file.exists();
