@@ -192,7 +192,7 @@ public class ProfileDialogHelper {
 
             new AlertDialog.Builder(context)
                     .setTitle("Удаление профилей")
-                    .setMessage("Удалить выбранные профили (" + selectedPositions.size() + "), а также все их сессии и PDF-отчеты?")
+                    .setMessage("Удалить выбранные профили (" + selectedPositions.size() + "), а также все их сессии и файлы (PDF и CSV)?")
                     .setPositiveButton("Удалить", (d, w) -> {
                         dbExecutor.execute(() -> {
                             for (int pos : selectedPositions) {
@@ -201,8 +201,17 @@ public class ProfileDialogHelper {
                                     
                                     List<SessionEntity> sessions = db.sessionDao().getSessionsByProfileSync(profile.getId());
                                     for (SessionEntity session : sessions) {
+                                        // Удаление PDF файла
                                         if (!TextUtils.isEmpty(session.getPdfPath())) {
                                             File file = new File(session.getPdfPath());
+                                            if (file.exists()) {
+                                                file.delete();
+                                            }
+                                            deleteFileWithMediaStore(context, file);
+                                        }
+                                        // Удаление CSV файла
+                                        if (!TextUtils.isEmpty(session.getCsvPath())) {
+                                            File file = new File(session.getCsvPath());
                                             if (file.exists()) {
                                                 file.delete();
                                             }
@@ -253,7 +262,6 @@ public class ProfileDialogHelper {
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(40, 20, 40, 20);
 
-        // Отдельные поля ввода для Имени и Фамилии
         final EditText inputFirstName = new EditText(context);
         inputFirstName.setHint("Имя");
         
@@ -398,7 +406,6 @@ public class ProfileDialogHelper {
 
             dbExecutor.execute(() -> {
                 try {
-                    // Сохраняем раздельно firstName и lastName в сущность
                     ProfileEntity profile = new ProfileEntity(profileId, firstName, lastName, age, weight, height, sysBp, diaBp, fitness, gender, createdAt);
                     String fullName = firstName + (lastName.isEmpty() ? "" : " " + lastName);
 
