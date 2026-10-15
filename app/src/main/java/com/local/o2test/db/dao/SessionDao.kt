@@ -15,8 +15,8 @@ interface SessionDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertSessionSync(session: SessionEntity): Long
 
-    @Query("UPDATE sessions SET pdfPath = :path WHERE id = :sessionId")
-    fun updatePdfPathSync(sessionId: Long, path: String)
+    @Query("UPDATE sessions SET pdfPath = :pdfPath, csvPath = :csvPath WHERE id = :sessionId")
+    fun updatePathsSync(sessionId: Long, pdfPath: String, csvPath: String)
 
     @Query("SELECT * FROM sessions WHERE profileId = :profileId ORDER BY startTime DESC")
     fun getSessionsByProfile(profileId: Long): Flow<List<SessionEntity>>
