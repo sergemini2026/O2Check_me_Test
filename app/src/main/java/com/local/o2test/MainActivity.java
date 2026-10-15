@@ -146,6 +146,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         ui.btnSave.setOnClickListener(v -> {
             if (!isProfileAuthorized) {
                 Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
+                openProfilesManager();
                 return;
             }
             showExportChoiceDialog();
@@ -368,6 +369,24 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 onLog("[GATEKEEPER] Активный профиль: " + profileName + " (ID: " + profileId + ")");
                 Toast.makeText(MainActivity.this, "Профиль активирован. Теперь доступна связь с датчиками.", Toast.LENGTH_SHORT).show();
             }
+
+            @Override
+            public void onProfileDeleted(long deletedProfileId) {
+                // Если удален текущий активный профиль — принудительно останавливаем сессию
+                if (activeProfileId == deletedProfileId) {
+                    if (isRecording) {
+                        stopMonitoring();
+                    }
+                    activeProfileId = -1L;
+                    activeProfileName = "Не выбран";
+                    isProfileAuthorized = false;
+                    setInterfaceAuthorizedState(false);
+                    updateMetricsDisplay("--", "--", "--", "--");
+                    onLog("[GATEKEEPER] Активный профиль удален. Сессия завершена.");
+                    Toast.makeText(MainActivity.this, "Активный профиль был удален. Сессия остановлена.", Toast.LENGTH_LONG).show();
+                }
+            }
+
             @Override
             public void onLog(String message) {
                 MainActivity.this.onLog(message);
@@ -575,7 +594,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                 new PdfExporter.PdfExportCallback() {
                                     @Override
                                     public void onSuccess(String filePath, String fileNamePdf) {
-                                        // СОХРАНЯЕМ ПУТЬ К PDF В БАЗУ ДАННЫХ СИНХРОННО ЧЕРЕЗ BACKGROUND EXECUTOR
                                         dbExecutor.execute(() -> {
                                             db.sessionDao().updatePdfPathSync(sessionId, filePath);
                                         });
