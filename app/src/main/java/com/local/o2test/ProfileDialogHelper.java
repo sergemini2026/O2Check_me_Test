@@ -102,7 +102,7 @@ public class ProfileDialogHelper {
         Button btnEdit = new Button(context);
         btnEdit.setText("РЕДАКТИРОВАТЬ");
         btnEdit.setTextColor(0xFF38BDF8);
-        btnEdit.setBackgroundColor(Color.TRANSPereant = Color.TRANSPARENT);
+        btnEdit.setBackgroundColor(Color.TRANSPARENT); // Исправлена опечатка
 
         Button btnDelete = new Button(context);
         btnDelete.setText("УДАЛИТЬ");
