@@ -37,9 +37,12 @@ public class HrvForegroundService extends Service {
 
     private ServiceCallback callback;
 
-    // --- Новые элементы: буфер обработанных снимков и фоновый планировщик ---
+    // Буфер обработанных снимков и фоновый планировщик
     private final List<SessionSnapshot> snapshotBuffer = Collections.synchronizedList(new ArrayList<>());
     private ScheduledExecutorService scheduler;
+    
+    // Указатель для реализации скользящего окна без дублирования одних и тех же данных
+    private int lastProcessedIndex = 0;
 
     public interface ServiceCallback {
         void onRrDataReceived(int rrMs, int hr);
@@ -166,6 +169,7 @@ public class HrvForegroundService extends Service {
         synchronized (snapshotBuffer) {
             snapshotBuffer.clear();
         }
+        lastProcessedIndex = 0;
         isRecording = true;
         updateNotificationText("Идет запись сессии ВСР...");
     }
@@ -192,21 +196,30 @@ public class HrvForegroundService extends Service {
     }
 
     /**
-     * Фоновый расчет метрик с проверкой Sanity Check и сохранением в буфер снимков
+     * Фоновый расчет метрик по реальному скользящему окну за последние 30-45 секунд
      */
     private void processSnapshotCalculation() {
         if (!isRecording) return;
         try {
             List<Integer> currentData = getSessionRrData();
-            if (currentData.size() < 10) return;
+            int totalSize = currentData.size();
+            
+            // Требуем минимум 30 точек (~30 ударов сердца) для формирования достоверного среза
+            if (totalSize - lastProcessedIndex < 30 && totalSize < 30) return;
+
+            // Берем скользящее окно за последний интервал (или хвост из последних 120 точек)
+            int windowSize = 120;
+            int startIndex = Math.max(0, totalSize - windowSize);
+            List<Integer> windowData = currentData.subList(startIndex, totalSize);
 
             // Расчет через математическое ядро с учетом фильтрации и валидации
-            HrvCalculator.Metrics metrics = HrvCalculator.calculate(currentData);
+            HrvCalculator.Metrics metrics = HrvCalculator.calculate(windowData);
 
             // Если окно прошло пострасчетную валидацию, добавляем в буфер снимков
             if (metrics != null && metrics.isValid) {
                 SessionSnapshot snapshot = new SessionSnapshot(System.currentTimeMillis(), metrics);
                 snapshotBuffer.add(snapshot);
+                lastProcessedIndex = totalSize;
             }
         } catch (Exception e) {
             e.printStackTrace();
