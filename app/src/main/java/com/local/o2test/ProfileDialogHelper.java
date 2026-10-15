@@ -126,7 +126,7 @@ public class ProfileDialogHelper {
 
         List<String> profileNames = new ArrayList<>();
         for (ProfileEntity p : profiles) {
-            String fullName = (p.getLastName().isEmpty()) ? p.getFirstName() : (p.getFirstName() + " " + p.getLastName());
+            String fullName = p.getFirstName() + (TextUtils.isEmpty(p.getLastName()) ? "" : " " + p.getLastName());
             profileNames.add(String.format("ID: %d | %s | Возраст: %d | Вес: %.1fкг",
                     p.getId(), fullName, p.getAge(), p.getWeightKg()));
         }
@@ -162,7 +162,7 @@ public class ProfileDialogHelper {
 
         listView.setOnItemClickListener((parent, view, position, id) -> {
             ProfileEntity selected = profiles.get(position);
-            String fullName = (selected.getLastName().isEmpty()) ? selected.getFirstName() : (selected.getFirstName() + " " + selected.getLastName());
+            String fullName = selected.getFirstName() + (TextUtils.isEmpty(selected.getLastName()) ? "" : " " + selected.getLastName());
             dialog.dismiss();
             callback.onProfileAuthorized(selected.getId(), fullName);
             Toast.makeText(context, "Активный профиль: " + fullName, Toast.LENGTH_SHORT).show();
@@ -253,6 +253,7 @@ public class ProfileDialogHelper {
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(40, 20, 40, 20);
 
+        // Отдельные поля ввода для Имени и Фамилии
         final EditText inputFirstName = new EditText(context);
         inputFirstName.setHint("Имя");
         
@@ -397,7 +398,7 @@ public class ProfileDialogHelper {
 
             dbExecutor.execute(() -> {
                 try {
-                    // Создаем сущность с раздельными полями firstName и lastName
+                    // Сохраняем раздельно firstName и lastName в сущность
                     ProfileEntity profile = new ProfileEntity(profileId, firstName, lastName, age, weight, height, sysBp, diaBp, fitness, gender, createdAt);
                     String fullName = firstName + (lastName.isEmpty() ? "" : " " + lastName);
 
