@@ -63,7 +63,7 @@ public class UiBuilder {
         public ImageButton btnSessions;
         public ImageButton btnProfiles;
 
-        // Правая половина нижней части экрана (FrameLayout для точного центрирования)
+        // Правая половина нижней части экрана
         public FrameLayout rightPanel;
         public PacerView pacerView;
     }
@@ -119,7 +119,7 @@ public class UiBuilder {
         v.tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
         v.mainLayout.addView(v.tvHrvMetrics);
 
-        // --- СТРОКА СТАТУСА (ЕДИНОЙ СТРОКОЙ ПО ЦЕНТРУ ПОД ВСР) ---
+        // --- СТРОКА СТАТУСА ---
         v.tvStatusValue = new TextView(context);
         v.tvStatusValue.setText("");
         v.tvStatusValue.setTextSize(13);
@@ -178,7 +178,7 @@ public class UiBuilder {
 
         v.mainLayout.addView(actionPanel);
 
-        // --- НИЖНЯЯ ПАНЕЛЬ: 60% (ЛОГ) И 40% (ПРАВАЯ ПАНЕЛЬ С ПЕЙСЕРОМ) ---
+        // --- НИЖНЯЯ ПАНЕЛЬ: 60% (ЛОГ) И 40% (ПРАВАЯ ПАНЕЛЬ С КВАДРАТНЫМ ПЕЙСЕРОМ) ---
         LinearLayout bottomSplitLayout = new LinearLayout(context);
         bottomSplitLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams splitParams = new LinearLayout.LayoutParams(
@@ -202,24 +202,21 @@ public class UiBuilder {
         v.tvLog.setLayoutParams(tvLogParams);
         v.logScrollView.addView(v.tvLog);
 
-        // Правая половина: FrameLayout для центрирования пейсера
+        // Правая половина: FrameLayout для центрирования
         v.rightPanel = new FrameLayout(context);
         LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 2.0f);
         rightParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
         v.rightPanel.setLayoutParams(rightParams);
 
-        // Создаем и добавляем PacerView с вертикальным центрированием и выравниванием по правому краю графика
+        // Создаем PacerView с выравниванием по правому краю графика и вертикальным центрированием
         v.pacerView = new PacerView(context);
         FrameLayout.LayoutParams pacerParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
+                FrameLayout.LayoutParams.WRAP_CONTENT
         );
-        // Отступ справа соответствует правему отступу сетки графиков (rightPad = 100px ~= 33dp)
         int rightMarginPx = (int) (33 * context.getResources().getDisplayMetrics().density);
         pacerParams.rightMargin = rightMarginPx;
-        pacerParams.topMargin = (int) (4 * context.getResources().getDisplayMetrics().density);
-        pacerParams.bottomMargin = (int) (4 * context.getResources().getDisplayMetrics().density);
         pacerParams.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
         v.pacerView.setLayoutParams(pacerParams);
         v.rightPanel.addView(v.pacerView);
