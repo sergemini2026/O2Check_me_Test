@@ -63,9 +63,9 @@ public class UiBuilder {
         public ImageButton btnSessions;
         public ImageButton btnProfiles;
 
-        // Правая половина нижней части экрана
+        // Правая половина нижней части экрана с фрактальным пейсером
         public FrameLayout rightPanel;
-        public PacerView pacerView;
+        public BreatheAnimationView pacerView;
     }
 
     public static Views buildUi(Context context) {
@@ -178,7 +178,7 @@ public class UiBuilder {
 
         v.mainLayout.addView(actionPanel);
 
-        // --- НИЖНЯЯ ПАНЕЛЬ: 60% (ЛОГ) И 40% (ПРАВАЯ ПАНЕЛЬ С КВАДРАТНЫМ ПЕЙСЕРОМ) ---
+        // --- НИЖНЯЯ ПАНЕЛЬ: 60% (ЛОГ) И 40% (ПРАВАЯ ПАНЕЛЬ С ФРАКТАЛЬНЫМ ПЕЙСЕРОМ) ---
         LinearLayout bottomSplitLayout = new LinearLayout(context);
         bottomSplitLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams splitParams = new LinearLayout.LayoutParams(
@@ -209,8 +209,8 @@ public class UiBuilder {
         rightParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
         v.rightPanel.setLayoutParams(rightParams);
 
-        // Создаем PacerView с выравниванием по правому краю графика и вертикальным центрированием
-        v.pacerView = new PacerView(context);
+        // Создаем BreatheAnimationView с центрированием и выравниванием по правому краю графиков
+        v.pacerView = new BreatheAnimationView(context);
         FrameLayout.LayoutParams pacerParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT
