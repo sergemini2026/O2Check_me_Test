@@ -62,8 +62,9 @@ public class UiBuilder {
         public ImageButton btnSessions;
         public ImageButton btnProfiles;
 
-        // Правая половина нижней части экрана (очищена для пейсера)
+        // Правая половина нижней части экрана и канвас пейсера
         public LinearLayout rightPanel;
+        public PacerView pacerView;
     }
 
     public static Views buildUi(Context context) {
@@ -176,7 +177,7 @@ public class UiBuilder {
 
         v.mainLayout.addView(actionPanel);
 
-        // --- НИЖНЯЯ ПАНЕЛЬ: 60% (ЛОГ) И 40% (ПРАВАЯ ПАНЕЛЬ ДЛЯ БУДУЩЕГО ПЕЙСЕРА) ---
+        // --- НИЖНЯЯ ПАНЕЛЬ: 60% (ЛОГ) И 40% (ПРАВАЯ ПАНЕЛЬ С ПЕЙСЕРОМ) ---
         LinearLayout bottomSplitLayout = new LinearLayout(context);
         bottomSplitLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams splitParams = new LinearLayout.LayoutParams(
@@ -200,13 +201,23 @@ public class UiBuilder {
         v.tvLog.setLayoutParams(tvLogParams);
         v.logScrollView.addView(v.tvLog);
 
-        // Правая половина: Свободная панель под пейсер
+        // Правая половина: Панель пейсера
         v.rightPanel = new LinearLayout(context);
         v.rightPanel.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 2.0f);
         rightParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
         v.rightPanel.setLayoutParams(rightParams);
+
+        // Создаем и добавляем PacerView с выравниванием по левому краю и центрированием по высоте
+        v.pacerView = new PacerView(context);
+        int pacerWidthPx = (int) (160 * context.getResources().getDisplayMetrics().density);
+        int pacerHeightPx = (int) (140 * context.getResources().getDisplayMetrics().density);
+        
+        LinearLayout.LayoutParams pacerParams = new LinearLayout.LayoutParams(pacerWidthPx, pacerHeightPx);
+        pacerParams.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
+        v.pacerView.setLayoutParams(pacerParams);
+        v.rightPanel.addView(v.pacerView);
 
         bottomSplitLayout.addView(v.logScrollView);
         bottomSplitLayout.addView(v.rightPanel);
