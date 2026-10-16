@@ -63,9 +63,13 @@ public class PdfExporter {
                 avgRmssd += s.getRmssd();
                 avgSdnn += s.getSdnn();
                 avgSi += s.getBaevskySi();
-                // Фильтрация неадекватных выбросов LF/HF в состоянии покоя (ограничение сглаживанием)
-                double lfHfVal = s.getLfHfRatio();
-                if (lfHfVal > 6.0) lfHfVal = 4.5; 
+                
+                // Нормализация LF/HF в устойчивый физиологический диапазон [0, 2] (эталон EliteHRV)
+                double lf = s.getLfPower();
+                double hf = s.getHfPower();
+                double lfHfVal = (lf + hf > 0) ? (2.0 * lf / (lf + hf)) : s.getLfHfRatio();
+                if (lfHfVal < 0) lfHfVal = 0;
+                if (lfHfVal > 2.0) lfHfVal = 2.0;
                 avgLfHf += lfHfVal;
                 
                 avgTp += s.getTotalPower();
@@ -129,7 +133,7 @@ public class PdfExporter {
             drawMetricRow(canvas1, 95, "RMSSD (мск):", String.format(Locale.US, "%.1f", avgRmssd), "Норма: 20-100 (Вагусный тонус)");
             drawMetricRow(canvas1, 108, "SDNN (мск):", String.format(Locale.US, "%.1f", avgSdnn), "Общая вариабельность ритма");
             drawMetricRow(canvas1, 121, "Индекс Баевского (SI):", String.format(Locale.US, "%.1f у.е.", avgSi), "Индекс напряжения регуляторных систем");
-            drawMetricRow(canvas1, 134, "Баланс LF/HF:", String.format(Locale.US, "%.2f", avgLfHf), "Симпато-вагальный коэффициент");
+            drawMetricRow(canvas1, 134, "Баланс LF/HF:", String.format(Locale.US, "%.2f", avgLfHf), "Симпато-вагальный коэффициент (0-2)");
             drawMetricRow(canvas1, 147, "Общая мощность (TP):", String.format(Locale.US, "%.0f ms²", avgTp), "Суммарный вегетативный резерв");
             drawMetricRow(canvas1, 160, "Энтропия (SampEn):", String.format(Locale.US, "%.2f", avgSampEn), "Хаотичность и сложность регуляции");
             drawMetricRow(canvas1, 173, "DFA alpha1:", String.format(Locale.US, "%.2f", avgDfa), "Фрактальная корреляция (самоподобие)");
@@ -187,27 +191,39 @@ public class PdfExporter {
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
             canvas1.restore();
 
-            // Гистограмма + понятная расшифровка под ней
-            drawHistogram(canvas1, rawRrList, MARGIN, 252, PAGE_WIDTH - 2 * MARGIN, 75, Color.parseColor("#DC2626"), "Гистограмма RR-интервалов (мс) — распределение ритма");
+            // Гистограмма + дословная расшифровка под ней
+            drawHistogram(canvas1, rawRrList, MARGIN, 248, PAGE_WIDTH - 2 * MARGIN, 68, Color.parseColor("#DC2626"), "Гистограмма RR-интервалов (мс) — распределение ритма");
             
-            // Текстовая пояснительная бригада для гистограммы
             TextPaint histExpPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-            histExpPaint.setTextSize(8.0f);
-            histExpPaint.setColor(Color.parseColor("#475569"));
-            String histExplanation = "• Как читать: Высокий пик показывает ваш основной (частый) пульс. Широкое основание графика (размах) отражает естественный диапазон колебаний ритма: чем шире разброс, тем лучше адаптация.";
-            canvas1.save();
-            canvas1.translate(MARGIN, 332);
-            StaticLayout.Builder.obtain(histExplanation, 0, histExplanation.length(), histExpPaint, PAGE_WIDTH - 2 * MARGIN)
-                    .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
-            canvas1.restore();
+            histExpPaint.setTextSize(7.5f);
+            histExpPaint.setColor(Color.parseColor("#334155"));
 
-            drawOxygenationChart(canvas1, dataPoints, MARGIN, 362, PAGE_WIDTH - 2 * MARGIN, 68, Color.parseColor("#0284C7"), "Динамика оксигенации SpO2 (%)");
-            drawHeartRateChart(canvas1, dataPoints, MARGIN, 442, PAGE_WIDTH - 2 * MARGIN, 68, Color.parseColor("#10B981"), "Динамика ЧСС (HR, уд/мин)");
+            String[] histLines = {
+                "Ширина и форма: Широкое основание («колокол») говорит о высокой вариабельности и хороших адаптационных резервах. Узкий, высокий пик — о ригидности ритма и напряжении регуляторных систем.",
+                "Мода (Mo): Самый высокий столбец показывает наиболее частый пульс в сессии.",
+                "Вариационный размах (MxDMx): Ширина распределения от минимального до максимального RR показывает диапазон автономных влияний.",
+                "Асимметрия: Смещение влево говорит о преобладании симпатического тонуса (нагрузка), вправо — о парасимпатическом (отдых)."
+            };
+
+            int histTextY = 320;
+            for (String line : histLines) {
+                canvas1.save();
+                canvas1.translate(MARGIN, histTextY);
+                StaticLayout layout = StaticLayout.Builder.obtain(line, 0, line.length(), histExpPaint, PAGE_WIDTH - 2 * MARGIN)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .build();
+                layout.draw(canvas1);
+                canvas1.restore();
+                histTextY += layout.getHeight() + 3;
+            }
+
+            drawOxygenationChart(canvas1, dataPoints, MARGIN, 374, PAGE_WIDTH - 2 * MARGIN, 62, Color.parseColor("#0284C7"), "Динамика оксигенации SpO2 (%)");
+            drawHeartRateChart(canvas1, dataPoints, MARGIN, 444, PAGE_WIDTH - 2 * MARGIN, 62, Color.parseColor("#10B981"), "Динамика ЧСС (HR, уд/мин)");
 
             document.finishPage(page1);
 
             // ==========================================
-            // СТРАНИЦА 2: Скатертограмма Пуанкаре (Исправленный градиент) + Расшифровка
+            // СТРАНИЦА 2: Скатертограмма Пуанкаре + Расшифровка
             // ==========================================
             PdfDocument.PageInfo pageInfo2 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 2).create();
             PdfDocument.Page page2 = document.startPage(pageInfo2);
@@ -255,7 +271,7 @@ public class PdfExporter {
             document.finishPage(page2);
 
             // ==========================================
-            // СТРАНИЦЫ 3+: Хронологический лог снимков (с отфильтрованным LF/HF и TP)
+            // СТРАНИЦЫ 3+: Хронологический лог снимков (с нормализованным LF/HF и TP)
             // ==========================================
             SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
             int rowsPerPage = 22;
@@ -301,8 +317,11 @@ public class PdfExporter {
 
                 for (int i = startRow; i < endRow; i++) {
                     HrvSnapshotEntity s = snapshots.get(i);
-                    double logLfHf = s.getLfHfRatio();
-                    if (logLfHf > 6.0) logLfHf = 4.5; // Сглаживание пиков в логе
+                    double lf = s.getLfPower();
+                    double hf = s.getHfPower();
+                    double logLfHf = (lf + hf > 0) ? (2.0 * lf / (lf + hf)) : s.getLfHfRatio();
+                    if (logLfHf < 0) logLfHf = 0;
+                    if (logLfHf > 2.0) logLfHf = 2.0;
 
                     canvasN.drawText(timeFormat.format(new Date(s.getTimestamp())), MARGIN, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.1f", s.getRmssd()), MARGIN + 55, currentY, textPaint);
@@ -475,7 +494,6 @@ public class PdfExporter {
             canvas.drawRect(plotLeft + i * barW, plotTop + plotHeight - barH, plotLeft + (i + 1) * barW - 1, plotTop + plotHeight, fillPaint);
         }
 
-        // Шкала по оси X с цифровыми отметками минимального и максимального RR
         Paint labelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         labelPaint.setColor(Color.parseColor("#64748B"));
         labelPaint.setTextSize(8f);
@@ -650,7 +668,6 @@ public class PdfExporter {
                 float y = plotTop + plotHeight - ((float) (rrN1 - minRr) / (maxRr - minRr)) * plotHeight;
 
                 if (x >= plotLeft && x <= plotLeft + plotWidth && y >= plotTop && y <= plotTop + plotHeight) {
-                    // Исправленный градиент: от светло-серого/серебристого в начале сессии к насыщенному синему в конце
                     float progress = (float) i / Math.max(1, totalPairs);
                     int red = (int) (148 + progress * (2 - 148));
                     int green = (int) (163 + progress * (132 - 163));
