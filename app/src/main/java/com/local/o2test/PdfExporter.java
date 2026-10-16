@@ -64,7 +64,6 @@ public class PdfExporter {
                 avgSdnn += s.getSdnn();
                 avgSi += s.getBaevskySi();
                 
-                // Нормализация LF/HF в устойчивый физиологический диапазон [0, 2] (эталон EliteHRV)
                 double lf = s.getLfPower();
                 double hf = s.getHfPower();
                 double lfHfVal = (lf + hf > 0) ? (2.0 * lf / (lf + hf)) : s.getLfHfRatio();
@@ -94,7 +93,7 @@ public class PdfExporter {
 
         try {
             // ==========================================
-            // СТРАНИЦА 1: Шапка, Сводка, Интерпретация, Гистограмма с расшифровкой, Графики
+            // СТРАНИЦА 1: Шапка, Сводка, Интерпретация, Гистограмма с полным текстом, Графики
             // ==========================================
             PdfDocument.PageInfo pageInfo1 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 1).create();
             PdfDocument.Page page1 = document.startPage(pageInfo1);
@@ -191,8 +190,8 @@ public class PdfExporter {
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
             canvas1.restore();
 
-            // Гистограмма + дословная расшифровка под ней
-            drawHistogram(canvas1, rawRrList, MARGIN, 248, PAGE_WIDTH - 2 * MARGIN, 68, Color.parseColor("#DC2626"), "Гистограмма RR-интервалов (мс) — распределение ритма");
+            // Гистограмма (исходная высота 72)
+            drawHistogram(canvas1, rawRrList, MARGIN, 248, PAGE_WIDTH - 2 * MARGIN, 72, Color.parseColor("#DC2626"), "Гистограмма RR-интервалов (мс) — распределение ритма");
             
             TextPaint histExpPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
             histExpPaint.setTextSize(7.5f);
@@ -205,7 +204,7 @@ public class PdfExporter {
                 "Асимметрия: Смещение влево говорит о преобладании симпатического тонуса (нагрузка), вправо — о парасимпатическом (отдых)."
             };
 
-            int histTextY = 320;
+            int histTextY = 325;
             for (String line : histLines) {
                 canvas1.save();
                 canvas1.translate(MARGIN, histTextY);
@@ -217,8 +216,9 @@ public class PdfExporter {
                 histTextY += layout.getHeight() + 3;
             }
 
-            drawOxygenationChart(canvas1, dataPoints, MARGIN, 374, PAGE_WIDTH - 2 * MARGIN, 62, Color.parseColor("#0284C7"), "Динамика оксигенации SpO2 (%)");
-            drawHeartRateChart(canvas1, dataPoints, MARGIN, 444, PAGE_WIDTH - 2 * MARGIN, 62, Color.parseColor("#10B981"), "Динамика ЧСС (HR, уд/мин)");
+            // Графики SpO2 и ЧСС смещены ниже (Y = 390 и Y = 460) для полной свободы текста
+            drawOxygenationChart(canvas1, dataPoints, MARGIN, 390, PAGE_WIDTH - 2 * MARGIN, 60, Color.parseColor("#0284C7"), "Динамика оксигенации SpO2 (%)");
+            drawHeartRateChart(canvas1, dataPoints, MARGIN, 460, PAGE_WIDTH - 2 * MARGIN, 60, Color.parseColor("#10B981"), "Динамика ЧСС (HR, уд/мин)");
 
             document.finishPage(page1);
 
@@ -271,7 +271,7 @@ public class PdfExporter {
             document.finishPage(page2);
 
             // ==========================================
-            // СТРАНИЦЫ 3+: Хронологический лог снимков (с нормализованным LF/HF и TP)
+            // СТРАНИЦЫ 3+: Хронологический лог снимков
             // ==========================================
             SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
             int rowsPerPage = 22;
@@ -663,7 +663,7 @@ public class PdfExporter {
             int rrN = rawRrList.get(i);
             int rrN1 = rawRrList.get(i + 1);
 
-            if (rrN >= 300 && rrN <= 2000 && rrN1 >= 300 && rrN1 <= 2000) {
+            if (rawRrList.get(i) >= 300 && rrN <= 2000 && rrN1 >= 300 && rrN1 <= 2000) {
                 float x = plotLeft + ((float) (rrN - minRr) / (maxRr - minRr)) * plotWidth;
                 float y = plotTop + plotHeight - ((float) (rrN1 - minRr) / (maxRr - minRr)) * plotHeight;
 
