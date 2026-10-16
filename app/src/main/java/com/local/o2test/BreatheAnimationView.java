@@ -13,16 +13,15 @@ import android.view.animation.LinearInterpolator;
 
 public class BreatheAnimationView extends View {
     private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint corePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint elementPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF bgRect = new RectF();
 
     private boolean isMonitoringActive = false;
     
-    // Непрерывное время для идеальной плавной анимации MasterClock (10 секунд на цикл)
+    // Непрерывное время для идеального плавного цикла MasterClock (10 секунд: 5с вдох, 5с выдох)
     private long lastFrameTime = 0;
     private float animationProgress = 0f; // [0.0 ... 1.0]
-    private static final float CYCLE_DURATION_MS = 10000f; // 5с вдох, 5с выдох
+    private static final float CYCLE_DURATION_MS = 10000f; 
     
     private float rotationAngle = 0f;
     
@@ -42,7 +41,6 @@ public class BreatheAnimationView extends View {
     private void init() {
         bgPaint.setColor(0xFF1E222A);
         bgPaint.setStyle(Paint.Style.FILL);
-        // Принудительно выключаем активность при создании/перезаходе
         isMonitoringActive = false;
     }
 
@@ -90,7 +88,7 @@ public class BreatheAnimationView extends View {
             lastFrameTime = now;
 
             if (dt > 0) {
-                if (dt > 500) dt = 16; // Защита от резких скачков времени при возврате из фона
+                if (dt > 500) dt = 16; // Защита от рывков
 
                 animationProgress += (dt / CYCLE_DURATION_MS);
                 if (animationProgress >= 1.0f) {
@@ -120,7 +118,6 @@ public class BreatheAnimationView extends View {
     @Override
     protected void onWindowVisibilityChanged(int visibility) {
         super.onWindowVisibilityChanged(visibility);
-        // Если вьюха стала невидимой или свернулась — останавливаем тикер во избежание фоновой работы
         if (visibility != VISIBLE) {
             pauseAnimation();
         } else if (isMonitoringActive) {
@@ -153,7 +150,7 @@ public class BreatheAnimationView extends View {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
         int width = getMeasuredWidth();
         if (width > 0) {
-            setMeasuredDimension(width, width); // Строго квадратный канвас
+            setMeasuredDimension(width, width);
         }
     }
 
@@ -171,21 +168,21 @@ public class BreatheAnimationView extends View {
         canvas.translate(dx, dy);
         canvas.scale(scale, scale);
 
-        // Карточка-фон
+        // Фон карточки
         bgRect.set(0, 0, 200, 200);
         canvas.drawRoundRect(bgRect, 16, 16, bgPaint);
 
-        // Если мониторинг неактивен — рисуем статичный сплошной розовый круг в центре (исходная точка выдоха)
+        // Если сессия не активна — статичный сплошной розовый круг (исходная точка)
         if (!isMonitoringActive) {
-            corePaint.setShader(new RadialGradient(100, 100, 18f,
-                    new int[]{0xFFFF4081, 0xCCFF4081}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
-            canvas.drawCircle(100, 100, 18f, corePaint);
+            elementPaint.setShader(new RadialGradient(100, 100, 22f,
+                    new int[]{0xFFFF2D55, 0xFFE91E63}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
+            canvas.drawCircle(100, 100, 22f, elementPaint);
             canvas.restore();
             return;
         }
 
-        // Фаза дыхания: 0.0 -> 0.5 (Вдох: сжатый розовый -> раскрытый голубой калейдоскоп), 
-        // 0.5 -> 1.0 (Выдох: голубой калейдоскоп -> сжатие обратно в чистый розовый круг)
+        // Плавная фаза дыхания: 0.0 -> 0.5 (Вдох: сжатый розовый -> раскрытие в калейдоскоп с переходом в голубой),
+        // 0.5 -> 1.0 (Выдох: калейдоскоп -> сжатие обратно в сплошной розовый круг)
         float breathPhase;
         boolean isInhale;
         if (animationProgress <= 0.5f) {
@@ -201,36 +198,36 @@ public class BreatheAnimationView extends View {
         float activeRotation = isInhale ? rotationAngle : -rotationAngle;
         canvas.rotate(activeRotation, 100f, 100f);
 
-        // Чистые цвета: Розовый (#FF4081) при выдохе (breathPhase = 0), Голубой (#00E5FF) при вдохе (breathPhase = 1)
-        int startColor = interpolateColor(0xDDFF4081, 0xDD00E5FF, breathPhase);
-        int endColor = interpolateColor(0x20FF4081, 0x2000E5FF, breathPhase);
+        // Строгое соответствие цветам образца: 
+        // При breathPhase = 0 (полное сжатие) — глубокий чистый розовый (#FF2D55)
+        // При breathPhase = 1 (полное раскрытие) — мягкий голубовато-розовый градиент
+        int coreColor = interpolateColor(0xFFFF2D55, 0xFF00BCD4, breathPhase);
+        int edgeColor = interpolateColor(0xC8FF2D55, 0x5000BCD4, breathPhase);
 
-        // Элегантный вариант EliteHRV: ровно 8 лепестков + легкое расширение кольца
-        int petalCount = 8;
-        float distance = 28f * breathPhase;
-        float petalRadius = 14f + 8f * breathPhase;
+        // Точно как в образце EliteHRV: центральное ядро + 6 лепестков вокруг
+        int petalCount = 6;
+        float orbitDistance = 22f * breathPhase;
+        float baseRadius = 20f;
+        float maxRadius = 32f;
+        float currentRadius = baseRadius + (maxRadius - baseRadius) * breathPhase;
 
+        // Рисуем 6 лепестков по орбите
         for (int i = 0; i < petalCount; i++) {
             double angle = i * (2.0 * Math.PI / petalCount);
-            float cx = 100f + (float)(distance * Math.cos(angle));
-            float cy = 100f + (float)(distance * Math.sin(angle));
+            float cx = 100f + (float)(orbitDistance * Math.cos(angle));
+            float cy = 100f + (float)(orbitDistance * Math.sin(angle));
 
-            elementPaint.setShader(new RadialGradient(cx, cy, Math.max(1f, petalRadius),
-                    new int[]{startColor, endColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
-            canvas.drawCircle(cx, cy, petalRadius, elementPaint);
+            elementPaint.setShader(new RadialGradient(cx, cy, Math.max(1f, currentRadius),
+                    new int[]{coreColor, edgeColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
+            canvas.drawCircle(cx, cy, currentRadius, elementPaint);
         }
 
+        // Центральный лепесток (ядро)
+        elementPaint.setShader(new RadialGradient(100, 100, Math.max(1f, currentRadius),
+                new int[]{coreColor, edgeColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
+        canvas.drawCircle(100, 100, currentRadius, elementPaint);
+
         canvas.restore();
-
-        // Центральное ядро: при breathPhase -> 0 (выдох) превращается в чистый сплошной розовый круг
-        float coreRadius = 12f + 10f * breathPhase;
-        int coreColor1 = interpolateColor(0xFFFF4081, 0xFFEEFFFF, breathPhase);
-        int coreColor2 = interpolateColor(0xEEFF4081, 0x4400E5FF, breathPhase);
-        
-        corePaint.setShader(new RadialGradient(100, 100, coreRadius,
-                new int[]{coreColor1, coreColor2}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
-        canvas.drawCircle(100, 100, coreRadius, corePaint);
-
         canvas.restore();
     }
 
