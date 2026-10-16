@@ -19,10 +19,10 @@ public class BreatheAnimationView extends View {
 
     private boolean isMonitoringActive = false;
     
-    // Непрерывная анимация на базе реального времени с фиксированным циклом MasterClock (10 секунд)
+    // Непрерывное время для идеальной плавной анимации MasterClock (10 секунд на цикл)
     private long lastFrameTime = 0;
-    private float animationProgress = 0f; // [0.0 ... 1.0] текущий непрерывный цикл
-    private static final float CYCLE_DURATION_MS = 10000f; // 10 секунд (5с вдох, 5с выдох)
+    private float animationProgress = 0f; // [0.0 ... 1.0]
+    private static final float CYCLE_DURATION_MS = 10000f; // 5с вдох, 5с выдох
     
     private float rotationAngle = 0f;
     
@@ -31,14 +31,19 @@ public class BreatheAnimationView extends View {
 
     public BreatheAnimationView(Context context) {
         super(context);
-        bgPaint.setColor(0xFF1E222A);
-        bgPaint.setStyle(Paint.Style.FILL);
+        init();
     }
 
     public BreatheAnimationView(Context context, android.util.AttributeSet attrs) {
         super(context, attrs);
+        init();
+    }
+
+    private void init() {
         bgPaint.setColor(0xFF1E222A);
         bgPaint.setStyle(Paint.Style.FILL);
+        // Принудительно выключаем активность при создании/перезаходе
+        isMonitoringActive = false;
     }
 
     public void setRunning(boolean running) {
@@ -85,7 +90,7 @@ public class BreatheAnimationView extends View {
             lastFrameTime = now;
 
             if (dt > 0) {
-                if (dt > 500) dt = 16; // Защита от фризов при сворачивании
+                if (dt > 500) dt = 16; // Защита от резких скачков времени при возврате из фона
 
                 animationProgress += (dt / CYCLE_DURATION_MS);
                 if (animationProgress >= 1.0f) {
@@ -110,6 +115,37 @@ public class BreatheAnimationView extends View {
             invalidate();
         });
         rotationAnimator.start();
+    }
+
+    @Override
+    protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        // Если вьюха стала невидимой или свернулась — останавливаем тикер во избежание фоновой работы
+        if (visibility != VISIBLE) {
+            pauseAnimation();
+        } else if (isMonitoringActive) {
+            resumeAnimation();
+        }
+    }
+
+    public void pauseAnimation() {
+        if (tickerAnimator != null) tickerAnimator.cancel();
+        if (rotationAnimator != null) rotationAnimator.cancel();
+    }
+
+    public void resumeAnimation() {
+        if (isMonitoringActive) {
+            lastFrameTime = System.currentTimeMillis();
+            startTicker();
+            startRotationLoop();
+            invalidate();
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        super.onDetachedFromWindow();
+        stopMonitoring();
     }
 
     @Override
@@ -139,7 +175,17 @@ public class BreatheAnimationView extends View {
         bgRect.set(0, 0, 200, 200);
         canvas.drawRoundRect(bgRect, 16, 16, bgPaint);
 
-        // Плавная фаза дыхания: 0.0 -> 0.5 (Вдох / Расширение), 0.5 -> 1.0 (Выдох / Сжатие в круг)
+        // Если мониторинг неактивен — рисуем статичный сплошной розовый круг в центре (исходная точка выдоха)
+        if (!isMonitoringActive) {
+            corePaint.setShader(new RadialGradient(100, 100, 18f,
+                    new int[]{0xFFFF4081, 0xCCFF4081}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
+            canvas.drawCircle(100, 100, 18f, corePaint);
+            canvas.restore();
+            return;
+        }
+
+        // Фаза дыхания: 0.0 -> 0.5 (Вдох: сжатый розовый -> раскрытый голубой калейдоскоп), 
+        // 0.5 -> 1.0 (Выдох: голубой калейдоскоп -> сжатие обратно в чистый розовый круг)
         float breathPhase;
         boolean isInhale;
         if (animationProgress <= 0.5f) {
@@ -150,70 +196,42 @@ public class BreatheAnimationView extends View {
             isInhale = false;
         }
 
-        // Вращение всей структуры (на вдохе в одну сторону, на выдохе — в обратную)
+        // Вращение всей структуры
         canvas.save();
         float activeRotation = isInhale ? rotationAngle : -rotationAngle;
         canvas.rotate(activeRotation, 100f, 100f);
 
-        // Цветовые градиенты: Розовый (#FF4081) <-> Голубой (#00E5FF)
+        // Чистые цвета: Розовый (#FF4081) при выдохе (breathPhase = 0), Голубой (#00E5FF) при вдохе (breathPhase = 1)
         int startColor = interpolateColor(0xDDFF4081, 0xDD00E5FF, breathPhase);
-        int endColor = interpolateColor(0x15FF4081, 0x1500E5FF, breathPhase);
+        int endColor = interpolateColor(0x20FF4081, 0x2000E5FF, breathPhase);
 
-        // 1. Внутренний уровень калейдоскопа (8 элементов)
-        int count1 = 8;
-        float dist1 = 25f * breathPhase;
-        float radius1 = 16f + 8f * breathPhase;
-        drawPetalRing(canvas, count1, dist1, radius1, startColor, endColor);
+        // Элегантный вариант EliteHRV: ровно 8 лепестков + легкое расширение кольца
+        int petalCount = 8;
+        float distance = 28f * breathPhase;
+        float petalRadius = 14f + 8f * breathPhase;
 
-        // 2. Средний уровень (16 элементов, плавно распускаются при вдохе)
-        if (breathPhase > 0.15f) {
-            float p2 = (breathPhase - 0.15f) / 0.85f;
-            int count2 = 16;
-            float dist2 = 45f * p2;
-            float radius2 = 10f + 8f * p2;
-            int alpha = (int)(255 * p2);
-            drawPetalRing(canvas, count2, dist2, radius2, applyAlpha(startColor, alpha), applyAlpha(endColor, alpha));
-        }
+        for (int i = 0; i < petalCount; i++) {
+            double angle = i * (2.0 * Math.PI / petalCount);
+            float cx = 100f + (float)(distance * Math.cos(angle));
+            float cy = 100f + (float)(distance * Math.sin(angle));
 
-        // 3. Внешний уровень (32 элемента калейдоскопа)
-        if (breathPhase > 0.5f) {
-            float p3 = (breathPhase - 0.5f) / 0.5f;
-            int count3 = 32;
-            float dist3 = 68f * p3;
-            float radius3 = 6f + 6f * p3;
-            int alpha = (int)(255 * p3);
-            drawPetalRing(canvas, count3, dist3, radius3, applyAlpha(startColor, alpha), applyAlpha(endColor, alpha));
+            elementPaint.setShader(new RadialGradient(cx, cy, Math.max(1f, petalRadius),
+                    new int[]{startColor, endColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
+            canvas.drawCircle(cx, cy, petalRadius, elementPaint);
         }
 
         canvas.restore();
 
-        // Центральное ядро: при выдохе (breathPhase -> 0) стягивается в чистый сплошной плотный круг
-        float coreRadius = 8f + 16f * breathPhase;
-        int coreColor1 = interpolateColor(0xFFEEFFFF, 0xFF00E5FF, breathPhase);
-        int coreColor2 = interpolateColor(0x88FFFFFF, 0x3300E5FF, breathPhase);
+        // Центральное ядро: при breathPhase -> 0 (выдох) превращается в чистый сплошной розовый круг
+        float coreRadius = 12f + 10f * breathPhase;
+        int coreColor1 = interpolateColor(0xFFFF4081, 0xFFEEFFFF, breathPhase);
+        int coreColor2 = interpolateColor(0xEEFF4081, 0x4400E5FF, breathPhase);
         
         corePaint.setShader(new RadialGradient(100, 100, coreRadius,
                 new int[]{coreColor1, coreColor2}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
         canvas.drawCircle(100, 100, coreRadius, corePaint);
 
         canvas.restore();
-    }
-
-    private void drawPetalRing(Canvas canvas, int count, float distance, float radius, int startColor, int endColor) {
-        for (int i = 0; i < count; i++) {
-            double angle = i * (2.0 * Math.PI / count);
-            float cx = 100f + (float)(distance * Math.cos(angle));
-            float cy = 100f + (float)(distance * Math.sin(angle));
-
-            elementPaint.setShader(new RadialGradient(cx, cy, Math.max(1f, radius),
-                    new int[]{startColor, endColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
-            canvas.drawCircle(cx, cy, radius, elementPaint);
-        }
-    }
-
-    private int applyAlpha(int color, int alphaMultiplier) {
-        int a = (Color.alpha(color) * alphaMultiplier) / 255;
-        return Color.argb(a, Color.red(color), Color.green(color), Color.blue(color));
     }
 
     private int interpolateColor(int colorA, int colorB, float fraction) {
