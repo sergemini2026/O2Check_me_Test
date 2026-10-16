@@ -159,7 +159,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             showSettingsDialog();
         });
 
-        ui.btnExit.setOnClickListener(v -> finish());
+        // Гарантированно останавливаем пейсер и мониторинг при нажатии кнопки «Выход»
+        ui.btnExit.setOnClickListener(v -> {
+            if (ui != null && ui.pacerView != null) {
+                ui.pacerView.stopMonitoring();
+            }
+            isRecording = false;
+            finish();
+        });
 
         if (ui.btnWorkout != null) {
             ui.btnWorkout.setOnClickListener(v -> TrainingDialogHelper.openTrainingDialog(
@@ -296,7 +303,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             Toast.makeText(this, "Мастер-пароль успешно создан!", Toast.LENGTH_SHORT).show();
             onLog("Система запущена. Выберите профиль для начала работы.");
         });
-        builder.setNegativeButton("Выход", (dialog, which) -> finish());
+        builder.setNegativeButton("Выход", (dialog, which) -> {
+            if (ui != null && ui.pacerView != null) ui.pacerView.stopMonitoring();
+            finish();
+        });
         builder.setCancelable(false);
         builder.show();
     }
@@ -326,7 +336,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 showEnterMasterPasswordDialog(savedPass);
             }
         });
-        builder.setNegativeButton("Выход", (dialog, which) -> finish());
+        builder.setNegativeButton("Выход", (dialog, which) -> {
+            if (ui != null && ui.pacerView != null) ui.pacerView.stopMonitoring();
+            finish();
+        });
         builder.setCancelable(false);
         builder.show();
     }
@@ -492,7 +505,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         consecutiveArtifactsCount = 0;
         if (ui.chartView != null) ui.chartView.clearData();
         
-        // Запуск анимации фрактального пейсера дыхания
+        // Запуск анимации пейсера дыхания
         if (ui.pacerView != null) {
             ui.pacerView.setRunning(true);
         }
@@ -514,7 +527,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         piWindow.clear();
         
-        // Остановка анимации фрактального пейсера дыхания
+        // Остановка анимации пейсера дыхания
         if (ui.pacerView != null) {
             ui.pacerView.setRunning(false);
         }
@@ -765,6 +778,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        // Гарантированно выключаем анимацию пейсера и мониторинг при уничтожении активности
+        if (ui != null && ui.pacerView != null) {
+            ui.pacerView.stopMonitoring();
+        }
+        isRecording = false;
+
         if (bleManager != null) bleManager.close();
         if (polarManager != null) polarManager.disconnect();
     }
