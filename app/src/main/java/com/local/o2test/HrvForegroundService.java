@@ -32,14 +32,19 @@ public class HrvForegroundService extends Service {
     // Полный накопительный массив всей сессии (для графиков, CSV и общего анализа)
     private final List<Integer> rrSessionList = Collections.synchronizedList(new ArrayList<>());
     
-    // Блок для формирования дискретных снимков (строго по 300 RR-интервалов)
-    private final List<Integer> currentBlockList = Collections.synchronizedList(new ArrayList<>());
+    // Буфер для накопления текущих RR-интервалов перед расчетом окна
+    private final List<Integer> slidingWindowList = Collections.synchronizedList(new ArrayList<>());
     
     private boolean isRecording = false;
     private ServiceCallback callback;
 
     // Буфер готовых снимков для базы данных и хронологического лога PDF отчета
     private final List<SessionSnapshot> snapshotBuffer = Collections.synchronizedList(new ArrayList<>());
+
+    // Настройки скользящего окна
+    private static final int WINDOW_SIZE = 150; // Размер окна анализа
+    private static final int STEP_SIZE = 50;    // Шаг смещения (новые удары для следующего расчёта)
+    private int counterSinceLastProcess = 0;
 
     public interface ServiceCallback {
         void onRrDataReceived(int rrMs, int hr);
@@ -159,12 +164,13 @@ public class HrvForegroundService extends Service {
         synchronized (rrSessionList) {
             rrSessionList.clear();
         }
-        synchronized (currentBlockList) {
-            currentBlockList.clear();
+        synchronized (slidingWindowList) {
+            slidingWindowList.clear();
         }
         synchronized (snapshotBuffer) {
             snapshotBuffer.clear();
         }
+        counterSinceLastProcess = 0;
         isRecording = true;
         updateNotificationText("Идет запись сессии ВСР...");
     }
@@ -172,11 +178,10 @@ public class HrvForegroundService extends Service {
     public void stopSessionRecording() {
         isRecording = false;
         
-        // Финализация остатка в текущем блоке при остановке сессии (если набралось >= 16 ударов)
-        synchronized (currentBlockList) {
-            if (currentBlockList.size() >= 16) {
-                processAndSaveBlock(new ArrayList<>(currentBlockList));
-                currentBlockList.clear();
+        // Финализация: если в буфере есть хотя бы 16 точек при остановке, делаем финальный срез
+        synchronized (slidingWindowList) {
+            if (slidingWindowList.size() >= 16 && counterSinceLastProcess > 0) {
+                processAndSaveWindow(new ArrayList<>(slidingWindowList));
             }
         }
         
@@ -190,24 +195,33 @@ public class HrvForegroundService extends Service {
                 rrSessionList.add(rrMs);
             }
             
-            // 2. Накапливаем пачки по 300 RR для хронологических снимков
-            synchronized (currentBlockList) {
-                currentBlockList.add(rrMs);
-                if (currentBlockList.size() >= 300) {
-                    List<Integer> blockToProcess = new ArrayList<>(currentBlockList);
-                    currentBlockList.clear();
-                    processAndSaveBlock(blockToProcess);
+            // 2. Управляем скользящим окном для хронологических снимков
+            synchronized (slidingWindowList) {
+                slidingWindowList.add(rrMs);
+                
+                // Если размер окна превысил WINDOW_SIZE, удаляем старые элементы с начала (реализуем скольжение)
+                while (slidingWindowList.size() > WINDOW_SIZE) {
+                    slidingWindowList.remove(0);
+                }
+
+                // Считаем новые поступающие удары
+                counterSinceLastProcess++;
+
+                // Как только накопилось достаточно новых ударов (шаг STEP_SIZE) и окно заполнено до WINDOW_SIZE
+                if (slidingWindowList.size() >= WINDOW_SIZE && counterSinceLastProcess >= STEP_SIZE) {
+                    counterSinceLastProcess = 0;
+                    processAndSaveWindow(new ArrayList<>(slidingWindowList));
                 }
             }
         }
     }
 
     /**
-     * Расчет метрик для блока из 300 RR-интервалов и запись в буфер снимков
+     * Расчет метрик по текущему срезу скользящего окна и запись в буфер снимков
      */
-    private void processAndSaveBlock(List<Integer> blockData) {
+    private void processAndSaveWindow(List<Integer> windowData) {
         try {
-            HrvCalculator.Metrics metrics = HrvCalculator.calculate(blockData);
+            HrvCalculator.Metrics metrics = HrvCalculator.calculate(windowData);
             if (metrics != null && metrics.isValid) {
                 SessionSnapshot snapshot = new SessionSnapshot(System.currentTimeMillis(), metrics);
                 synchronized (snapshotBuffer) {
