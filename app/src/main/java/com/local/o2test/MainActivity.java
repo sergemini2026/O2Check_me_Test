@@ -90,6 +90,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             if (ui.btnHeart != null) {
                 ui.btnHeart.setAlpha(isRecording ? 1.0f : (isProfileAuthorized ? 1.0f : 0.5f));
             }
+            if (ui.pacerView != null) {
+                ui.pacerView.setRunning(isRecording);
+            }
         }
         @Override
         public void onServiceDisconnected(ComponentName name) {
@@ -489,6 +492,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         consecutiveArtifactsCount = 0;
         if (ui.chartView != null) ui.chartView.clearData();
         
+        // Запуск анимации фрактального пейсера дыхания
+        if (ui.pacerView != null) {
+            ui.pacerView.setRunning(true);
+        }
+        
         updateMetricsDisplay("--", "--", "--", "--");
         updateRightPanelStatus();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
@@ -505,6 +513,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         piWindow.clear();
+        
+        // Остановка анимации фрактального пейсера дыхания
+        if (ui.pacerView != null) {
+            ui.pacerView.setRunning(false);
+        }
+
         updateRightPanelStatus();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(isProfileAuthorized ? 1.0f : 0.5f);
         onLog("Мониторинг остановлен");
