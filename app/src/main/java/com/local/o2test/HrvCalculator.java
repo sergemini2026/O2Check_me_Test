@@ -19,12 +19,11 @@ public class HrvCalculator {
         public final double sd1sd2Ratio;
         public final double baevskySi;
         public final double sampleEntropy;
-        public final double dfaAlpha1; // Новое поле: Фрактальный показатель DFA alpha1
+        public final double dfaAlpha1;
         public final int artifactsDetected;
         public final double artifactPct;
         public final boolean isValid;
 
-        // Обратная совместимость (старые конструкторы)
         public Metrics(double rmssd, double sdnn, double pnn50, double lfPower, 
                        double hfPower, double totalPower, double lfHfRatio, 
                        double sd1, double sd2, double sd1sd2Ratio, double baevskySi,
@@ -61,9 +60,6 @@ public class HrvCalculator {
             return new Metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 1.0, 0, 100.0, false);
         }
 
-        // ==========================================
-        // 1. ФИЛЬТРАЦИЯ ВЫБРОСОВ (АРТЕФАКТОВ)
-        // ==========================================
         List<Double> cleanRr = new ArrayList<>();
         int artifacts = 0;
         int consecutiveArtifacts = 0;
@@ -95,9 +91,6 @@ public class HrvCalculator {
         int N = cleanRr.size();
         double artifactPct = ((double) artifacts / rawRrList.size()) * 100.0;
 
-        // ==========================================
-        // 2. ВРЕМЕННОЙ АНАЛИЗ (RMSSD, pNN50, SDNN)
-        // ==========================================
         double sumDiffSq = 0.0;
         int nn50Count = 0;
         int totalPairs = N - 1;
@@ -126,9 +119,6 @@ public class HrvCalculator {
         }
         double sdnn = Math.sqrt(sumSdnnSq / (N - 1));
 
-        // ==========================================
-        // 2.1. СКАТЕРОГРАММА ПУАНКАРЕ (SD1, SD2)
-        // ==========================================
         double sumSqPerp = 0.0;
         double sumSqLong = 0.0;
 
@@ -147,28 +137,16 @@ public class HrvCalculator {
         double sd2 = Math.sqrt(sumSqLong / (2.0 * (N - 1)));
         double sd1sd2Ratio = (sd2 > 0) ? (sd1 / sd2) : 0.0;
 
-        // ==========================================
-        // 2.2. ИНДЕКС НАПРЯЖЕНИЯ БАЕВСКОГО (SI)
-        // ==========================================
         List<Integer> cleanRrInt = new ArrayList<>();
         for (double d : cleanRr) cleanRrInt.add((int) Math.round(d));
         double baevskySi = calculateBaevskySI(cleanRrInt);
 
-        // ==========================================
-        // 2.3. ЭНТРОПИЯ (SampEn)
-        // ==========================================
         double rTol = 0.2 * sdnn;
         if (rTol < 1.0) rTol = 1.0;
         double sampleEntropy = calculateSampleEntropy(cleanRr, 2, rTol);
 
-        // ==========================================
-        // 2.4. DFA alpha1 (Detrended Fluctuation Analysis)
-        // ==========================================
         double dfaAlpha1 = calculateDfaAlpha1(cleanRr);
 
-        // ==========================================
-        // 3. РЕСЕМПЛИРОВАНИЕ В 4 Гц И СПЕКТР (Уэлч)
-        // ==========================================
         double[] timeStamps = new double[N];
         double currentTime = 0;
         for (int i = 0; i < N; i++) {
@@ -183,7 +161,7 @@ public class HrvCalculator {
         double lfPower = 0;
         double hfPower = 0;
         double totalPower = sdnn * sdnn;
-        double lfHfRatio = 0;
+        double rawLfHf = 0;
 
         if (numSamples >= 32) {
             double[] rrArray = new double[N];
@@ -249,26 +227,23 @@ public class HrvCalculator {
             }
 
             totalPower = vlfPower + lfPower + hfPower;
-            lfHfRatio = hfPower > 0 ? lfPower / hfPower : 0;
+            rawLfHf = (lfPower + hfPower > 0) ? (2.0 * lfPower / (lfPower + hfPower)) : (hfPower > 0 ? lfPower / hfPower : 0);
         }
 
-        // ==========================================
-        // 4. ПОСТРАСЧЕТНАЯ ВАЛИДАЦИЯ (Sanity Check)
-        // ==========================================
+        // Нормализация LF/HF в стабильный диапазон [0, 2]
+        if (rawLfHf < 0) rawLfHf = 0;
+        if (rawLfHf > 2.0) rawLfHf = 2.0;
+
         boolean isValid = validateMetrics(rmssd, baevskySi, sd1sd2Ratio, artifactPct);
 
-        return new Metrics(rmssd, sdnn, pnn50, lfPower, hfPower, totalPower, lfHfRatio, 
+        return new Metrics(rmssd, sdnn, pnn50, lfPower, hfPower, totalPower, rawLfHf, 
                            sd1, sd2, sd1sd2Ratio, baevskySi, sampleEntropy, dfaAlpha1, artifacts, artifactPct, isValid);
     }
 
-    /**
-     * Расчет DFA alpha1 (краткосрочный фрактальный коэффициент по окнам n = 4..16)
-     */
     private static double calculateDfaAlpha1(List<Double> cleanRr) {
         int N = cleanRr.size();
         if (N < 16) return 1.0;
 
-        // 1. Интегрирование ряда (суммарное отклонение от среднего)
         double mean = 0;
         for (double val : cleanRr) mean += val;
         mean /= N;
@@ -280,7 +255,6 @@ public class HrvCalculator {
             y[i] = sum;
         }
 
-        // 2. Диапазон окон n для alpha1 (обычно от 4 до 16)
         int[] scales = {4, 5, 6, 7, 8, 10, 12, 14, 16};
         List<Double> logN = new ArrayList<>();
         List<Double> logF = new ArrayList<>();
@@ -292,7 +266,6 @@ public class HrvCalculator {
             double rmsSum = 0;
             for (int seg = 0; seg < numSegments; seg++) {
                 int start = seg * n;
-                // Линейная регрессия (тренд) внутри сегмента
                 double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
                 for (int i = 0; i < n; i++) {
                     double xVal = i + 1;
@@ -305,7 +278,6 @@ public class HrvCalculator {
                 double slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
                 double intercept = (sumY - slope * sumX) / n;
 
-                // Флуктуация (остаточная дисперсия)
                 double segVar = 0;
                 for (int i = 0; i < n; i++) {
                     double fit = slope * (i + 1) + intercept;
@@ -324,7 +296,6 @@ public class HrvCalculator {
 
         if (logN.size() < 3) return 1.0;
 
-        // 3. Линейная регрессия в логарифмическом масштабе (нахождение alpha1)
         double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
         int mSize = logN.size();
         for (int i = 0; i < mSize; i++) {
