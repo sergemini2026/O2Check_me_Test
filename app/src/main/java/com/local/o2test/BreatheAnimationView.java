@@ -185,7 +185,6 @@ public class BreatheAnimationView extends View {
         // Цветовой переход: Розовый (#E91E63) <-> Голубой (#00BCD4)
         int pinkFill = Color.argb(100, 233, 30, 99);
         int cyanFill = Color.argb(100, 0, 188, 212);
-        int pinkStroke = Color.XOR; // или четкий контур
         int currentFill = interpolateColor(pinkFill, cyanFill, breathPhase);
         int currentStroke = interpolateColor(Color.argb(220, 233, 30, 99), Color.argb(220, 0, 188, 212), breathPhase);
 
