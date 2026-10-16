@@ -48,6 +48,7 @@ public class UiBuilder {
         public TextView tvLiveMetrics;
         public TrendChartView chartView;
         public TextView tvHrvMetrics;
+        public TextView tvStatusValue; // Центрированная строка статуса под ВСР
         public TextView tvLog;
         public ScrollView logScrollView;
         public ImageButton btnHeart;
@@ -56,20 +57,13 @@ public class UiBuilder {
         public Button btnSettings;
         public Button btnExit;
 
-        // Новые графические кнопки функциональной панели
+        // Кнопки функциональной панели
         public ImageButton btnWorkout;
         public ImageButton btnSessions;
         public ImageButton btnProfiles;
 
-        // Панель для правой половины нижней части экрана
+        // Правая половина нижней части экрана (очищена для пейсера)
         public LinearLayout rightPanel;
-        public TextView tvStatusLabel;
-        public TextView tvStatusValue;
-
-        // Активные поля для датчиков кислорода (интегрированы с OxygenSensorManager)
-        public TextView tvPo2Mix;
-        public TextView tvPo2Hipo;
-        public TextView tvPo2Hiper;
     }
 
     public static Views buildUi(Context context) {
@@ -118,18 +112,31 @@ public class UiBuilder {
 
         LinearLayout.LayoutParams hrvParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        hrvParams.setMargins(0, 8, 0, 4);
+        hrvParams.setMargins(0, 8, 0, 2);
         v.tvHrvMetrics.setLayoutParams(hrvParams);
         v.tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
         v.mainLayout.addView(v.tvHrvMetrics);
 
-        // --- БЛОК УПРАВЛЕНИЯ МОНИТОРИНГom И ТРЕНИРОВКАМИ (4 ВЕКТОРНЫЕ КНОПКИ) ---
+        // --- СТРОКА СТАТУСА (ЕДИНОЙ СТРОКОЙ ПО ЦЕНТРУ ПОД ВСР) ---
+        v.tvStatusValue = new TextView(context);
+        v.tvStatusValue.setText("");
+        v.tvStatusValue.setTextSize(13);
+        v.tvStatusValue.setTextColor(Color.CYAN);
+        v.tvStatusValue.setGravity(Gravity.CENTER);
+
+        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        statusParams.setMargins(0, 0, 0, 4);
+        v.tvStatusValue.setLayoutParams(statusParams);
+        v.mainLayout.addView(v.tvStatusValue);
+
+        // --- БЛОК УПРАВЛЕНИЯ МОНИТОРИНГom И ТРЕНИРОВКАМИ (4 КНОПКИ) ---
         LinearLayout actionPanel = new LinearLayout(context);
         actionPanel.setOrientation(LinearLayout.HORIZONTAL);
         actionPanel.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams actionPanelParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        actionPanelParams.setMargins(0, 4, 0, 4);
+        actionPanelParams.setMargins(0, 2, 0, 4);
         actionPanel.setLayoutParams(actionPanelParams);
 
         int iconSizePx = (int) (48 * context.getResources().getDisplayMetrics().density);
@@ -169,15 +176,15 @@ public class UiBuilder {
 
         v.mainLayout.addView(actionPanel);
 
-        // --- НИЖНЯЯ ПАНЕЛЬ: РАЗДЕЛЕНИЕ НА 60% (ЛОГ) И 40% (СТАТУС И ДАТЧИКИ) ---
+        // --- НИЖНЯЯ ПАНЕЛЬ: 60% (ЛОГ) И 40% (ПРАВАЯ ПАНЕЛЬ ДЛЯ БУДУЩЕГО ПЕЙСЕРА) ---
         LinearLayout bottomSplitLayout = new LinearLayout(context);
         bottomSplitLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams splitParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        splitParams.topMargin = (int) (16 * context.getResources().getDisplayMetrics().density);
+        splitParams.topMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
         bottomSplitLayout.setLayoutParams(splitParams);
 
-        // Левая половина: Лог (60% ширины, вес 3.0)
+        // Левая половина: Лог
         v.tvLog = new TextView(context);
         v.tvLog.setTextSize(11);
 
@@ -193,7 +200,7 @@ public class UiBuilder {
         v.tvLog.setLayoutParams(tvLogParams);
         v.logScrollView.addView(v.tvLog);
 
-        // Правая половина: Панель статуса и режимов (40% ширины, вес 2.0)
+        // Правая половина: Свободная панель под пейсер
         v.rightPanel = new LinearLayout(context);
         v.rightPanel.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(
@@ -201,50 +208,9 @@ public class UiBuilder {
         rightParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
         v.rightPanel.setLayoutParams(rightParams);
 
-        // --- ТРИ ПОЛЯ КИСЛОРОДНЫХ ДАТЧИКОВ (ВЫШЕ СТАТУСА) ---
-        LinearLayout sensorsLayout = new LinearLayout(context);
-        sensorsLayout.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams sensorsParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        sensorsParams.bottomMargin = (int) (6 * context.getResources().getDisplayMetrics().density);
-        sensorsLayout.setLayoutParams(sensorsParams);
-        sensorsLayout.setGravity(Gravity.CENTER);
-
-        v.tvPo2Mix = createSensorField(context, "PO2Mix []");
-        v.tvPo2Hipo = createSensorField(context, "PO2Hipo []");
-        v.tvPo2Hiper = createSensorField(context, "PO2Hiper []");
-
-        sensorsLayout.addView(v.tvPo2Mix);
-        sensorsLayout.addView(v.tvPo2Hipo);
-        sensorsLayout.addView(v.tvPo2Hiper);
-        v.rightPanel.addView(sensorsLayout);
-
-        // Верхняя строка правой панели: "Статус:" (левое выравнивание)
-        v.tvStatusLabel = new TextView(context);
-        v.tvStatusLabel.setText("Статус:");
-        v.tvStatusLabel.setTextSize(12);
-        v.tvStatusLabel.setTextColor(Color.LTGRAY);
-        v.tvStatusLabel.setGravity(Gravity.START);
-        v.rightPanel.addView(v.tvStatusLabel);
-
-        // Следующая строка правой панели: значение статуса/режима (центрирование)
-        v.tvStatusValue = new TextView(context);
-        v.tvStatusValue.setText("");
-        v.tvStatusValue.setTextSize(13);
-        v.tvStatusValue.setTextColor(Color.WHITE);
-        v.tvStatusValue.setGravity(Gravity.CENTER);
-
-        LinearLayout.LayoutParams valueParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        valueParams.topMargin = (int) (4 * context.getResources().getDisplayMetrics().density);
-        v.tvStatusValue.setLayoutParams(valueParams);
-        v.rightPanel.addView(v.tvStatusValue);
-
-        // Добавляем обе половины в общий горизонтальный контейнер нижней части
         bottomSplitLayout.addView(v.logScrollView);
         bottomSplitLayout.addView(v.rightPanel);
 
-        // Добавляем весь нижний блок в главный экран
         v.mainLayout.addView(bottomSplitLayout);
 
         return v;
@@ -254,7 +220,6 @@ public class UiBuilder {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
         
         TextView title = new TextView(context);
-        // Используем раздельные поля firstName и lastName вместо единого getName()
         String fullName = profile.getFirstName() + (TextUtils.isEmpty(profile.getLastName()) ? "" : " " + profile.getLastName());
         title.setText("Сессии: " + fullName);
         title.setTextSize(18);
@@ -323,18 +288,6 @@ public class UiBuilder {
             int height = (int) (context.getResources().getDisplayMetrics().heightPixels * 0.70);
             dialog.getWindow().setLayout(width, height);
         }
-    }
-
-    private static TextView createSensorField(Context context, String text) {
-        TextView tv = new TextView(context);
-        tv.setText(text);
-        tv.setTextSize(12);
-        tv.setTextColor(Color.CYAN);
-        tv.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
-        tv.setLayoutParams(params);
-        return tv;
     }
 
     private static LinearLayout createActionItem(Context context, ImageButton btn, String labelText) {
