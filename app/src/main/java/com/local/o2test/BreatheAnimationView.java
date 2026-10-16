@@ -18,14 +18,11 @@ public class BreatheAnimationView extends View {
 
     private boolean isMonitoringActive = false;
     
-    // Непрерывный таймер на базе реального времени, фиксированный цикл 10 секунд (5с вдох, 5с выдох)
-    private long lastFrameTime = 0;
+    // Плавная анимация движения из первого рабочего варианта
     private float animationProgress = 0f; // [0.0 ... 1.0]
-    private static final float CYCLE_DURATION_MS = 10000f; 
-    
     private float rotationAngle = 0f;
     
-    private ValueAnimator tickerAnimator;
+    private ValueAnimator breathAnimator;
     private ValueAnimator rotationAnimator;
 
     public BreatheAnimationView(Context context) {
@@ -55,56 +52,50 @@ public class BreatheAnimationView extends View {
     public void startMonitoring() {
         isMonitoringActive = true;
         animationProgress = 0f;
-        lastFrameTime = System.currentTimeMillis();
         rotationAngle = 0f;
         
-        startTicker();
-        startRotationLoop();
+        startBreathAnimator();
+        startRotationAnimator();
         invalidate();
     }
 
     public void stopMonitoring() {
         isMonitoringActive = false;
-        if (tickerAnimator != null) tickerAnimator.cancel();
-        if (rotationAnimator != null) rotationAnimator.cancel();
+        if (breathAnimator != null) {
+            breathAnimator.cancel();
+            breathAnimator = null;
+        }
+        if (rotationAnimator != null) {
+            rotationAnimator.cancel();
+            rotationAnimator = null;
+        }
         animationProgress = 0f;
         rotationAngle = 0f;
         invalidate();
     }
 
-    private void startTicker() {
-        if (tickerAnimator != null) tickerAnimator.cancel();
+    // Плавный зацикленный аниматор дыхания (10 секунд на полный цикл: 5с вдох, 5с выдох)
+    private void startBreathAnimator() {
+        if (breathAnimator != null) breathAnimator.cancel();
 
-        lastFrameTime = System.currentTimeMillis();
-        tickerAnimator = ValueAnimator.ofFloat(0f, 1f);
-        tickerAnimator.setDuration(1000);
-        tickerAnimator.setInterpolator(new LinearInterpolator());
-        tickerAnimator.setRepeatCount(ValueAnimator.INFINITE);
-        tickerAnimator.addUpdateListener(animation -> {
+        breathAnimator = ValueAnimator.ofFloat(0f, 1f);
+        breathAnimator.setDuration(10000);
+        breathAnimator.setInterpolator(new LinearInterpolator());
+        breathAnimator.setRepeatCount(ValueAnimator.INFINITE);
+        breathAnimator.addUpdateListener(animation -> {
             if (!isMonitoringActive) return;
-
-            long now = System.currentTimeMillis();
-            long dt = now - lastFrameTime;
-            lastFrameTime = now;
-
-            if (dt > 0) {
-                if (dt > 500) dt = 16; // Защита от фризов при сворачивании
-
-                animationProgress += (dt / CYCLE_DURATION_MS);
-                if (animationProgress >= 1.0f) {
-                    animationProgress %= 1.0f;
-                }
-            }
+            animationProgress = (float) animation.getAnimatedValue();
             invalidate();
         });
-        tickerAnimator.start();
+        breathAnimator.start();
     }
 
-    private void startRotationLoop() {
+    // Плавное вращение структуры без рывков
+    private void startRotationAnimator() {
         if (rotationAnimator != null) rotationAnimator.cancel();
 
         rotationAnimator = ValueAnimator.ofFloat(0f, 360f);
-        rotationAnimator.setDuration(40000);
+        rotationAnimator.setDuration(30000);
         rotationAnimator.setInterpolator(new LinearInterpolator());
         rotationAnimator.setRepeatCount(ValueAnimator.INFINITE);
         rotationAnimator.addUpdateListener(animation -> {
@@ -119,23 +110,7 @@ public class BreatheAnimationView extends View {
     protected void onWindowVisibilityChanged(int visibility) {
         super.onWindowVisibilityChanged(visibility);
         if (visibility != VISIBLE) {
-            pauseAnimation();
-        } else if (isMonitoringActive) {
-            resumeAnimation();
-        }
-    }
-
-    public void pauseAnimation() {
-        if (tickerAnimator != null) tickerAnimator.cancel();
-        if (rotationAnimator != null) rotationAnimator.cancel();
-    }
-
-    public void resumeAnimation() {
-        if (isMonitoringActive) {
-            lastFrameTime = System.currentTimeMillis();
-            startTicker();
-            startRotationLoop();
-            invalidate();
+            stopMonitoring();
         }
     }
 
@@ -172,7 +147,7 @@ public class BreatheAnimationView extends View {
         bgRect.set(0, 0, 200, 200);
         canvas.drawRoundRect(bgRect, 16, 16, bgPaint);
 
-        // Если мониторинг не активен — статичный сплошной розовый круг
+        // Если сессия не активна — статичный сплошной розовый круг (точка выдоха)
         if (!isMonitoringActive) {
             petalPaint.setShader(new RadialGradient(100, 100, 24f,
                     new int[]{0xFFFF2D55, 0xDDFF2D55}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
@@ -181,7 +156,7 @@ public class BreatheAnimationView extends View {
             return;
         }
 
-        // Фаза дыхания через синусоиду для абсолютной плавности без рывков
+        // Абсолютно плавная синусоидальная фаза дыхания из первого варианта
         float breathPhase;
         boolean isInhale;
         if (animationProgress <= 0.5f) {
@@ -194,21 +169,20 @@ public class BreatheAnimationView extends View {
             isInhale = false;
         }
 
-        // Вращение всей структуры
+        // Плавное вращение всей фигуры
         canvas.save();
         float activeRotation = isInhale ? rotationAngle : -rotationAngle;
         canvas.rotate(activeRotation, 100f, 100f);
 
-        // Цвета по образцу: при сжатии (breathPhase = 0) — чистый насыщенный розовый, при раскрытии — гармоничный полупрозрачный оттенок
+        // Цветовые градиенты: при сжатии (breathPhase = 0) — чистый розовый, при раскрытии — голубоватый
         int innerColor = interpolateColor(0xFFFF2D55, 0xCCFF4081, breathPhase);
         int outerColor = interpolateColor(0xC8FF2D55, 0x40FF4081, breathPhase);
 
-        // Точная геометрия образца: центральный круг + ровно 6 симметричных колец (лепестков)
+        // Геометрия образца: центральный круг + ровно 6 симметричных колец
         int petalCount = 6;
-        float orbitDistance = 28f * breathPhase; // Дистанция расхождения колец от центра
-        float petalRadius = 26f;                  // Фиксированный размер колец, как в образце
+        float orbitDistance = 28f * breathPhase; 
+        float petalRadius = 26f;
 
-        // 1. Рисуем 6 колец по кругу
         for (int i = 0; i < petalCount; i++) {
             double angle = i * (2.0 * Math.PI / petalCount);
             float cx = 100f + (float)(orbitDistance * Math.cos(angle));
@@ -219,7 +193,7 @@ public class BreatheAnimationView extends View {
             canvas.drawCircle(cx, cy, petalRadius, petalPaint);
         }
 
-        // 2. Центральное кольцо (ядро узора)
+        // Центральное кольцо
         petalPaint.setShader(new RadialGradient(100, 100, petalRadius,
                 new int[]{innerColor, outerColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
         canvas.drawCircle(100, 100, petalRadius, petalPaint);
