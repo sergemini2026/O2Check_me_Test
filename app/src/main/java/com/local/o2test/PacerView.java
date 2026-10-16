@@ -48,7 +48,7 @@ public class PacerView extends View {
         canvas.drawRect(0, 0, w, h, paintBg);
         canvas.drawRect(0, 0, w, h, paintBorder);
 
-        // Временная заглушка текста для проверки отображения
+        // Текст-заглушка для проверки отображения
         float x = w / 2f;
         float y = (h / 2f) - ((paintText.descent() + paintText.ascent()) / 2f);
         canvas.drawText("Пейсер [0.1 Hz]", x, y, paintText);
