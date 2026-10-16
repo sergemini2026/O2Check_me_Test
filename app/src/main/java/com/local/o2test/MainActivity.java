@@ -197,11 +197,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         List<DataPoint> copyForExport;
         synchronized (sessionData) { copyForExport = new ArrayList<>(sessionData); }
         
-        // Получаем пользовательский путь (Documents / Downloads), настроенный в SharedPreferences
         SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
         String customPath = prefs.getString("custom_export_path", null);
         
-        // Передаем customPath в экспортер CSV, чтобы файл сохранялся в ту же папку, что и PDF
         CsvExporter.saveSessionToCsv(this, copyForExport, customPath, new CsvExporter.ExportCallback() {
             @Override
             public void onSuccess(String filePath, String fileName) {
@@ -240,12 +238,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private void updateRightPanelStatus() {
         if (ui.tvStatusValue == null) return;
         if (!isRecording) {
-            ui.tvStatusValue.setText("");
+            ui.tvStatusValue.setText("Статус: Ожидание");
         } else {
             if (isTrainingModeActive) {
-                ui.tvStatusValue.setText(currentWorkoutMode);
+                ui.tvStatusValue.setText("Статус: " + currentWorkoutMode);
             } else {
-                ui.tvStatusValue.setText("Мониторинг");
+                ui.tvStatusValue.setText("Статус: Мониторинг");
             }
         }
     }
