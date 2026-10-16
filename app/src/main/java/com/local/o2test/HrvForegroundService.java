@@ -17,9 +17,6 @@ import androidx.core.app.NotificationCompat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 public class HrvForegroundService extends Service {
 
@@ -32,17 +29,17 @@ public class HrvForegroundService extends Service {
     private final IBinder binder = new LocalBinder();
     private PowerManager.WakeLock wakeLock;
 
+    // Полный накопительный массив всей сессии (для графиков, CSV и общего анализа)
     private final List<Integer> rrSessionList = Collections.synchronizedList(new ArrayList<>());
+    
+    // Блок для формирования дискретных снимков (строго по 300 RR-интервалов)
+    private final List<Integer> currentBlockList = Collections.synchronizedList(new ArrayList<>());
+    
     private boolean isRecording = false;
-
     private ServiceCallback callback;
 
-    // Буфер обработанных снимков и фоновый планировщик
+    // Буфер готовых снимков для базы данных и хронологического лога PDF отчета
     private final List<SessionSnapshot> snapshotBuffer = Collections.synchronizedList(new ArrayList<>());
-    private ScheduledExecutorService scheduler;
-    
-    // Указатель для реализации скользящего окна без дублирования одних и тех же данных
-    private int lastProcessedIndex = 0;
 
     public interface ServiceCallback {
         void onRrDataReceived(int rrMs, int hr);
@@ -65,10 +62,6 @@ public class HrvForegroundService extends Service {
         if (powerManager != null) {
             wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "O2Test::HrvWakeLock");
         }
-
-        // Запуск фонового планировщика для расчета метрик и наполнения буфера снимков каждые 30 секунд
-        scheduler = Executors.newSingleThreadScheduledExecutor();
-        scheduler.scheduleAtFixedRate(this::processSnapshotCalculation, 10, 30, TimeUnit.SECONDS);
     }
 
     @Override
@@ -160,31 +153,75 @@ public class HrvForegroundService extends Service {
         return callback;
     }
 
-    // --- Управление накопительным буфером сессии ---
+    // --- Управление накопительными буферами ---
 
     public void startSessionRecording() {
         synchronized (rrSessionList) {
             rrSessionList.clear();
         }
+        synchronized (currentBlockList) {
+            currentBlockList.clear();
+        }
         synchronized (snapshotBuffer) {
             snapshotBuffer.clear();
         }
-        lastProcessedIndex = 0;
         isRecording = true;
         updateNotificationText("Идет запись сессии ВСР...");
     }
 
     public void stopSessionRecording() {
         isRecording = false;
+        
+        // Финализация остатка в текущем блоке при остановке сессии (если набралось >= 16 ударов)
+        synchronized (currentBlockList) {
+            if (currentBlockList.size() >= 16) {
+                processAndSaveBlock(new ArrayList<>(currentBlockList));
+                currentBlockList.clear();
+            }
+        }
+        
         updateNotificationText("Мониторинг активен (запись остановлена)");
     }
 
     public void addRrInterval(int rrMs) {
-        if (isRecording && rrMs > 0) {
-            rrSessionList.add(rrMs);
+        if (isRecording && rrMs > 300 && rrMs < 2000) {
+            // 1. Накапливаем абсолютно все RR-интервалы в длинный массив всей сессии
+            synchronized (rrSessionList) {
+                rrSessionList.add(rrMs);
+            }
+            
+            // 2. Накапливаем пачки по 300 RR для хронологических снимков
+            synchronized (currentBlockList) {
+                currentBlockList.add(rrMs);
+                if (currentBlockList.size() >= 300) {
+                    List<Integer> blockToProcess = new ArrayList<>(currentBlockList);
+                    currentBlockList.clear();
+                    processAndSaveBlock(blockToProcess);
+                }
+            }
         }
     }
 
+    /**
+     * Расчет метрик для блока из 300 RR-интервалов и запись в буфер снимков
+     */
+    private void processAndSaveBlock(List<Integer> blockData) {
+        try {
+            HrvCalculator.Metrics metrics = HrvCalculator.calculate(blockData);
+            if (metrics != null && metrics.isValid) {
+                SessionSnapshot snapshot = new SessionSnapshot(System.currentTimeMillis(), metrics);
+                synchronized (snapshotBuffer) {
+                    snapshotBuffer.add(snapshot);
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Получение полного массива всей сессии для анализа и экспорта
+     */
     public List<Integer> getSessionRrData() {
         synchronized (rrSessionList) {
             return new ArrayList<>(rrSessionList);
@@ -193,37 +230,6 @@ public class HrvForegroundService extends Service {
 
     public boolean isRecording() {
         return isRecording;
-    }
-
-    /**
-     * Фоновый расчет метрик по реальному скользящему окну за последние 30-45 секунд
-     */
-    private void processSnapshotCalculation() {
-        if (!isRecording) return;
-        try {
-            List<Integer> currentData = getSessionRrData();
-            int totalSize = currentData.size();
-            
-            // Требуем минимум 30 точек (~30 ударов сердца) для формирования достоверного среза
-            if (totalSize - lastProcessedIndex < 30 && totalSize < 30) return;
-
-            // Берем скользящее окно за последний интервал (или хвост из последних 120 точек)
-            int windowSize = 120;
-            int startIndex = Math.max(0, totalSize - windowSize);
-            List<Integer> windowData = currentData.subList(startIndex, totalSize);
-
-            // Расчет через математическое ядро с учетом фильтрации и валидации
-            HrvCalculator.Metrics metrics = HrvCalculator.calculate(windowData);
-
-            // Если окно прошло пострасчетную валидацию, добавляем в буфер снимков
-            if (metrics != null && metrics.isValid) {
-                SessionSnapshot snapshot = new SessionSnapshot(System.currentTimeMillis(), metrics);
-                snapshotBuffer.add(snapshot);
-                lastProcessedIndex = totalSize;
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
     }
 
     /**
@@ -239,9 +245,6 @@ public class HrvForegroundService extends Service {
 
     @Override
     public void onDestroy() {
-        if (scheduler != null) {
-            scheduler.shutdown();
-        }
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
         }
