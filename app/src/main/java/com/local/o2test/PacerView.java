@@ -38,17 +38,27 @@ public class PacerView extends View {
     }
 
     @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+        // Делаем канвас строго квадратным: берем ширину за основу и приравниваем к ней высоту
+        int width = getMeasuredWidth();
+        if (width > 0) {
+            setMeasuredDimension(width, width);
+        }
+    }
+
+    @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
 
         float w = getWidth();
         float h = getHeight();
 
-        // Рисуем фон канваса пейсера
+        // Рисуем квадратный фон канваса пейсера
         canvas.drawRect(0, 0, w, h, paintBg);
         canvas.drawRect(0, 0, w, h, paintBorder);
 
-        // Текст-заглушка для проверки отображения
+        // Текст-заглушка по центру
         float x = w / 2f;
         float y = (h / 2f) - ((paintText.descent() + paintText.ascent()) / 2f);
         canvas.drawText("Пейсер [0.1 Hz]", x, y, paintText);
