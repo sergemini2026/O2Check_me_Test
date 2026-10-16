@@ -18,7 +18,6 @@ public class BreatheAnimationView extends View {
 
     private boolean isMonitoringActive = false;
     
-    // Плавная анимация движения из первого рабочего варианта
     private float animationProgress = 0f; // [0.0 ... 1.0]
     private float rotationAngle = 0f;
     
@@ -38,6 +37,10 @@ public class BreatheAnimationView extends View {
     private void init() {
         bgPaint.setColor(0xFF1E222A);
         bgPaint.setStyle(Paint.Style.FILL);
+
+        // Включаем аппаратное ускорение для этого View, чтобы GPU рендерил градиенты отдельно от CPU
+        setLayerType(View.LAYER_TYPE_HARDWARE, null);
+
         isMonitoringActive = false;
     }
 
@@ -50,6 +53,7 @@ public class BreatheAnimationView extends View {
     }
 
     public void startMonitoring() {
+        if (isMonitoringActive) return;
         isMonitoringActive = true;
         animationProgress = 0f;
         rotationAngle = 0f;
@@ -74,12 +78,11 @@ public class BreatheAnimationView extends View {
         invalidate();
     }
 
-    // Плавный зацикленный аниматор дыхания (10 секунд на полный цикл: 5с вдох, 5с выдох)
     private void startBreathAnimator() {
         if (breathAnimator != null) breathAnimator.cancel();
 
         breathAnimator = ValueAnimator.ofFloat(0f, 1f);
-        breathAnimator.setDuration(10000);
+        breathAnimator.setDuration(10000); // 10 секунд (5с вдох, 5с выдох)
         breathAnimator.setInterpolator(new LinearInterpolator());
         breathAnimator.setRepeatCount(ValueAnimator.INFINITE);
         breathAnimator.addUpdateListener(animation -> {
@@ -90,7 +93,6 @@ public class BreatheAnimationView extends View {
         breathAnimator.start();
     }
 
-    // Плавное вращение структуры без рывков
     private void startRotationAnimator() {
         if (rotationAnimator != null) rotationAnimator.cancel();
 
@@ -135,6 +137,8 @@ public class BreatheAnimationView extends View {
 
         float width = getWidth();
         float height = getHeight();
+        if (width <= 0 || height <= 0) return;
+
         float scale = Math.min(width, height) / 200f;
         float dx = (width - 200f * scale) / 2f;
         float dy = (height - 200f * scale) / 2f;
@@ -147,7 +151,7 @@ public class BreatheAnimationView extends View {
         bgRect.set(0, 0, 200, 200);
         canvas.drawRoundRect(bgRect, 16, 16, bgPaint);
 
-        // Если сессия не активна — статичный сплошной розовый круг (точка выдоха)
+        // Если сессия не активна — статичный сплошной розовый круг
         if (!isMonitoringActive) {
             petalPaint.setShader(new RadialGradient(100, 100, 24f,
                     new int[]{0xFFFF2D55, 0xDDFF2D55}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
@@ -156,33 +160,33 @@ public class BreatheAnimationView extends View {
             return;
         }
 
-        // Абсолютно плавная синусоидальная фаза дыхания из первого варианта
+        // Абсолютно плавная синусоидальная фаза дыхания
         float breathPhase;
         boolean isInhale;
         if (animationProgress <= 0.5f) {
-            float t = animationProgress * 2.0f; // 0.0 -> 1.0 (Вдох)
+            float t = animationProgress * 2.0f; // Вдох (0.0 -> 1.0)
             breathPhase = (float)(1.0 - Math.cos(t * Math.PI)) / 2f;
             isInhale = true;
         } else {
-            float t = (animationProgress - 0.5f) * 2.0f; // 1.0 -> 0.0 (Выдох)
+            float t = (animationProgress - 0.5f) * 2.0f; // Выдох (1.0 -> 0.0)
             breathPhase = (float)(1.0 + Math.cos(t * Math.PI)) / 2f;
             isInhale = false;
         }
 
-        // Плавное вращение всей фигуры
+        // Вращение структуры
         canvas.save();
         float activeRotation = isInhale ? rotationAngle : -rotationAngle;
         canvas.rotate(activeRotation, 100f, 100f);
 
-        // Цветовые градиенты: при сжатии (breathPhase = 0) — чистый розовый, при раскрытии — голубоватый
+        // Оригинальные цвета с градиентами (розовый <-> голубоватый)
         int innerColor = interpolateColor(0xFFFF2D55, 0xCCFF4081, breathPhase);
         int outerColor = interpolateColor(0xC8FF2D55, 0x40FF4081, breathPhase);
 
-        // Геометрия образца: центральный круг + ровно 6 симметричных колец
         int petalCount = 6;
         float orbitDistance = 28f * breathPhase; 
         float petalRadius = 26f;
 
+        // Отрисовка 6 колец с радиальными градиентами (выполняется на GPU через аппаратное ускорение)
         for (int i = 0; i < petalCount; i++) {
             double angle = i * (2.0 * Math.PI / petalCount);
             float cx = 100f + (float)(orbitDistance * Math.cos(angle));
