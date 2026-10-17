@@ -19,10 +19,8 @@ public class BreatheAnimationView extends View {
     private boolean isMonitoringActive = false;
     
     private float animationProgress = 0f; // [0.0 ... 1.0]
-    private float rotationAngle = 0f;
     
     private ValueAnimator breathAnimator;
-    private ValueAnimator rotationAnimator;
 
     public BreatheAnimationView(Context context) {
         super(context);
@@ -68,10 +66,8 @@ public class BreatheAnimationView extends View {
         if (phase < 0) phase += 1.0f;
 
         animationProgress = phase;
-        rotationAngle = 0f;
         
         startBreathAnimator(phase);
-        startRotationAnimator();
         invalidate();
     }
 
@@ -81,12 +77,7 @@ public class BreatheAnimationView extends View {
             breathAnimator.cancel();
             breathAnimator = null;
         }
-        if (rotationAnimator != null) {
-            rotationAnimator.cancel();
-            rotationAnimator = null;
-        }
         animationProgress = 0f;
-        rotationAngle = 0f;
         invalidate();
     }
 
@@ -104,21 +95,6 @@ public class BreatheAnimationView extends View {
             invalidate();
         });
         breathAnimator.start();
-    }
-
-    private void startRotationAnimator() {
-        if (rotationAnimator != null) rotationAnimator.cancel();
-
-        rotationAnimator = ValueAnimator.ofFloat(0f, 360f);
-        rotationAnimator.setDuration(30000);
-        rotationAnimator.setInterpolator(new LinearInterpolator());
-        rotationAnimator.setRepeatCount(ValueAnimator.INFINITE);
-        rotationAnimator.addUpdateListener(animation -> {
-            if (!isMonitoringActive) return;
-            rotationAngle = (float) animation.getAnimatedValue();
-            invalidate();
-        });
-        rotationAnimator.start();
     }
 
     @Override
@@ -186,9 +162,10 @@ public class BreatheAnimationView extends View {
             isInhale = false;
         }
 
-        // Вращение структуры
+        // Плавное непрерывное вращение на основе синусоиды полного цикла дыхания (без скачков и разрывов знака)
+        float activeRotation = (float) (Math.sin(animationProgress * 2.0 * Math.PI) * 45.0f);
+
         canvas.save();
-        float activeRotation = isInhale ? rotationAngle : -rotationAngle;
         canvas.rotate(activeRotation, 100f, 100f);
 
         // Оригинальные цвета с градиентами (розовый <-> голубоватый)
