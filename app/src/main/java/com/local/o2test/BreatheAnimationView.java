@@ -53,12 +53,24 @@ public class BreatheAnimationView extends View {
     }
 
     public void startMonitoring() {
+        startMonitoringWithPhase(0.0f);
+    }
+
+    /**
+     * Запуск анимации с заданным начальным смещением фазы [0.0 ... 1.0)
+     */
+    public void startMonitoringWithPhase(float initialPhase) {
         if (isMonitoringActive) return;
         isMonitoringActive = true;
-        animationProgress = 0f;
+        
+        // Нормализуем начальную фазу
+        float phase = initialPhase % 1.0f;
+        if (phase < 0) phase += 1.0f;
+
+        animationProgress = phase;
         rotationAngle = 0f;
         
-        startBreathAnimator();
+        startBreathAnimator(phase);
         startRotationAnimator();
         invalidate();
     }
@@ -78,16 +90,17 @@ public class BreatheAnimationView extends View {
         invalidate();
     }
 
-    private void startBreathAnimator() {
+    private void startBreathAnimator(float initialPhase) {
         if (breathAnimator != null) breathAnimator.cancel();
 
-        breathAnimator = ValueAnimator.ofFloat(0f, 1f);
+        breathAnimator = ValueAnimator.ofFloat(initialPhase, initialPhase + 1.0f);
         breathAnimator.setDuration(10000); // 10 секунд (5с вдох, 5с выдох)
         breathAnimator.setInterpolator(new LinearInterpolator());
         breathAnimator.setRepeatCount(ValueAnimator.INFINITE);
         breathAnimator.addUpdateListener(animation -> {
             if (!isMonitoringActive) return;
-            animationProgress = (float) animation.getAnimatedValue();
+            float val = (float) animation.getAnimatedValue();
+            animationProgress = val % 1.0f;
             invalidate();
         });
         breathAnimator.start();
