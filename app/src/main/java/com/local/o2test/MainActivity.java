@@ -55,6 +55,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private long sessionStartTime = 0;
     private String currentWorkoutMode = "Базовый мониторинг";
     private final List<DataPoint> sessionData = new ArrayList<>();
+    private final List<Integer> phaseBuffer = new ArrayList<>(); // Буфер для анализа волн Майера
     private final Queue<Float> piWindow = new LinkedList<>();
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
 
@@ -159,7 +160,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             showSettingsDialog();
         });
 
-        // Гарантированно останавливаем пейсер и мониторинг при нажатии кнопки «Выход»
         ui.btnExit.setOnClickListener(v -> {
             if (ui != null && ui.pacerView != null) {
                 ui.pacerView.stopMonitoring();
@@ -500,12 +500,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         sessionStartTime = System.currentTimeMillis();
         synchronized (sessionData) { sessionData.clear(); }
+        synchronized (phaseBuffer) { phaseBuffer.clear(); }
         piWindow.clear();
         prevRrMs = 0;
         consecutiveArtifactsCount = 0;
         if (ui.chartView != null) ui.chartView.clearData();
         
-        // Запуск анимации пейсера дыхания
         if (ui.pacerView != null) {
             ui.pacerView.setRunning(true);
         }
@@ -527,9 +527,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         piWindow.clear();
         
-        // Остановка анимации пейсера дыхания
         if (ui.pacerView != null) {
-            ui.pacerView.setRunning(false);
+            ui.pacerView.stopMonitoring();
         }
 
         updateRightPanelStatus();
@@ -712,6 +711,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     prevRrMs = rrMs;
                     currentPolarHr = Math.round(instantHr);
 
+                    // Сохраняем в буфер фазового анализа
+                    synchronized (phaseBuffer) {
+                        phaseBuffer.add(rrMs);
+                        if (phaseBuffer.size() > 300) {
+                            phaseBuffer.remove(0);
+                        }
+                    }
+
                     long now = System.currentTimeMillis();
                     if (sessionStartTime == 0) sessionStartTime = now;
                     float elapsedSec = (now - sessionStartTime) / 1000f;
@@ -744,6 +751,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             int remSec = remainingSec % 60;
 
             if (rrCount < totalTarget) {
+                // Обновление строки статуса с динамическим процентом автоподстройки
+                String statusText = String.format(Locale.US, "Идет сбор данных для фазовой автоподстройки: %.0f%%", percent);
+                runOnUiThread(() -> {
+                    if (ui.tvStatusValue != null) {
+                        ui.tvStatusValue.setText(statusText);
+                    }
+                });
+
                 String rmssdStr = (hrv != null) ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--";
                 String logMsg = String.format(Locale.US,
                         "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
@@ -754,13 +769,26 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     hrvService.updateNotificationText("HR: " + hr + " bpm | RMSSD: " + rmssdStr);
                 }
             } else {
+                // Вычисление фазы через MayerWaveAnalyzer при достижении 100%
+                float initialPhase = 0.0f;
+                synchronized (phaseBuffer) {
+                    initialPhase = MayerWaveAnalyzer.calculateInitialPhase(phaseBuffer);
+                }
+
+                String statusText = String.format(Locale.US, "Резонанс найден. Начальная фаза: %.2f. Запуск!", initialPhase);
+                runOnUiThread(() -> {
+                    if (ui.tvStatusValue != null) {
+                        ui.tvStatusValue.setText(statusText);
+                    }
+                });
+
                 String logMsg = String.format(Locale.US,
-                        "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms²",
-                        hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
+                        "[Дамп ГОТОВ 100%%] Фаза Майера: %.2f | HR: %d bpm | RMSSD: %.1f ms",
+                        initialPhase, hr, hrv != null ? hrv.rmssd : 0f);
                 onLog(logMsg);
 
                 if (isBound && hrvService != null) {
-                    hrvService.updateNotificationText("Запись завершена (300/300)");
+                    hrvService.updateNotificationText("Автоподстройка завершена (Фаза: " + String.format(Locale.US, "%.2f", initialPhase) + ")");
                 }
 
                 if (hrv != null) {
@@ -778,7 +806,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        // Гарантированно выключаем анимацию пейсера и мониторинг при уничтожении активности
         if (ui != null && ui.pacerView != null) {
             ui.pacerView.stopMonitoring();
         }
