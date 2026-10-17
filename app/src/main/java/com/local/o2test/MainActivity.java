@@ -61,6 +61,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private final Queue<Float> piWindow = new LinkedList<>();
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
 
+    // --- МУЛЬТИМОДАЛЬНЫЙ АУДИО И ТАКТОВЫЙ КОНТУР ---
+    private MasterClock masterClock;
+    private AudioPacerEngine audioEngine;
+
     private int currentSpo2 = 0;
     private float currentPi = 0.0f;
     private int currentBattery = 0;
@@ -160,6 +164,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         });
 
         ui.btnExit.setOnClickListener(v -> {
+            stopAudioAndClock();
             if (ui != null && ui.pacerView != null) {
                 ui.pacerView.stopMonitoring();
             }
@@ -303,6 +308,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             onLog("Система запущена. Выберите профиль для начала работы.");
         });
         builder.setNegativeButton("Выход", (dialog, which) -> {
+            stopAudioAndClock();
             if (ui != null && ui.pacerView != null) ui.pacerView.stopMonitoring();
             finish();
         });
@@ -336,6 +342,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             }
         });
         builder.setNegativeButton("Выход", (dialog, which) -> {
+            stopAudioAndClock();
             if (ui != null && ui.pacerView != null) ui.pacerView.stopMonitoring();
             finish();
         });
@@ -490,6 +497,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             return;
         }
 
+        // Останавливаем предыдущие сеансы аудио/часов, если они были активны
+        stopAudioAndClock();
+
         isRecording = true;
         isCalibrationCompleted = false; // Сбрасываем флаг калибровки для новой сессии
         if (isBound && hrvService != null) hrvService.startSessionRecording();
@@ -521,6 +531,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = false;
         isTrainingModeActive = false;
         isCalibrationCompleted = false;
+        
+        // Безопасно глушим звук и останавливаем тактовый генератор
+        stopAudioAndClock();
+
         if (isBound && hrvService != null) hrvService.stopSessionRecording();
         
         if (polarManager != null) {
@@ -536,6 +550,17 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateRightPanelStatus();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(isProfileAuthorized ? 1.0f : 0.5f);
         onLog("Мониторинг остановлен");
+    }
+
+    private void stopAudioAndClock() {
+        if (masterClock != null) {
+            masterClock.stop();
+            masterClock = null;
+        }
+        if (audioEngine != null) {
+            audioEngine.stop();
+            audioEngine = null;
+        }
     }
 
     private void saveSessionToDatabase(List<DataPoint> points, String csvPath) {
@@ -739,10 +764,22 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                         ui.tvStatusValue.setText("Сбор завершен");
                                     }
                                     
-                                    // Запускаем пейсер синхронно с вычисленной фазой!
-                                    if (ui.pacerView != null) {
-                                        ui.pacerView.startMonitoringWithPhase(initialPhase);
-                                    }
+                                    // 1. Инициализируем и запускаем аудиодвижок
+                                    audioEngine = new AudioPacerEngine(MainActivity.this);
+                                    audioEngine.start();
+
+                                    // 2. Инициализируем и запускаем MasterClock с единым тиком для графики и звука
+                                    masterClock = new MasterClock(phase -> {
+                                        // Передаем фазу в визуальный пейсер
+                                        if (ui.pacerView != null) {
+                                            ui.pacerView.updatePhaseExternal(phase);
+                                        }
+                                        // Передаем фазу в многоконтурный аудиодвижок (амплитуда + частота)
+                                        if (audioEngine != null) {
+                                            audioEngine.updatePhase(phase);
+                                        }
+                                    });
+                                    masterClock.start(initialPhase);
 
                                     // Через 1 секунду переключаем статус в Мониторинг / Тренировка
                                     if (ui.tvStatusValue != null) {
@@ -820,6 +857,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        stopAudioAndClock();
         if (ui != null && ui.pacerView != null) {
             ui.pacerView.stopMonitoring();
         }
