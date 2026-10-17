@@ -520,6 +520,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (ui.pacerView != null) {
             ui.pacerView.stopMonitoring();
         }
+
+        // Запускаем инициализацию и фоновую предзагрузку аудио во время калибровки
+        audioEngine = new AudioPacerEngine(MainActivity.this);
+        audioEngine.prepareAsync(null);
         
         updateMetricsDisplay("--", "--", "--", "--");
         updateRightPanelStatus(); // Установит начальный статус калибровки 0%
@@ -764,9 +768,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                         ui.tvStatusValue.setText("Сбор завершен");
                                     }
                                     
-                                    // 1. Инициализируем и запускаем аудиодвижок
-                                    audioEngine = new AudioPacerEngine(MainActivity.this);
-                                    audioEngine.start();
+                                    // 1. Запускаем предзагруженный в фоне аудиодвижок мгновенно
+                                    if (audioEngine != null) {
+                                        audioEngine.start();
+                                    }
 
                                     // 2. Инициализируем и запускаем MasterClock с единым тиком для графики и звука
                                     masterClock = new MasterClock(phase -> {
