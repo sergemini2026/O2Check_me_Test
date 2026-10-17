@@ -41,6 +41,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private static final String PREF_NAME = "O2AppPrefs";
     private static final String KEY_MASTER_PASS = "master_password";
     private static final int PI_SMOOTHING_WINDOW = 5;
+    private static final int CALIBRATION_TARGET = 100; // Целевое число интервалов для автоподстройки (90-100)
 
     private O2BleManager bleManager;
     private PolarH10Manager polarManager;
@@ -52,6 +53,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private boolean isRecording = false;
     private boolean isTrainingModeActive = false;
+    private boolean isCalibrationCompleted = false; // Флаг одноразового выполнения автоподстройки
     private long sessionStartTime = 0;
     private String currentWorkoutMode = "Базовый мониторинг";
     private final List<DataPoint> sessionData = new ArrayList<>();
@@ -492,6 +494,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         isRecording = true;
+        isCalibrationCompleted = false; // Сбрасываем флаг калибровки для новой сессии
         if (isBound && hrvService != null) hrvService.startSessionRecording();
         
         if (polarManager != null) {
@@ -511,7 +514,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
         
         updateMetricsDisplay("--", "--", "--", "--");
-        updateRightPanelStatus();
+        updateRightPanelStatus(); // Установит начальный статус калибровки 0%
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
         onLog("Мониторинг активен для профиля: " + activeProfileName);
     }
@@ -519,6 +522,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private void stopMonitoring() {
         isRecording = false;
         isTrainingModeActive = false;
+        isCalibrationCompleted = false;
         if (isBound && hrvService != null) hrvService.stopSessionRecording();
         
         if (polarManager != null) {
@@ -711,11 +715,37 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     prevRrMs = rrMs;
                     currentPolarHr = Math.round(instantHr);
 
-                    // Сохраняем в буфер фазового анализа
-                    synchronized (phaseBuffer) {
-                        phaseBuffer.add(rrMs);
-                        if (phaseBuffer.size() > 300) {
-                            phaseBuffer.remove(0);
+                    // Одноразовая фазовая автоподстройка по первым 100 интервалам
+                    if (!isCalibrationCompleted) {
+                        synchronized (phaseBuffer) {
+                            phaseBuffer.add(rrMs);
+                            int count = phaseBuffer.size();
+                            float percent = Math.min(100.0f, (count / (float) CALIBRATION_TARGET) * 100.0f);
+
+                            if (count < CALIBRATION_TARGET) {
+                                String statusText = String.format(Locale.US, "Идет сбор данных для фазовой автоподстройки: %.0f%%", percent);
+                                runOnUiThread(() -> {
+                                    if (ui.tvStatusValue != null) {
+                                        ui.tvStatusValue.setText(statusText);
+                                    }
+                                });
+                            } else {
+                                // Калибровка завершена ровно за 100 интервалов
+                                isCalibrationCompleted = true;
+                                float initialPhase = MayerWaveAnalyzer.calculateInitialPhase(phaseBuffer);
+                                
+                                onLog(String.format(Locale.US, "[Калибровка завершена] Фаза Майера: %.2f", initialPhase));
+
+                                runOnUiThread(() -> {
+                                    if (ui.tvStatusValue != null) {
+                                        ui.tvStatusValue.setText("Сбор завершен");
+                                    }
+                                    // Через 1 секунду плавно переключаем в штатный статус Мониторинг / Тренировка
+                                    if (ui.tvStatusValue != null) {
+                                        ui.tvStatusValue.postDelayed(() -> updateRightPanelStatus(), 1000);
+                                    }
+                                });
+                            }
                         }
                     }
 
@@ -739,6 +769,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         @Override
         public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
+            // Обработка стандартного скользящего дампа ВСР (300 ударов) для отчетов и логов
             int totalTarget = 300;
             float percent = Math.min(100.0f, (rrCount / (float) totalTarget) * 100.0f);
             int remainingBeats = Math.max(0, totalTarget - rrCount);
@@ -751,14 +782,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             int remSec = remainingSec % 60;
 
             if (rrCount < totalTarget) {
-                // Обновление строки статуса с динамическим процентом автоподстройки
-                String statusText = String.format(Locale.US, "Идет сбор данных для фазовой автоподстройки: %.0f%%", percent);
-                runOnUiThread(() -> {
-                    if (ui.tvStatusValue != null) {
-                        ui.tvStatusValue.setText(statusText);
-                    }
-                });
-
                 String rmssdStr = (hrv != null) ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--";
                 String logMsg = String.format(Locale.US,
                         "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
@@ -769,26 +792,13 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     hrvService.updateNotificationText("HR: " + hr + " bpm | RMSSD: " + rmssdStr);
                 }
             } else {
-                // Вычисление фазы через MayerWaveAnalyzer при достижении 100%
-                float initialPhase = 0.0f;
-                synchronized (phaseBuffer) {
-                    initialPhase = MayerWaveAnalyzer.calculateInitialPhase(phaseBuffer);
-                }
-
-                String statusText = String.format(Locale.US, "Резонанс найден. Начальная фаза: %.2f. Запуск!", initialPhase);
-                runOnUiThread(() -> {
-                    if (ui.tvStatusValue != null) {
-                        ui.tvStatusValue.setText(statusText);
-                    }
-                });
-
                 String logMsg = String.format(Locale.US,
-                        "[Дамп ГОТОВ 100%%] Фаза Майера: %.2f | HR: %d bpm | RMSSD: %.1f ms",
-                        initialPhase, hr, hrv != null ? hrv.rmssd : 0f);
+                        "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms²",
+                        hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
                 onLog(logMsg);
 
                 if (isBound && hrvService != null) {
-                    hrvService.updateNotificationText("Автоподстройка завершена (Фаза: " + String.format(Locale.US, "%.2f", initialPhase) + ")");
+                    hrvService.updateNotificationText("Запись завершена (300/300)");
                 }
 
                 if (hrv != null) {
