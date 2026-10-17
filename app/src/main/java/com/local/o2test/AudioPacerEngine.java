@@ -13,35 +13,51 @@ import android.util.Log;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.concurrent.Executors;
 
 public class AudioPacerEngine {
     private static final String TAG = "AudioPacerEngine";
-    private static final int SAMPLE_RATE = 44100;
+    private static final int SAMPLE_RATE = 48000; // Повышенная частота для высокого качества
 
     private AudioTrack audioTrack;
     private volatile boolean isRunning = false;
+    private volatile boolean isPrepared = false;
     private Thread audioThread;
 
-    // Текущий прогресс фазы дыхания (от 0.0 до 1.0), обновляется извне с мастер-устройства
     private volatile float currentPhase = 0f;
-
     private final Context context;
-    private short[] decodedPcmSamples; // Буфер декодированного аудиофайла в памяти
+    private short[] decodedPcmSamples;
 
     public AudioPacerEngine(Context context) {
         this.context = context;
     }
 
+    /**
+     * Асинхронная предзагрузка и декодирование аудио в фоновом потоке
+     */
+    public void prepareAsync(Runnable onReadyCallback) {
+        Executors.newSingleThreadExecutor().execute(() -> {
+            Log.d(TAG, "Старт фоновой декодировки MP3...");
+            decodedPcmSamples = loadPcmFromRaw(context, R.raw.o2test_01);
+            isPrepared = true;
+            Log.d(TAG, "Декодирование завершено. Семплов в памяти: " + decodedPcmSamples.length);
+            if (onReadyCallback != null) {
+                onReadyCallback.run();
+            }
+        });
+    }
+
     public void start() {
         if (isRunning) return;
         
-        // 1. Декодируем MP3 из ресурсов в сырые PCM-семплы (выполняется один раз при старте)
+        // Если предзагрузка не успела или не была вызвана, подгружаем синхронно
         if (decodedPcmSamples == null || decodedPcmSamples.length == 0) {
             decodedPcmSamples = loadPcmFromRaw(context, R.raw.o2test_01);
-            if (decodedPcmSamples.length == 0) {
-                Log.e(TAG, "Ошибка: не удалось декодировать аудиофайл!");
-                return;
-            }
+        }
+
+        if (decodedPcmSamples.length == 0) {
+            Log.e(TAG, "Ошибка: буфер PCM пуст!");
+            return;
         }
 
         isRunning = true;
@@ -56,7 +72,6 @@ public class AudioPacerEngine {
             bufferSize = SAMPLE_RATE * 2;
         }
 
-        // Создаем final-копию для доступа из внутреннего класса (анонимного Runnable)
         final int finalBufferSize = bufferSize;
 
         AudioAttributes audioAttributes = new AudioAttributes.Builder()
@@ -80,81 +95,67 @@ public class AudioPacerEngine {
 
         audioTrack.play();
 
-        audioThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                // Буфер для отправки в AudioTrack (стереопары: L, R)
-                short[] outBuffer = new short[finalBufferSize / 2];
-                int pcmIndex = 0; // Указатель позиции в декодированном файле
+        audioThread = new Thread(() -> {
+            short[] outBuffer = new short[finalBufferSize / 2];
+            int pcmIndex = 0;
 
-                double baseFreq = 150.0; // Базовая несущая частота для бинаурального ритма
-                double phaseLeft = 0;
-                double phaseRight = 0;
+            double baseFreq = 150.0;
+            double phaseLeft = 0;
+            double phaseRight = 0;
 
-                while (isRunning) {
-                    float phase = currentPhase; // Фиксация текущей фазы для потока
+            while (isRunning) {
+                float phase = currentPhase;
 
-                    // Динамическая модуляция дельты бинаурального ритма (от 8 Гц до 12 Гц в такт дыханию)
-                    double targetDelta = 8.0 + 4.0 * Math.sin(phase * 2.0 * Math.PI);
-                    double freqLeft = baseFreq;
-                    double freqRight = baseFreq + targetDelta;
+                // Модуляция дельты бинаурального ритма
+                double targetDelta = 8.0 + 4.0 * Math.sin(phase * 2.0 * Math.PI);
+                double freqLeft = baseFreq;
+                double freqRight = baseFreq + targetDelta;
 
-                    // Амплитудная огибающая (изохрония) для согласования громкости эмбиента с дыханием
-                    float volumeEnvelope = (float) (0.4f + 0.6f * Math.abs(Math.sin(phase * 2.0 * Math.PI)));
+                // Амплитудная огибающая
+                float volumeEnvelope = (float) (0.4f + 0.6f * Math.abs(Math.sin(phase * 2.0 * Math.PI)));
 
-                    for (int i = 0; i < outBuffer.length; i += 2) {
-                        // --- Аспект 1 & 2: Чтение эмбиента с бесшовным кольцом и амплитудной модуляцией ---
-                        short ambientL = 0;
-                        short ambientR = 0;
+                for (int i = 0; i < outBuffer.length; i += 2) {
+                    short ambientL = 0;
+                    short ambientR = 0;
 
-                        if (decodedPcmSamples.length > 0) {
-                            ambientL = decodedPcmSamples[pcmIndex];
-                            // Если файл моно или стерео, корректно считываем пару
-                            if (pcmIndex + 1 < decodedPcmSamples.length) {
-                                ambientR = decodedPcmSamples[pcmIndex + 1];
-                            }
-                            
-                            pcmIndex += 2;
-                            // Бесшовное зацикливание (looping) по достижении конца буфера
-                            if (pcmIndex >= decodedPcmSamples.length) {
-                                pcmIndex = 0;
-                            }
+                    if (decodedPcmSamples.length > 0) {
+                        ambientL = decodedPcmSamples[pcmIndex];
+                        if (pcmIndex + 1 < decodedPcmSamples.length) {
+                            ambientR = decodedPcmSamples[pcmIndex + 1];
                         }
-
-                        // Применяем амплитудную огибающую к фоновому звуку
-                        short modAmbientL = (short) (ambientL * volumeEnvelope);
-                        short modAmbientR = (short) (ambientR * volumeEnvelope);
-
-                        // --- Аспект 3 & 4: Генерация бинауральных тонов с частотной модуляцией ---
-                        phaseLeft += 2.0 * Math.PI * freqLeft / SAMPLE_RATE;
-                        phaseRight += 2.0 * Math.PI * freqRight / SAMPLE_RATE;
-
-                        if (phaseLeft > 2.0 * Math.PI) phaseLeft -= 2.0 * Math.PI;
-                        if (phaseRight > 2.0 * Math.PI) phaseRight -= 2.0 * Math.PI;
-
-                        // Амплитуда бинаурального слоя делается мягкой, чтобы не заглушать эмбиент
-                        short binauralL = (short) (Math.sin(phaseLeft) * 1500);
-                        short binauralR = (short) (Math.sin(phaseRight) * 1500);
-
-                        // Смешиваем фоновый эмбиент и бинауральный слой в единый микс
-                        outBuffer[i]     = (short) clamp(modAmbientL + binauralL);
-                        outBuffer[i + 1] = (short) clamp(modAmbientR + binauralR);
+                        
+                        pcmIndex += 2;
+                        if (pcmIndex >= decodedPcmSamples.length) {
+                            pcmIndex = 0; // Бесшовное кольцо
+                        }
                     }
 
-                    if (audioTrack != null && audioTrack.getState() == AudioTrack.STATE_INITIALIZED) {
-                        audioTrack.write(outBuffer, 0, outBuffer.length);
-                    }
+                    short modAmbientL = (short) (ambientL * volumeEnvelope);
+                    short modAmbientR = (short) (ambientR * volumeEnvelope);
+
+                    phaseLeft += 2.0 * Math.PI * freqLeft / SAMPLE_RATE;
+                    phaseRight += 2.0 * Math.PI * freqRight / SAMPLE_RATE;
+
+                    if (phaseLeft > 2.0 * Math.PI) phaseLeft -= 2.0 * Math.PI;
+                    if (phaseRight > 2.0 * Math.PI) phaseRight -= 2.0 * Math.PI;
+
+                    short binauralL = (short) (Math.sin(phaseLeft) * 1500);
+                    short binauralR = (short) (Math.sin(phaseRight) * 1500);
+
+                    outBuffer[i]     = (short) clamp(modAmbientL + binauralL);
+                    outBuffer[i + 1] = (short) clamp(modAmbientR + binauralR);
+                }
+
+                if (audioTrack != null && audioTrack.getState() == AudioTrack.STATE_INITIALIZED) {
+                    audioTrack.write(outBuffer, 0, outBuffer.length);
                 }
             }
         });
 
         audioThread.start();
-        Log.d(TAG, "Многоконтурный аудиодвижок успешно запущен.");
+        Log.d(TAG, "Аудиодвижок мгновенно запущен.");
     }
 
-    /**
-     * Вспомогательный метод для декодирования MP3 файла из raw-ресурсов в массив PCM 16-bit
-     */
     private short[] loadPcmFromRaw(Context context, int resId) {
         ByteArrayOutputStream outStream = new ByteArrayOutputStream();
         MediaExtractor extractor = new MediaExtractor();
@@ -240,9 +241,6 @@ public class AudioPacerEngine {
         return value;
     }
 
-    /**
-     * Метод принимает текущий прогресс фазы (0.0 ... 1.0) от мастер-часов
-     */
     public void updatePhase(float progress) {
         this.currentPhase = progress;
     }
