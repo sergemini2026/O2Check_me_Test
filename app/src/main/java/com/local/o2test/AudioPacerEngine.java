@@ -56,6 +56,9 @@ public class AudioPacerEngine {
             bufferSize = SAMPLE_RATE * 2;
         }
 
+        // Создаем final-копию для доступа из внутреннего класса (анонимного Runnable)
+        final int finalBufferSize = bufferSize;
+
         AudioAttributes audioAttributes = new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
@@ -70,7 +73,7 @@ public class AudioPacerEngine {
         audioTrack = new AudioTrack(
                 audioAttributes,
                 audioFormat,
-                bufferSize * 2,
+                finalBufferSize * 2,
                 AudioTrack.MODE_STREAM,
                 0
         );
@@ -81,7 +84,7 @@ public class AudioPacerEngine {
             @Override
             public void run() {
                 // Буфер для отправки в AudioTrack (стереопары: L, R)
-                short[] outBuffer = new short[bufferSize / 2];
+                short[] outBuffer = new short[finalBufferSize / 2];
                 int pcmIndex = 0; // Указатель позиции в декодированном файле
 
                 double baseFreq = 150.0; // Базовая несущая частота для бинаурального ритма
@@ -193,9 +196,7 @@ public class AudioPacerEngine {
                             codec.queueInputBuffer(inputBufIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
                             inputDone = true;
                         } else {
-
-                       long presentationTimeUs = extractor.getSampleTime();
-
+                            long presentationTimeUs = extractor.getSampleTime();
                             codec.queueInputBuffer(inputBufIndex, 0, sampleSize, presentationTimeUs, 0);
                             extractor.advance();
                         }
