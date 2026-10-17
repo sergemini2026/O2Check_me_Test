@@ -93,9 +93,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             if (ui.btnHeart != null) {
                 ui.btnHeart.setAlpha(isRecording ? 1.0f : (isProfileAuthorized ? 1.0f : 0.5f));
             }
-            if (ui.pacerView != null) {
-                ui.pacerView.setRunning(isRecording);
-            }
         }
         @Override
         public void onServiceDisconnected(ComponentName name) {
@@ -509,8 +506,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         consecutiveArtifactsCount = 0;
         if (ui.chartView != null) ui.chartView.clearData();
         
+        // ВНИМАНИЕ: Пейсер НЕ запускается во время калибровки! Пользователь дышит свободно.
         if (ui.pacerView != null) {
-            ui.pacerView.setRunning(true);
+            ui.pacerView.stopMonitoring();
         }
         
         updateMetricsDisplay("--", "--", "--", "--");
@@ -732,15 +730,21 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                             } else {
                                 // Калибровка завершена ровно за 100 интервалов
                                 isCalibrationCompleted = true;
-                                float initialPhase = MayerWaveAnalyzer.calculateInitialPhase(phaseBuffer);
+                                final float initialPhase = MayerWaveAnalyzer.calculateInitialPhase(phaseBuffer);
                                 
-                                onLog(String.format(Locale.US, "[Калибровка завершена] Фаза Майера: %.2f", initialPhase));
+                                onLog(String.format(Locale.US, "[Калибровка завершена] Вычисленная фаза Майера: %.2f", initialPhase));
 
                                 runOnUiThread(() -> {
                                     if (ui.tvStatusValue != null) {
                                         ui.tvStatusValue.setText("Сбор завершен");
                                     }
-                                    // Через 1 секунду плавно переключаем в штатный статус Мониторинг / Тренировка
+                                    
+                                    // Запускаем пейсер синхронно с вычисленной фазой!
+                                    if (ui.pacerView != null) {
+                                        ui.pacerView.startMonitoringWithPhase(initialPhase);
+                                    }
+
+                                    // Через 1 секунду переключаем статус в Мониторинг / Тренировка
                                     if (ui.tvStatusValue != null) {
                                         ui.tvStatusValue.postDelayed(() -> updateRightPanelStatus(), 1000);
                                     }
