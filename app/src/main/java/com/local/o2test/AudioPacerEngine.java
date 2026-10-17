@@ -193,7 +193,9 @@ public class AudioPacerEngine {
                             codec.queueInputBuffer(inputBufIndex, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
                             inputDone = true;
                         } else {
-                            long presentationTimeUs = extractor.sampleTime();
+
+                       long presentationTimeUs = extractor.getSampleTime();
+
                             codec.queueInputBuffer(inputBufIndex, 0, sampleSize, presentationTimeUs, 0);
                             extractor.advance();
                         }
