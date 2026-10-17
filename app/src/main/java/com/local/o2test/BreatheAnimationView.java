@@ -66,8 +66,19 @@ public class BreatheAnimationView extends View {
         if (phase < 0) phase += 1.0f;
 
         animationProgress = phase;
-        
-        startBreathAnimator(phase);
+        invalidate();
+    }
+
+    /**
+     * Установка фазы извне от центрального MasterClock без запуска внутреннего аниматора
+     */
+    public void updatePhaseExternal(float phase) {
+        if (!isMonitoringActive) {
+            isMonitoringActive = true;
+        }
+        float normalized = phase % 1.0f;
+        if (normalized < 0) normalized += 1.0f;
+        this.animationProgress = normalized;
         invalidate();
     }
 
