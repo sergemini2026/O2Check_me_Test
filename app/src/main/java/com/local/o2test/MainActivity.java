@@ -12,7 +12,9 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.text.InputType;
 import android.text.Layout;
 import android.text.SpannableString;
@@ -43,6 +45,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private static final int PI_SMOOTHING_WINDOW = 5;
     private static final int CALIBRATION_TARGET = 100; // Целевое число интервалов для автоподстройки (90-100)
     private static final int POSTI_WINDOW_SEC = 120; // Окно оценки следовой когерентности (2 минуты)
+    private static final int POSTI_INTERVAL_DUMPS = 5; // Запускать замер PSTI каждый 5-й завершенный дамп
 
     private O2BleManager bleManager;
     private PolarH10Manager polarManager;
@@ -54,14 +57,20 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private boolean isRecording = false;
     private boolean isTrainingModeActive = false;
-    private boolean isCalibrationCompleted = false; // Флаг одноразового выполнения автоподстройки
+    private boolean isCalibrationCompleted = false;
+    private int sessionDumpCount = 0; // Счетчик завершенных дампов для регулирования кратности
     private long sessionStartTime = 0;
     private long postiStartTime = 0;
     private String currentWorkoutMode = "Базовый мониторинг";
     private final List<DataPoint> sessionData = new ArrayList<>();
-    private final List<Integer> phaseBuffer = new ArrayList<>(); // Буфер для анализа волн Майера
+    private final List<Integer> phaseBuffer = new ArrayList<>();
     private final Queue<Float> piWindow = new LinkedList<>();
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
+
+    // Таймер обратного отсчета для статуса PSTI
+    private final Handler pstiHandler = new Handler(Looper.getMainLooper());
+    private Runnable pstiCountdownRunnable;
+    private int pstiRemainingSec = POSTI_WINDOW_SEC;
 
     // --- ПОКАЗАТЕЛИ СЛЕДОВОЙ КОГЕРЕНТНОСТИ (PSTI) ---
     private double lastPstiScore = 0.0;
@@ -207,7 +216,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         setContentView(ui.mainLayout);
-
         checkMasterPasswordOnStart();
     }
 
@@ -255,13 +263,17 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     private void updateRightPanelStatus() {
+        updateRightPanelStatusWithCountdown(pstiRemainingSec);
+    }
+
+    private void updateRightPanelStatusWithCountdown(int seconds) {
         if (ui.tvStatusValue == null) return;
         boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
         if (!isRecording) {
             ui.tvStatusValue.setText("Статус: Ожидание");
         } else {
             if (isPostiActive) {
-                ui.tvStatusValue.setText("Статус: Замер следа (PSTI)");
+                ui.tvStatusValue.setText(String.format(Locale.US, "Статус: Замер следа (PSTI) - %d сек", seconds));
             } else if (isTrainingModeActive) {
                 ui.tvStatusValue.setText("Статус: " + currentWorkoutMode);
             } else {
@@ -512,6 +524,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         isRecording = true;
         isCalibrationCompleted = false;
+        sessionDumpCount = 0;
         lastPstiScore = 0.0;
         lastPstiRmssdRatio = 0.0;
 
@@ -546,13 +559,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     /**
-     * Запуск окна автономного замера следовой когерентности (PSTI) через фоновый сервис.
-     * Аудио и пейсер завершаются плавно (Fade-out).
+     * Запуск окна автономного замера следовой когерентности (PSTI) с плавной остановкой звука и пейсера.
      */
     private void startPostiTraceWindow() {
         postiStartTime = System.currentTimeMillis();
+        pstiRemainingSec = POSTI_WINDOW_SEC;
         
-        // Плавная остановка звукового сопровождения и пейсера перед свободным окном
         if (audioEngine != null) {
             audioEngine.stop();
             audioEngine = null;
@@ -562,20 +574,39 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             masterClock = null;
         }
         if (ui != null && ui.pacerView != null) {
-            ui.pacerView.stopMonitoring();
+            ui.pacerView.stopMonitoring(); // Вызывает плавное сжатие пейсера
         }
 
         if (isBound && hrvService != null) {
             hrvService.startPostiRecording();
         }
-        updateRightPanelStatus();
-        onLog("[PSTI] Пейсер плавно отключен. Запуск 2-минутного окна замера следовой когерентности в сервисе...");
+
+        // Запуск обратного отсчета для статус-бара
+        pstiHandler.removeCallbacks(pstiCountdownRunnable);
+        pstiCountdownRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (isBound && hrvService != null && hrvService.isPostiTraceActive()) {
+                    if (pstiRemainingSec > 0) {
+                        pstiRemainingSec--;
+                        updateRightPanelStatusWithCountdown(pstiRemainingSec);
+                        pstiHandler.postDelayed(this, 1000);
+                    }
+                }
+            }
+        };
+        pstiHandler.postDelayed(pstiCountdownRunnable, 1000);
+
+        updateRightPanelStatusWithCountdown(pstiRemainingSec);
+        onLog("[PSTI] Модуляция остановлена. Запуск 2-минутного окна замера следовой когерентности в сервисе...");
     }
 
     /**
      * Завершение окна PSTI, расчет индекса следа и автоматическое возобновление работы дыхательного контура.
      */
     private void evaluateAndFinishPostiTrace() {
+        pstiHandler.removeCallbacks(pstiCountdownRunnable);
+
         List<Integer> snapshotRr = new ArrayList<>();
         if (isBound && hrvService != null) {
             snapshotRr = hrvService.getPostiRrData();
@@ -625,7 +656,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         audioEngine.updatePhase(phase);
                     }
                 });
-                masterClock.start(0.0f); // Старт с нулевой фазы или плавной синхронизации
+                masterClock.start(0.0f);
             }
         });
     }
@@ -634,6 +665,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = false;
         isTrainingModeActive = false;
         isCalibrationCompleted = false;
+        sessionDumpCount = 0;
+        pstiHandler.removeCallbacks(pstiCountdownRunnable);
         
         stopAudioAndClock();
 
@@ -660,6 +693,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     private void stopAudioAndClock() {
+        pstiHandler.removeCallbacks(pstiCountdownRunnable);
         if (masterClock != null) {
             masterClock.stop();
             masterClock = null;
@@ -842,7 +876,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     }
                 }
                 if (!isArtifact) {
-                    // Передаем RR-интервал в сервис (сервис сам распределяет его в сессию или PSTI-буфер)
                     if (isBound && hrvService != null) {
                         hrvService.addRrInterval(rrMs);
                     }
@@ -851,7 +884,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     prevRrMs = rrMs;
                     currentPolarHr = Math.round(instantHr);
 
-                    // Проверяем таймер окна PSTI, если замер активен в сервисе
                     boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
                     if (isPostiActive) {
                         long elapsedPostiSec = (System.currentTimeMillis() - postiStartTime) / 1000;
@@ -860,7 +892,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         }
                     }
 
-                    // Одноразовая фазовая автоподстройка по первым 100 интервалам
                     if (!isCalibrationCompleted && (!isBound || hrvService == null || !hrvService.isPostiTraceActive())) {
                         synchronized (phaseBuffer) {
                             phaseBuffer.add(rrMs);
@@ -954,11 +985,20 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
                 onLog(logMsg);
 
-                // Запуск 2-минутного окна замера следа реакции (PSTI) с плавной остановкой пейсера и звука
-                startPostiTraceWindow();
+                sessionDumpCount++;
+                onLog(String.format(Locale.US, "[Дамп #%d завершен]", sessionDumpCount));
 
-                if (isBound && hrvService != null) {
-                    hrvService.updateNotificationText("Запись завершена. Замер PSTI...");
+                // Запуск PSTI с учетом кратности (каждый 5-й дамп)
+                if (sessionDumpCount % POSTI_INTERVAL_DUMPS == 0) {
+                    startPostiTraceWindow();
+                    if (isBound && hrvService != null) {
+                        hrvService.updateNotificationText("Запись завершена. Замер PSTI...");
+                    }
+                } else {
+                    onLog("[Мониторинг] Продолжение сеанса дыхания (следующий замер PSTI через " + (POSTI_INTERVAL_DUMPS - (sessionDumpCount % POSTI_INTERVAL_DUMPS)) + " дамп(а))...");
+                    if (isBound && hrvService != null) {
+                        hrvService.updateNotificationText("HR: " + hr + " bpm | RMSSD: " + (hrv != null ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--"));
+                    }
                 }
 
                 if (hrv != null) {
