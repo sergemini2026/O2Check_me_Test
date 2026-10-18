@@ -10,6 +10,7 @@ import android.graphics.Shader;
 import android.graphics.RectF;
 import android.view.View;
 import android.view.animation.LinearInterpolator;
+import android.view.animation.DecelerateInterpolator;
 
 public class BreatheAnimationView extends View {
     private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -17,10 +18,10 @@ public class BreatheAnimationView extends View {
     private final RectF bgRect = new RectF();
 
     private boolean isMonitoringActive = false;
-    
     private float animationProgress = 0f; // [0.0 ... 1.0]
     
     private ValueAnimator breathAnimator;
+    private ValueAnimator shrinkAnimator;
 
     public BreatheAnimationView(Context context) {
         super(context);
@@ -35,10 +36,7 @@ public class BreatheAnimationView extends View {
     private void init() {
         bgPaint.setColor(0xFF1E222A);
         bgPaint.setStyle(Paint.Style.FILL);
-
-        // Включаем аппаратное ускорение для этого View, чтобы GPU рендерил градиенты отдельно от CPU
         setLayerType(View.LAYER_TYPE_HARDWARE, null);
-
         isMonitoringActive = false;
     }
 
@@ -54,14 +52,12 @@ public class BreatheAnimationView extends View {
         startMonitoringWithPhase(0.0f);
     }
 
-    /**
-     * Запуск анимации с заданным начальным смещением фазы [0.0 ... 1.0)
-     */
     public void startMonitoringWithPhase(float initialPhase) {
-        if (isMonitoringActive) return;
+        if (shrinkAnimator != null) {
+            shrinkAnimator.cancel();
+            shrinkAnimator = null;
+        }
         isMonitoringActive = true;
-        
-        // Нормализуем начальную фазу
         float phase = initialPhase % 1.0f;
         if (phase < 0) phase += 1.0f;
 
@@ -69,9 +65,6 @@ public class BreatheAnimationView extends View {
         invalidate();
     }
 
-    /**
-     * Установка фазы извне от центрального MasterClock без запуска внутреннего аниматора
-     */
     public void updatePhaseExternal(float phase) {
         if (!isMonitoringActive) {
             isMonitoringActive = true;
@@ -82,30 +75,38 @@ public class BreatheAnimationView extends View {
         invalidate();
     }
 
+    /**
+     * Плавная остановка пейсера с мягким сжатием в минимум
+     */
     public void stopMonitoring() {
-        isMonitoringActive = false;
+        if (!isMonitoringActive) return;
+
         if (breathAnimator != null) {
             breathAnimator.cancel();
             breathAnimator = null;
         }
-        animationProgress = 0f;
-        invalidate();
-    }
 
-    private void startBreathAnimator(float initialPhase) {
-        if (breathAnimator != null) breathAnimator.cancel();
+        if (shrinkAnimator != null) {
+            shrinkAnimator.cancel();
+        }
 
-        breathAnimator = ValueAnimator.ofFloat(initialPhase, initialPhase + 1.0f);
-        breathAnimator.setDuration(10000); // 10 секунд (5с вдох, 5с выдох)
-        breathAnimator.setInterpolator(new LinearInterpolator());
-        breathAnimator.setRepeatCount(ValueAnimator.INFINITE);
-        breathAnimator.addUpdateListener(animation -> {
-            if (!isMonitoringActive) return;
-            float val = (float) animation.getAnimatedValue();
-            animationProgress = val % 1.0f;
+        // Плавное сжатие анимации к минимальной фазе за 600 мс
+        shrinkAnimator = ValueAnimator.ofFloat(animationProgress, 0.5f);
+        shrinkAnimator.setDuration(600);
+        shrinkAnimator.setInterpolator(new DecelerateInterpolator());
+        shrinkAnimator.addUpdateListener(animation -> {
+            animationProgress = (float) animation.getAnimatedValue();
             invalidate();
         });
-        breathAnimator.start();
+        shrinkAnimator.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override
+            public void onAnimationEnd(android.animation.Animator animation) {
+                isMonitoringActive = false;
+                animationProgress = 0f;
+                invalidate();
+            }
+        });
+        shrinkAnimator.start();
     }
 
     @Override
@@ -147,11 +148,9 @@ public class BreatheAnimationView extends View {
         canvas.translate(dx, dy);
         canvas.scale(scale, scale);
 
-        // Карточка-фон
         bgRect.set(0, 0, 200, 200);
         canvas.drawRoundRect(bgRect, 16, 16, bgPaint);
 
-        // Если сессия не активна — статичный сплошной розовый круг
         if (!isMonitoringActive) {
             petalPaint.setShader(new RadialGradient(100, 100, 24f,
                     new int[]{0xFFFF2D55, 0xDDFF2D55}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
@@ -160,26 +159,20 @@ public class BreatheAnimationView extends View {
             return;
         }
 
-        // Абсолютно плавная синусоидальная фаза дыхания
         float breathPhase;
-        boolean isInhale;
         if (animationProgress <= 0.5f) {
-            float t = animationProgress * 2.0f; // Вдох (0.0 -> 1.0)
+            float t = animationProgress * 2.0f;
             breathPhase = (float)(1.0 - Math.cos(t * Math.PI)) / 2f;
-            isInhale = true;
         } else {
-            float t = (animationProgress - 0.5f) * 2.0f; // Выдох (1.0 -> 0.0)
+            float t = (animationProgress - 0.5f) * 2.0f;
             breathPhase = (float)(1.0 + Math.cos(t * Math.PI)) / 2f;
-            isInhale = false;
         }
 
-        // Плавное непрерывное вращение на основе синусоиды полного цикла дыхания (без скачков и разрывов знака)
         float activeRotation = (float) (Math.sin(animationProgress * 2.0 * Math.PI) * 45.0f);
 
         canvas.save();
         canvas.rotate(activeRotation, 100f, 100f);
 
-        // Оригинальные цвета с градиентами (розовый <-> голубоватый)
         int innerColor = interpolateColor(0xFFFF2D55, 0xCCFF4081, breathPhase);
         int outerColor = interpolateColor(0xC8FF2D55, 0x40FF4081, breathPhase);
 
@@ -187,7 +180,6 @@ public class BreatheAnimationView extends View {
         float orbitDistance = 28f * breathPhase; 
         float petalRadius = 26f;
 
-        // Отрисовка 6 колец с радиальными градиентами (выполняется на GPU через аппаратное ускорение)
         for (int i = 0; i < petalCount; i++) {
             double angle = i * (2.0 * Math.PI / petalCount);
             float cx = 100f + (float)(orbitDistance * Math.cos(angle));
@@ -198,7 +190,6 @@ public class BreatheAnimationView extends View {
             canvas.drawCircle(cx, cy, petalRadius, petalPaint);
         }
 
-        // Центральное кольцо
         petalPaint.setShader(new RadialGradient(100, 100, petalRadius,
                 new int[]{innerColor, outerColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
         canvas.drawCircle(100, 100, petalRadius, petalPaint);
