@@ -55,6 +55,45 @@ public class HrvCalculator {
         }
     }
 
+    public static class PstiResult {
+        public final double pstiScore;
+        public final double pstiRmssdRatio;
+        public final boolean isValid;
+
+        public PstiResult(double pstiScore, double pstiRmssdRatio, boolean isValid) {
+            this.pstiScore = pstiScore;
+            this.pstiRmssdRatio = pstiRmssdRatio;
+            this.isValid = isValid;
+        }
+    }
+
+    /**
+     * Расчет Интегрального индекса следовой когерентности (PSTI)
+     */
+    public static PstiResult calculatePsti(List<Integer> baselineRrList, List<Integer> traceRrList) {
+        if (baselineRrList == null || baselineRrList.size() < 16 || traceRrList == null || traceRrList.size() < 16) {
+            return new PstiResult(0.0, 0.0, false);
+        }
+        Metrics baselineMetrics = calculate(baselineRrList);
+        Metrics traceMetrics = calculate(traceRrList);
+
+        if (!baselineMetrics.isValid || !traceMetrics.isValid) {
+            return new PstiResult(0.0, 0.0, false);
+        }
+
+        // Коэффициент удержания RMSSD
+        double rmssdRatio = traceMetrics.rmssd / baselineMetrics.rmssd;
+        double rmssdScore = Math.min(1.0, Math.max(0.0, rmssdRatio)) * 50.0;
+
+        // Коэффициент удержания общей мощности (Total Power / LF)
+        double powerRatio = Math.min(1.0, traceMetrics.totalPower / baselineMetrics.totalPower);
+        double powerScore = Math.max(0.0, powerRatio) * 50.0;
+
+        double pstiScore = Math.min(100.0, Math.max(0.0, rmssdScore + powerScore));
+
+        return new PstiResult(pstiScore, rmssdRatio, true);
+    }
+
     public static Metrics calculate(List<Integer> rawRrList) {
         if (rawRrList == null || rawRrList.size() < 16) {
             return new Metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 1.0, 0, 100.0, false);
@@ -230,7 +269,6 @@ public class HrvCalculator {
             rawLfHf = (lfPower + hfPower > 0) ? (2.0 * lfPower / (lfPower + hfPower)) : (hfPower > 0 ? lfPower / hfPower : 0);
         }
 
-        // Нормализация LF/HF в стабильный диапазон [0, 2]
         if (rawLfHf < 0) rawLfHf = 0;
         if (rawLfHf > 2.0) rawLfHf = 2.0;
 
