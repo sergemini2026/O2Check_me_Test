@@ -9,7 +9,6 @@ import android.graphics.RadialGradient;
 import android.graphics.Shader;
 import android.graphics.RectF;
 import android.view.View;
-import android.view.animation.LinearInterpolator;
 import android.view.animation.DecelerateInterpolator;
 
 public class BreatheAnimationView extends View {
@@ -76,10 +75,10 @@ public class BreatheAnimationView extends View {
     }
 
     /**
-     * Плавная остановка пейсера с мягким сжатием в минимум
+     * Плавная остановка пейсера с мягким сжатием в исходную точку (без рывков)
      */
     public void stopMonitoring() {
-        if (!isMonitoringActive) return;
+        if (!isMonitoringActive && shrinkAnimator == null) return;
 
         if (breathAnimator != null) {
             breathAnimator.cancel();
@@ -90,9 +89,8 @@ public class BreatheAnimationView extends View {
             shrinkAnimator.cancel();
         }
 
-        // Плавное сжатие анимации к минимальной фазе за 600 мс
-        shrinkAnimator = ValueAnimator.ofFloat(animationProgress, 0.5f);
-        shrinkAnimator.setDuration(600);
+        shrinkAnimator = ValueAnimator.ofFloat(animationProgress, 0.0f);
+        shrinkAnimator.setDuration(600); // Плавное сжатие за 600 мс
         shrinkAnimator.setInterpolator(new DecelerateInterpolator());
         shrinkAnimator.addUpdateListener(animation -> {
             animationProgress = (float) animation.getAnimatedValue();
@@ -103,6 +101,7 @@ public class BreatheAnimationView extends View {
             public void onAnimationEnd(android.animation.Animator animation) {
                 isMonitoringActive = false;
                 animationProgress = 0f;
+                shrinkAnimator = null;
                 invalidate();
             }
         });
@@ -151,7 +150,7 @@ public class BreatheAnimationView extends View {
         bgRect.set(0, 0, 200, 200);
         canvas.drawRoundRect(bgRect, 16, 16, bgPaint);
 
-        if (!isMonitoringActive) {
+        if (!isMonitoringActive && shrinkAnimator == null) {
             petalPaint.setShader(new RadialGradient(100, 100, 24f,
                     new int[]{0xFFFF2D55, 0xDDFF2D55}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
             canvas.drawCircle(100, 100, 24f, petalPaint);
