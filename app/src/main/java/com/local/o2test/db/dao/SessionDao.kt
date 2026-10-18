@@ -24,6 +24,9 @@ interface SessionDao {
     @Query("SELECT * FROM sessions WHERE profileId = :profileId ORDER BY startTime DESC")
     fun getSessionsByProfileSync(profileId: Long): List<SessionEntity>
 
+    @Query("SELECT * FROM sessions WHERE profileId = :profileId ORDER BY startTime DESC LIMIT 10")
+    fun getRecentSessionsByProfileSync(profileId: Long): List<SessionEntity>
+
     @Query("SELECT * FROM sessions WHERE id = :sessionId")
     suspend fun getSessionById(sessionId: Long): SessionEntity?
 
