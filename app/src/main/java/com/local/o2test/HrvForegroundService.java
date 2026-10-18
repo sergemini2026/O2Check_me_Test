@@ -35,6 +35,10 @@ public class HrvForegroundService extends Service {
     // Буфер для накопления текущих RR-интервалов перед расчетом окна
     private final List<Integer> slidingWindowList = Collections.synchronizedList(new ArrayList<>());
     
+    // Изолированный потокобезопасный буфер и флаг для замера следовой когерентности (PSTI)
+    private final List<Integer> postiRrBuffer = Collections.synchronizedList(new ArrayList<>());
+    private boolean isPostiTraceActive = false;
+
     private boolean isRecording = false;
     private ServiceCallback callback;
 
@@ -170,6 +174,10 @@ public class HrvForegroundService extends Service {
         synchronized (snapshotBuffer) {
             snapshotBuffer.clear();
         }
+        synchronized (postiRrBuffer) {
+            postiRrBuffer.clear();
+        }
+        isPostiTraceActive = false;
         counterSinceLastProcess = 0;
         isRecording = true;
         updateNotificationText("Идет запись сессии ВСР...");
@@ -177,8 +185,8 @@ public class HrvForegroundService extends Service {
 
     public void stopSessionRecording() {
         isRecording = false;
+        isPostiTraceActive = false;
         
-        // Финализация: если в буфере есть хотя бы 16 точек при остановке, делаем финальный срез
         synchronized (slidingWindowList) {
             if (slidingWindowList.size() >= 16 && counterSinceLastProcess > 0) {
                 processAndSaveWindow(new ArrayList<>(slidingWindowList));
@@ -188,29 +196,61 @@ public class HrvForegroundService extends Service {
         updateNotificationText("Мониторинг активен (запись остановлена)");
     }
 
+    // --- Управление режимом замера следа (PSTI) ---
+
+    public void startPostiRecording() {
+        synchronized (postiRrBuffer) {
+            postiRrBuffer.clear();
+        }
+        isPostiTraceActive = true;
+        updateNotificationText("Замер следовой когерентности (PSTI)...");
+    }
+
+    public void stopPostiRecording() {
+        isPostiTraceActive = false;
+        updateNotificationText("Замер PSTI завершен");
+    }
+
+    public boolean isPostiTraceActive() {
+        return isPostiTraceActive;
+    }
+
+    public List<Integer> getPostiRrData() {
+        synchronized (postiRrBuffer) {
+            return new ArrayList<>(postiRrBuffer);
+        }
+    }
+
     public void addRrInterval(int rrMs) {
-        if (isRecording && rrMs > 300 && rrMs < 2000) {
-            // 1. Накапливаем абсолютно все RR-интервалы в длинный массив всей сессии
-            synchronized (rrSessionList) {
-                rrSessionList.add(rrMs);
-            }
-            
-            // 2. Управляем скользящим окном для хронологических снимков
-            synchronized (slidingWindowList) {
-                slidingWindowList.add(rrMs);
-                
-                // Если размер окна превысил WINDOW_SIZE, удаляем старые элементы с начала (реализуем скольжение)
-                while (slidingWindowList.size() > WINDOW_SIZE) {
-                    slidingWindowList.remove(0);
+        if (rrMs > 300 && rrMs < 2000) {
+            // Если активен этап замера следовой когерентности (PSTI), пишем в изолированный буфер
+            if (isPostiTraceActive) {
+                synchronized (postiRrBuffer) {
+                    postiRrBuffer.add(rrMs);
                 }
+                return;
+            }
 
-                // Считаем новые поступающие удары
-                counterSinceLastProcess++;
+            if (isRecording) {
+                // 1. Накапливаем абсолютно все RR-интервалы в длинный массив всей сессии
+                synchronized (rrSessionList) {
+                    rrSessionList.add(rrMs);
+                }
+                
+                // 2. Управляем скользящим окном для хронологических снимков
+                synchronized (slidingWindowList) {
+                    slidingWindowList.add(rrMs);
+                    
+                    while (slidingWindowList.size() > WINDOW_SIZE) {
+                        slidingWindowList.remove(0);
+                    }
 
-                // Как только накопилось достаточно новых ударов (шаг STEP_SIZE) и окно заполнено до WINDOW_SIZE
-                if (slidingWindowList.size() >= WINDOW_SIZE && counterSinceLastProcess >= STEP_SIZE) {
-                    counterSinceLastProcess = 0;
-                    processAndSaveWindow(new ArrayList<>(slidingWindowList));
+                    counterSinceLastProcess++;
+
+                    if (slidingWindowList.size() >= WINDOW_SIZE && counterSinceLastProcess >= STEP_SIZE) {
+                        counterSinceLastProcess = 0;
+                        processAndSaveWindow(new ArrayList<>(slidingWindowList));
+                    }
                 }
             }
         }
