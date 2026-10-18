@@ -568,7 +568,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         if (!snapshotRr.isEmpty()) {
-            HrvCalculator.Metrics postiMetrics = HrvCalculator.calculateMetrics(snapshotRr);
+            // Исправлен вызов на корректное имя метода HrvCalculator.calculate()[span_1](start_span)[span_1](end_span)
+            HrvCalculator.Metrics postiMetrics = HrvCalculator.calculate(snapshotRr);
             if (postiMetrics != null) {
                 // Оценка индекса следовой когерентности (на базе удержания RMSSD и мощности LF)
                 double pstiScore = Math.min(100.0, (postiMetrics.rmssd / 50.0) * 50.0 + (Math.min(postiMetrics.totalPower, 2500.0) / 2500.0) * 50.0);
