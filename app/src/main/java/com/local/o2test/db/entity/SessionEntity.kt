@@ -31,5 +31,7 @@ data class SessionEntity @JvmOverloads constructor(
     val lfHfRatio: Double,
     val stressIndex: Double,
     val pdfPath: String = "",
-    val csvPath: String = ""
+    val csvPath: String = "",
+    val pstiScore: Double = 0.0,         // Интегральный балл следовой когерентности (0-100%)
+    val pstiRmssdRatio: Double = 0.0     // Коэффициент удержания RMSSD в свободном окне
 )
