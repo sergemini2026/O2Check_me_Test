@@ -28,6 +28,10 @@ public class AudioPacerEngine {
     private final Context context;
     private short[] decodedPcmSamples;
 
+    // Параметры для плавного изменения громкости (Fade-in / Fade-out) исключающие акустический шок
+    private volatile float currentVolumeGain = 0.0f;
+    private static final float VOLUME_STEP = 0.002f; // Скорость изменения громкости за один цикл буфера
+
     public AudioPacerEngine(Context context) {
         this.context = context;
     }
@@ -50,6 +54,8 @@ public class AudioPacerEngine {
     public void start() {
         if (isRunning) return;
         
+        currentVolumeGain = 0.0f; // Всегда начинаем с нуля для реализации плавного Fade-in
+
         // Если предзагрузка не успела или не была вызвана, подгружаем синхронно
         if (decodedPcmSamples == null || decodedPcmSamples.length == 0) {
             decodedPcmSamples = loadPcmFromRaw(context, R.raw.o2test_01);
@@ -103,16 +109,28 @@ public class AudioPacerEngine {
             double phaseLeft = 0;
             double phaseRight = 0;
 
-            while (isRunning) {
+            // Цикл работает пока идет сессия ИЛИ пока не завершился плавный Fade-out звука
+            while (isRunning || currentVolumeGain > 0.0f) {
                 float phase = currentPhase;
+
+                // Плавное регулирование коэффициента громкости (Fade-in / Fade-out)
+                if (isRunning) {
+                    if (currentVolumeGain < 1.0f) {
+                        currentVolumeGain = Math.min(1.0f, currentVolumeGain + VOLUME_STEP);
+                    }
+                } else {
+                    if (currentVolumeGain > 0.0f) {
+                        currentVolumeGain = Math.max(0.0f, currentVolumeGain - VOLUME_STEP);
+                    }
+                }
 
                 // Модуляция дельты бинаурального ритма
                 double targetDelta = 8.0 + 4.0 * Math.sin(phase * 2.0 * Math.PI);
                 double freqLeft = baseFreq;
                 double freqRight = baseFreq + targetDelta;
 
-                // Амплитудная огибающая
-                float volumeEnvelope = (float) (0.4f + 0.6f * Math.abs(Math.sin(phase * 2.0 * Math.PI)));
+                // Амплитудная огибающая с учетом текущего глобального гейна
+                float volumeEnvelope = (float) (0.4f + 0.6f * Math.abs(Math.sin(phase * 2.0 * Math.PI))) * currentVolumeGain;
 
                 for (int i = 0; i < outBuffer.length; i += 2) {
                     short ambientL = 0;
@@ -139,8 +157,8 @@ public class AudioPacerEngine {
                     if (phaseLeft > 2.0 * Math.PI) phaseLeft -= 2.0 * Math.PI;
                     if (phaseRight > 2.0 * Math.PI) phaseRight -= 2.0 * Math.PI;
 
-                    short binauralL = (short) (Math.sin(phaseLeft) * 1500);
-                    short binauralR = (short) (Math.sin(phaseRight) * 1500);
+                    short binauralL = (short) (Math.sin(phaseLeft) * 1500 * currentVolumeGain);
+                    short binauralR = (short) (Math.sin(phaseRight) * 1500 * currentVolumeGain);
 
                     outBuffer[i]     = (short) clamp(modAmbientL + binauralL);
                     outBuffer[i + 1] = (short) clamp(modAmbientR + binauralR);
@@ -150,10 +168,21 @@ public class AudioPacerEngine {
                     audioTrack.write(outBuffer, 0, outBuffer.length);
                 }
             }
+
+            // Безопасное освобождение AudioTrack после полного затухания звука
+            if (audioTrack != null) {
+                try {
+                    audioTrack.stop();
+                    audioTrack.release();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                audioTrack = null;
+            }
         });
 
         audioThread.start();
-        Log.d(TAG, "Аудиодвижок мгновенно запущен.");
+        Log.d(TAG, "Аудиодвижок запущен с плавной коррекцией громкости.");
     }
 
     private short[] loadPcmFromRaw(Context context, int resId) {
@@ -246,24 +275,17 @@ public class AudioPacerEngine {
     }
 
     public void stop() {
-        isRunning = false;
-        if (audioThread != null) {
+        isRunning = false; // Сигнализирует потоку о необходимости плавного затухания (Fade-out)
+        
+        // Предотвращаем блокировку главного потока UI через join, если вызов происходит изнутри аудиопотока
+        if (audioThread != null && Thread.currentThread() != audioThread) {
             try {
-                audioThread.join();
+                audioThread.join(300);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
             audioThread = null;
         }
-        if (audioTrack != null) {
-            try {
-                audioTrack.stop();
-                audioTrack.release();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-            audioTrack = null;
-        }
-        Log.d(TAG, "Аудиодвижок остановлен.");
+        Log.d(TAG, "Запрос плавной остановки аудиодвижка (Fade-out).");
     }
 }
