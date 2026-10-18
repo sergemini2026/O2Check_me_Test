@@ -547,18 +547,33 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     /**
      * Запуск окна автономного замера следовой когерентности (PSTI) через фоновый сервис.
+     * Аудио и пейсер завершаются плавно (Fade-out).
      */
     private void startPostiTraceWindow() {
         postiStartTime = System.currentTimeMillis();
+        
+        // Плавная остановка звукового сопровождения и пейсера перед свободным окном
+        if (audioEngine != null) {
+            audioEngine.stop();
+            audioEngine = null;
+        }
+        if (masterClock != null) {
+            masterClock.stop();
+            masterClock = null;
+        }
+        if (ui != null && ui.pacerView != null) {
+            ui.pacerView.stopMonitoring();
+        }
+
         if (isBound && hrvService != null) {
             hrvService.startPostiRecording();
         }
         updateRightPanelStatus();
-        onLog("[PSTI] Пейсер отключен. Запуск 2-минутного окна замера следовой когерентности в сервисе...");
+        onLog("[PSTI] Пейсер плавно отключен. Запуск 2-минутного окна замера следовой когерентности в сервисе...");
     }
 
     /**
-     * Завершение окна PSTI и расчет индекса следа через агрегатор HrvCalculator.calculatePsti.
+     * Завершение окна PSTI, расчет индекса следа и автоматическое возобновление работы дыхательного контура.
      */
     private void evaluateAndFinishPostiTrace() {
         List<Integer> snapshotRr = new ArrayList<>();
@@ -592,6 +607,27 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         updateRightPanelStatus();
+
+        // --- АВТОМАТИЧЕСКИЙ ПЕРЕЗАПУСК ДЫХАТЕЛЬНОГО КОНТУРА ПОСЛЕ PSTI ---
+        onLog("[PSTI] Завершено. Возобновление дыхательного контура и аудио...");
+        runOnUiThread(() -> {
+            if (isRecording) {
+                audioEngine = new AudioPacerEngine(MainActivity.this);
+                audioEngine.prepareAsync(() -> {
+                    if (audioEngine != null) audioEngine.start();
+                });
+
+                masterClock = new MasterClock(phase -> {
+                    if (ui.pacerView != null) {
+                        ui.pacerView.updatePhaseExternal(phase);
+                    }
+                    if (audioEngine != null) {
+                        audioEngine.updatePhase(phase);
+                    }
+                });
+                masterClock.start(0.0f); // Старт с нулевой фазы или плавной синхронизации
+            }
+        });
     }
 
     private void stopMonitoring() {
@@ -918,19 +954,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
                 onLog(logMsg);
 
-                if (masterClock != null) {
-                    masterClock.stop();
-                    masterClock = null;
-                }
-                if (audioEngine != null) {
-                    audioEngine.stop();
-                    audioEngine = null;
-                }
-                if (ui != null && ui.pacerView != null) {
-                    ui.pacerView.stopMonitoring();
-                }
-
-                // Запуск 2-минутного окна замера следа реакции (PSTI)
+                // Запуск 2-минутного окна замера следа реакции (PSTI) с плавной остановкой пейсера и звука
                 startPostiTraceWindow();
 
                 if (isBound && hrvService != null) {
