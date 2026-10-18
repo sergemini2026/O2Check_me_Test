@@ -91,15 +91,16 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             hrvService = binder.getService();
             isBound = true;
             
+            // ИСПРАВЛЕНИЕ БАГА: Не наследуем слепо старый флаг записи из фонового сервиса при реконнекте.
+            // Предотвращаем зависание интерфейса в фантомном активном состоянии. Сессия должна начинаться только вручную.
             if (hrvService != null) {
-                isRecording = hrvService.isRecording();
-            } else {
-                isRecording = false;
+                hrvService.stopSessionRecording();
             }
+            isRecording = false;
             
             updateRightPanelStatus();
             if (ui.btnHeart != null) {
-                ui.btnHeart.setAlpha(isRecording ? 1.0f : (isProfileAuthorized ? 1.0f : 0.5f));
+                ui.btnHeart.setAlpha(isProfileAuthorized ? 1.0f : 0.5f);
             }
         }
         @Override
@@ -447,7 +448,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     @Override
     protected void onStop() {
         super.onStop();
-        // Гарантированно останавливаем мониторинг, сессию и фоновые процессы при уходе из приложения
         if (isRecording) {
             stopMonitoring();
         }
@@ -568,7 +568,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         if (!snapshotRr.isEmpty()) {
-            // Исправлен вызов на корректное имя метода HrvCalculator.calculate()[span_1](start_span)[span_1](end_span)
             HrvCalculator.Metrics postiMetrics = HrvCalculator.calculate(snapshotRr);
             if (postiMetrics != null) {
                 // Оценка индекса следовой когерентности (на базе удержания RMSSD и мощности LF)
