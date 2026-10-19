@@ -765,6 +765,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                             sessionRrList,
                             points,
                             customPath,
+                            lastPstiScore,
+                            lastPstiRmssdRatio,
                             new PdfExporter.PdfExportCallback() {
                                 @Override
                                 public void onSuccess(String pdfFilePath, String fileNamePdf) {
