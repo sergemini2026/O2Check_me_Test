@@ -531,6 +531,25 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (isBound && hrvService != null) {
             hrvService.stopPostiRecording();
             hrvService.startSessionRecording();
+            
+            // --- ПОДКЛЮЧАЕМ CALLBACK ФАЗОВОЙ АВТОКОРРЕКЦИИ ---
+            hrvService.setCallback(new HrvForegroundService.ServiceCallback() {
+                @Override
+                public void onRrDataReceived(int rrMs, int hr) {}
+                @Override
+                public void onO2DataReceived(int spo2, int hr) {}
+                @Override
+                public void onConnectionStatusChanged(String deviceType, boolean isConnected) {}
+
+                @Override
+                public void onPhaseCorrectionCalculated(float correctionDelta) {
+                    runOnUiThread(() -> {
+                        if (masterClock != null && isRecording) {
+                            masterClock.adjustPhase(correctionDelta);
+                        }
+                    });
+                }
+            });
         }
         
         if (polarManager != null) {
@@ -556,7 +575,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateRightPanelStatus();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
         onLog("Мониторинг активен для профиля: " + activeProfileName);
-        onLog("[Синхронизация] Запуск сбора данных для фазовой автоподстройки (цель: " + CALIBRATION_TARGET + " интервалов)...");
     }
 
     private void startPostiTraceWindow() {
@@ -607,7 +625,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             hrvService.stopPostiRecording();
         }
 
-        float calculatedPhase = 0.0f;
         if (!snapshotRr.isEmpty()) {
             List<Integer> baselineRr = new ArrayList<>();
             if (isBound && hrvService != null) {
@@ -628,41 +645,29 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     onLog(String.format(Locale.US, "[PSTI РЕЗУЛЬТАТ (fallback)] Индекс консолидации: %.1f%%", lastPstiScore));
                 }
             }
-
-            // Вычисляем фазу Майера прямо по данным завершенного теста PSTI
-            calculatedPhase = MayerWaveAnalyzer.calculateInitialPhase(snapshotRr);
-            onLog(String.format(Locale.US, "[Автокалибровка PSTI] Вычисленная фаза Майера: %.2f", calculatedPhase));
         } else {
             onLog("[PSTI] Окно замера завершено, но данные RR отсутствуют.");
         }
 
         updateRightPanelStatus();
 
-        final float finalPhase = calculatedPhase;
-        onLog("[PSTI] Завершено. Возобновление аудио и дыхательного контура с плавной автоподстройкой фазы...");
+        onLog("[PSTI] Завершено. Возобновление дыхательного контура и аудио...");
         runOnUiThread(() -> {
             if (isRecording) {
-                isCalibrationCompleted = true;
-                
                 audioEngine = new AudioPacerEngine(MainActivity.this);
                 audioEngine.prepareAsync(() -> {
                     if (audioEngine != null) audioEngine.start();
                 });
 
-                if (masterClock == null || !masterClock.isRunning()) {
-                    masterClock = new MasterClock(phase -> {
-                        if (ui.pacerView != null) {
-                            ui.pacerView.updatePhaseExternal(phase);
-                        }
-                        if (audioEngine != null) {
-                            audioEngine.updatePhase(phase);
-                        }
-                    });
-                    masterClock.start(finalPhase);
-                } else {
-                    // Плавная коррекция фазы на лету без рывков
-                    masterClock.adjustPhase(finalPhase);
-                }
+                masterClock = new MasterClock(phase -> {
+                    if (ui.pacerView != null) {
+                        ui.pacerView.updatePhaseExternal(phase);
+                    }
+                    if (audioEngine != null) {
+                        audioEngine.updatePhase(phase);
+                    }
+                });
+                masterClock.start(0.0f);
             }
         });
     }
@@ -908,9 +913,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
                             if (count < CALIBRATION_TARGET) {
                                 String statusText = String.format(Locale.US, "Идет сбор данных для фазовой автоподстройки: %.0f%%", percent);
-                                if (count == 1 || count == 25 || count == 50 || count == 75) {
-                                    onLog("[Синхронизация] " + statusText);
-                                }
                                 runOnUiThread(() -> {
                                     if (ui.tvStatusValue != null) {
                                         ui.tvStatusValue.setText(statusText);
