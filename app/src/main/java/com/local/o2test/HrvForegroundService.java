@@ -39,6 +39,11 @@ public class HrvForegroundService extends Service {
     private final List<Integer> postiRrBuffer = Collections.synchronizedList(new ArrayList<>());
     private boolean isPostiTraceActive = false;
 
+    // --- НОВЫЕ БУФЕРЫ ДЛЯ МЯГКОЙ ФАЗОВОЙ АВТОКОРРЕКЦИИ (1 РАЗ ЗА ЦИКЛ 10 СЕК) ---
+    private final List<Integer> rsaCycleBuffer = Collections.synchronizedList(new ArrayList<>());
+    private int rsaCycleAccumulatedMs = 0;
+    private static final int TARGET_CYCLE_MS = 10000; // 10 секунд на дыхательный цикл (0.1 Гц)
+
     private boolean isRecording = false;
     private ServiceCallback callback;
 
@@ -54,6 +59,8 @@ public class HrvForegroundService extends Service {
         void onRrDataReceived(int rrMs, int hr);
         void onO2DataReceived(int spo2, int hr);
         void onConnectionStatusChanged(String deviceType, boolean isConnected);
+        // Расширяем интерфейс для передачи мягкой фазовой коррекции на стыке циклов
+        default void onPhaseCorrectionCalculated(float correctionDelta) {}
     }
 
     public class LocalBinder extends Binder {
@@ -177,6 +184,10 @@ public class HrvForegroundService extends Service {
         synchronized (postiRrBuffer) {
             postiRrBuffer.clear();
         }
+        synchronized (rsaCycleBuffer) {
+            rsaCycleBuffer.clear();
+        }
+        rsaCycleAccumulatedMs = 0;
         isPostiTraceActive = false;
         counterSinceLastProcess = 0;
         isRecording = true;
@@ -192,6 +203,10 @@ public class HrvForegroundService extends Service {
                 processAndSaveWindow(new ArrayList<>(slidingWindowList));
             }
         }
+        synchronized (rsaCycleBuffer) {
+            rsaCycleBuffer.clear();
+        }
+        rsaCycleAccumulatedMs = 0;
         
         updateNotificationText("Мониторинг активен (запись остановлена)");
     }
@@ -252,7 +267,40 @@ public class HrvForegroundService extends Service {
                         processAndSaveWindow(new ArrayList<>(slidingWindowList));
                     }
                 }
+
+                // 3. Накопление буфера для мягкой фазовой автокоррекции (1 раз за цикл ~10 секунд)
+                synchronized (rsaCycleBuffer) {
+                    rsaCycleBuffer.add(rrMs);
+                    rsaCycleAccumulatedMs += rrMs;
+
+                    if (rsaCycleAccumulatedMs >= TARGET_CYCLE_MS) {
+                        // Отработал полный дыхательный цикл: оцениваем фазовое рассогласование
+                        List<Integer> cycleCopy = new ArrayList<>(rsaCycleBuffer);
+                        rsaCycleBuffer.clear();
+                        rsaCycleAccumulatedMs = 0;
+
+                        evaluateCyclePhaseCorrection(cycleCopy);
+                    }
+                }
             }
+        }
+    }
+
+    /**
+     * Оценка фазового сдвига по завершенному 10-секундному циклу RSA
+     */
+    private void evaluateCyclePhaseCorrection(List<Integer> cycleRrList) {
+        if (cycleRrList == null || cycleRrList.size() < 5) return;
+        try {
+            // Вычисляем фазовую поправку, используя принципы анализа волн Майера
+            float measuredPhase = MayerWaveAnalyzer.calculateInitialPhase(cycleRrList);
+            
+            // Передаем рассчитанное отклонение наружу через callback для плавной коррекции MasterClock
+            if (callback != null) {
+                callback.onPhaseCorrectionCalculated(measuredPhase);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
