@@ -42,13 +42,56 @@ public class AudioPacerEngine {
     public void prepareAsync(Runnable onReadyCallback) {
         Executors.newSingleThreadExecutor().execute(() -> {
             Log.d(TAG, "Старт фоновой декодировки MP3...");
-            decodedPcmSamples = loadPcmFromRaw(context, R.raw.o2test_01);
+            short[] rawPcm = loadPcmFromRaw(context, R.raw.o2test_01);
+            
+            // Применяем кроссфейд для бесшовной кольцевой закольцовки (окна по 2048 семплов на стерео-канал)
+            decodedPcmSamples = applyLoopCrossfade(rawPcm, 2048);
+            
             isPrepared = true;
-            Log.d(TAG, "Декодирование завершено. Семплов в памяти: " + decodedPcmSamples.length);
+            Log.d(TAG, "Декодирование и кроссфейд завершены. Семплов в памяти: " + decodedPcmSamples.length);
             if (onReadyCallback != null) {
                 onReadyCallback.run();
             }
         });
+    }
+
+    /**
+     * Utility-метод для устранения щелчков: плавный кроссфейд на стыке начала и конца PCM-массива
+     */
+    private short[] applyLoopCrossfade(short[] input, int crossfadeSamples) {
+        if (input == null || input.length < crossfadeSamples * 4) {
+            return input; // Слишком короткий массив для кроссфейда
+        }
+
+        int totalSamples = input.length;
+        // Работаем со стереопарами, поэтому кроссфейд должен быть кратен 2
+        int cf = (crossfadeSamples / 2) * 2;
+        short[] output = new short[totalSamples - cf]; // Слегка подрезаем хвост на длину зоны перекрытия
+
+        // Копируем основную часть без изменений
+        System.arraycopy(input, 0, output, 0, totalSamples - cf);
+
+        // Накладываем кроссфейд: плавно смешиваем конец оригинального трека с его началом
+        for (int i = 0; i < cf; i += 2) {
+            float progress = (float) (i / 2) / (cf / 2); // от 0.0 до 1.0
+
+            int tailIndex = totalSamples - cf + i;
+            int headIndex = i;
+
+            if (tailIndex + 1 < input.length && headIndex + 1 < output.length) {
+                short tailL = input[tailIndex];
+                short tailR = input[tailIndex + 1];
+
+                short headL = input[headIndex];
+                short headR = input[headIndex + 1];
+
+                // Кросс-модуляция: конец затухает (1.0 -> 0.0), начало нарастает (0.0 -> 1.0)
+                output[headIndex]     = (short) (tailL * (1.0f - progress) + headL * progress);
+                output[headIndex + 1] = (short) (tailR * (1.0f - progress) + headR * progress);
+            }
+        }
+
+        return output;
     }
 
     public void start() {
@@ -56,9 +99,10 @@ public class AudioPacerEngine {
         
         currentVolumeGain = 0.0f; // Всегда начинаем с нуля для реализации плавного Fade-in
 
-        // Если предзагрузка не успела или не была вызвана, подгружаем синхронно
+        // Если предзагрузка не успела или не была вызвана, подгружаем синхронно с кроссфейдом
         if (decodedPcmSamples == null || decodedPcmSamples.length == 0) {
-            decodedPcmSamples = loadPcmFromRaw(context, R.raw.o2test_01);
+            short[] rawPcm = loadPcmFromRaw(context, R.raw.o2test_01);
+            decodedPcmSamples = applyLoopCrossfade(rawPcm, 2048);
         }
 
         if (decodedPcmSamples.length == 0) {
@@ -144,7 +188,7 @@ public class AudioPacerEngine {
                         
                         pcmIndex += 2;
                         if (pcmIndex >= decodedPcmSamples.length) {
-                            pcmIndex = 0; // Бесшовное кольцо
+                            pcmIndex = 0; // Абсолютно бесшовное кольцо без щелчков
                         }
                     }
 
@@ -182,7 +226,7 @@ public class AudioPacerEngine {
         });
 
         audioThread.start();
-        Log.d(TAG, "Аудиодвижок запущен с плавной коррекцией громкости.");
+        Log.d(TAG, "Аудиодвижок запущен с кроссфейдом и плавной регулировкой громкости.");
     }
 
     private short[] loadPcmFromRaw(Context context, int resId) {
