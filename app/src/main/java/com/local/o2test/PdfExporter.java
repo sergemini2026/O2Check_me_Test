@@ -50,6 +50,8 @@ public class PdfExporter {
             List<Integer> rawRrList,
             List<DataPoint> dataPoints,
             String customDirPath,
+            double pstiScore,
+            double pstiRmssdRatio,
             PdfExportCallback callback
     ) {
         PdfDocument document = new PdfDocument();
@@ -93,7 +95,7 @@ public class PdfExporter {
 
         try {
             // ==========================================
-            // СТРАНИЦА 1: Шапка, Сводка, Интерпретация, Гистограмма с полным текстом, Графики
+            // СТРАНИЦА 1: Шапка, Сводка (включая PSTI), Интерпретация, Гистограмма, Графики
             // ==========================================
             PdfDocument.PageInfo pageInfo1 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 1).create();
             PdfDocument.Page page1 = document.startPage(pageInfo1);
@@ -127,8 +129,9 @@ public class PdfExporter {
             textPaint.setColor(Color.parseColor("#0F172A"));
             textPaint.setTextSize(11f);
             textPaint.setFakeBoldText(true);
-            canvas1.drawText("1. Сводные вегетативные показатели", MARGIN, 82, textPaint);
+            canvas1.drawText("1. Сводные вегетативные показатели и индекс следа (PSTI)", MARGIN, 82, textPaint);
 
+            // Сводные строки (добавлен 8-й параметр PSTI)
             drawMetricRow(canvas1, 95, "RMSSD (мск):", String.format(Locale.US, "%.1f", avgRmssd), "Норма: 20-100 (Вагусный тонус)");
             drawMetricRow(canvas1, 108, "SDNN (мск):", String.format(Locale.US, "%.1f", avgSdnn), "Общая вариабельность ритма");
             drawMetricRow(canvas1, 121, "Индекс Баевского (SI):", String.format(Locale.US, "%.1f у.е.", avgSi), "Индекс напряжения регуляторных систем");
@@ -136,11 +139,12 @@ public class PdfExporter {
             drawMetricRow(canvas1, 147, "Общая мощность (TP):", String.format(Locale.US, "%.0f ms²", avgTp), "Суммарный вегетативный резерв");
             drawMetricRow(canvas1, 160, "Энтропия (SampEn):", String.format(Locale.US, "%.2f", avgSampEn), "Хаотичность и сложность регуляции");
             drawMetricRow(canvas1, 173, "DFA alpha1:", String.format(Locale.US, "%.2f", avgDfa), "Фрактальная корреляция (самоподобие)");
+            drawMetricRow(canvas1, 186, "Индекс PSTI (след):", String.format(Locale.US, "%.1f%% (ratio: %.2f)", pstiScore, pstiRmssdRatio), "Консолидация барорефлекса (след. реакция)");
 
             textPaint.setTextSize(11f);
             textPaint.setFakeBoldText(true);
             textPaint.setColor(Color.parseColor("#0F172A"));
-            canvas1.drawText("2. Клиническое заключение и статус", MARGIN, 190, textPaint);
+            canvas1.drawText("2. Клиническое заключение и статус", MARGIN, 203, textPaint);
 
             String statusTitle, statusDesc;
             int statusColor;
@@ -164,10 +168,10 @@ public class PdfExporter {
             }
 
             fillPaint.setColor(Color.parseColor("#F8FAFC"));
-            canvas1.drawRect(MARGIN, 196, PAGE_WIDTH - MARGIN, 242, fillPaint);
+            canvas1.drawRect(MARGIN, 209, PAGE_WIDTH - MARGIN, 255, fillPaint);
             strokePaint.setColor(statusColor);
             strokePaint.setStrokeWidth(1f);
-            canvas1.drawRect(MARGIN, 196, PAGE_WIDTH - MARGIN, 242, strokePaint);
+            canvas1.drawRect(MARGIN, 209, PAGE_WIDTH - MARGIN, 255, strokePaint);
 
             TextPaint titlePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
             titlePaint.setTextSize(10f);
@@ -179,19 +183,19 @@ public class PdfExporter {
             descPaint.setColor(Color.parseColor("#1E293B"));
 
             canvas1.save();
-            canvas1.translate(MARGIN + 10, 201);
+            canvas1.translate(MARGIN + 10, 214);
             StaticLayout.Builder.obtain(statusTitle, 0, statusTitle.length(), titlePaint, PAGE_WIDTH - 2 * MARGIN - 20)
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
             canvas1.restore();
 
             canvas1.save();
-            canvas1.translate(MARGIN + 10, 216);
+            canvas1.translate(MARGIN + 10, 229);
             StaticLayout.Builder.obtain(statusDesc, 0, statusDesc.length(), descPaint, PAGE_WIDTH - 2 * MARGIN - 20)
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
             canvas1.restore();
 
-            // Гистограмма (исходная высота 72)
-            drawHistogram(canvas1, rawRrList, MARGIN, 248, PAGE_WIDTH - 2 * MARGIN, 72, Color.parseColor("#DC2626"), "Гистограмма RR-интервалов (мс) — распределение ритма");
+            // Гистограмма (смещена ниже с учетом новой строки)
+            drawHistogram(canvas1, rawRrList, MARGIN, 262, PAGE_WIDTH - 2 * MARGIN, 68, Color.parseColor("#DC2626"), "Гистограмма RR-интервалов (мс) — распределение ритма");
             
             TextPaint histExpPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
             histExpPaint.setTextSize(7.5f);
@@ -204,7 +208,7 @@ public class PdfExporter {
                 "Асимметрия: Смещение влево говорит о преобладании симпатического тонуса (нагрузка), вправо — о парасимпатическом (отдых)."
             };
 
-            int histTextY = 325;
+            int histTextY = 336;
             for (String line : histLines) {
                 canvas1.save();
                 canvas1.translate(MARGIN, histTextY);
@@ -216,9 +220,9 @@ public class PdfExporter {
                 histTextY += layout.getHeight() + 3;
             }
 
-            // Графики SpO2 и ЧСС смещены ниже (Y = 390 и Y = 460) для полной свободы текста
-            drawOxygenationChart(canvas1, dataPoints, MARGIN, 390, PAGE_WIDTH - 2 * MARGIN, 60, Color.parseColor("#0284C7"), "Динамика оксигенации SpO2 (%)");
-            drawHeartRateChart(canvas1, dataPoints, MARGIN, 460, PAGE_WIDTH - 2 * MARGIN, 60, Color.parseColor("#10B981"), "Динамика ЧСС (HR, уд/мин)");
+            // Графики SpO2 и ЧСС
+            drawOxygenationChart(canvas1, dataPoints, MARGIN, 400, PAGE_WIDTH - 2 * MARGIN, 55, Color.parseColor("#0284C7"), "Динамика оксигенации SpO2 (%)");
+            drawHeartRateChart(canvas1, dataPoints, MARGIN, 465, PAGE_WIDTH - 2 * MARGIN, 55, Color.parseColor("#10B981"), "Динамика ЧСС (HR, уд/мин)");
 
             document.finishPage(page1);
 
