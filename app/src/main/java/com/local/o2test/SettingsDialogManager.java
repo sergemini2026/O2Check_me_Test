@@ -19,14 +19,9 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.nio.channels.FileChannel;
 
 public class SettingsDialogManager {
 
-    private static final String PREF_NAME = "O2AppPrefs";
     private static final long CLICK_DELAY_MS = 500; // Задержка 0.5 сек для визуального отклика
 
     public interface SettingsCallback {
@@ -71,7 +66,6 @@ public class SettingsDialogManager {
         public View getView(int position, View convertView, ViewGroup parent) {
             View view = super.getView(position, convertView, parent);
             
-            // Если это сохраненный/выбранный пункт, подсвечиваем его при открытии
             if (position == selectedIndex) {
                 view.setBackgroundColor(0x2500F2FE); // Легкая постоянная подсветка выбранного
             } else {
@@ -89,11 +83,10 @@ public class SettingsDialogManager {
     }
 
     /**
-     * Главное меню настроек
+     * Главное меню настроек (без пункта сохранения сессий — всё строго по стандарту Documents/O2Test)
      */
     public static void showSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
         CharSequence[] menuItems = {
-            "Сохранение сессий",
             "Аудио",
             "Видео",
             "Резервирование"
@@ -110,12 +103,10 @@ public class SettingsDialogManager {
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 dialog.dismiss();
                 if (position == 0) {
-                    showFolderSettingsDialog(context, prefs, callback);
-                } else if (position == 1) {
                     showAudioSettingsDialog(context, prefs, callback);
-                } else if (position == 2) {
+                } else if (position == 1) {
                     showVideoSettingsDialog(context, prefs, callback);
-                } else if (position == 3) {
+                } else if (position == 2) {
                     showBackupSettingsDialog(context, prefs, callback);
                 }
             }, CLICK_DELAY_MS);
@@ -125,81 +116,7 @@ public class SettingsDialogManager {
     }
 
     /**
-     * Подменю А: Настройки сохранения сессий с миграцией файлов и бэкапов
-     */
-    private static void showFolderSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
-        CharSequence[] paths = {"Папка Документы (Documents)", "Папка Загрузки (Downloads)"};
-        
-        // Читаем последний выбор (по умолчанию 0 - Documents)
-        int currentFolderIndex = prefs.getInt("pref_folder_index", 0);
-
-        AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        builder.setTitle(getCenteredTitle("Выбор корневой папки отчетов"));
-
-        HighlightArrayAdapter adapter = new HighlightArrayAdapter(context, paths, currentFolderIndex);
-        AlertDialog dialog = builder.setAdapter(adapter, null).create();
-
-        dialog.getListView().setOnItemClickListener((parent, view, position, id) -> {
-            view.setPressed(true);
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                dialog.dismiss();
-
-                if (callback != null && !callback.isProfileAuthorized()) {
-                    Toast.makeText(context, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
-                    callback.openProfilesManager();
-                    return;
-                }
-
-                String profileName = (callback != null) ? callback.getActiveProfileName() : "DefaultProfile";
-
-                // Определяем старую и новую директории
-                File oldBaseDir = (currentFolderIndex == 0) 
-                        ? Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-                        : Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-                File oldO2Dir = new File(oldBaseDir, "O2Test");
-                File oldProfileDir = new File(oldO2Dir, profileName);
-
-                File newBaseDir = (position == 0) 
-                        ? Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-                        : Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-                File newO2Dir = new File(newBaseDir, "O2Test");
-                if (!newO2Dir.exists()) newO2Dir.mkdirs();
-
-                File newProfileDir = new File(newO2Dir, profileName);
-                if (!newProfileDir.exists()) newProfileDir.mkdirs();
-
-                // Миграция файлов (сессии, PDF, бэкапы) со старого места на новое
-                if (oldProfileDir.exists() && oldProfileDir.isDirectory() && !oldProfileDir.equals(newProfileDir)) {
-                    File[] files = oldProfileDir.listFiles();
-                    if (files != null) {
-                        for (File file : files) {
-                            if (file.isFile()) {
-                                File destFile = new File(newProfileDir, file.getName());
-                                copyAndRmvFile(file, destFile);
-                            }
-                        }
-                    }
-                    // Удаляем старую пустую папку профиля
-                    deleteDirRecursively(oldProfileDir);
-                }
-
-                String finalPath = newProfileDir.getAbsolutePath();
-                prefs.edit().putString("custom_export_path", finalPath)
-                            .putInt("pref_folder_index", position)
-                            .apply();
-
-                if (callback != null) {
-                    callback.onLog("[НАСТРОЙКИ] Путь сохранения изменен: " + finalPath);
-                }
-                Toast.makeText(context, "Папка установлена: " + (position == 0 ? "Documents" : "Downloads"), Toast.LENGTH_SHORT).show();
-            }, CLICK_DELAY_MS);
-        });
-
-        dialog.show();
-    }
-
-    /**
-     * Подменю Б: Выбор аудиодорожки с запоминанием выбора
+     * Подменю А: Выбор аудиодорожки с запоминанием выбора
      */
     private static void showAudioSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
         CharSequence[] audioOptions = {
@@ -261,7 +178,7 @@ public class SettingsDialogManager {
     }
 
     /**
-     * Подменю В: Режимы видео с запоминанием выбора
+     * Подменю Б: Режимы видео с запоминанием выбора
      */
     private static void showVideoSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
         CharSequence[] videoModes = {
@@ -299,27 +216,14 @@ public class SettingsDialogManager {
     }
 
     /**
-     * Подменю Г: Резервное копирование (автоматически создает папку O2Test в Documents по умолчанию)
+     * Подменю В: Резервное копирование с проверкой папки Documents/O2Test и файла бэкапа
      */
     private static void showBackupSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
-        String customPath = prefs.getString("custom_export_path", null);
+        // Жестко фиксированный путь: Documents/O2Test
+        File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+        File exportDir = new File(baseDir, "O2Test");
 
-        File exportDir;
-        if (customPath == null || customPath.isEmpty()) {
-            // Если путь не задан, берем дефолтную папку Documents и подпапку O2Test
-            File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
-            exportDir = new File(baseDir, "O2Test");
-        } else {
-            // Если в customPath прописан путь до конкретного профиля, поднимаемся на уровень выше к корневой O2Test
-            File profileDir = new File(customPath);
-            if (profileDir.getParentFile() != null && profileDir.getParentFile().getName().equals("O2Test")) {
-                exportDir = profileDir.getParentFile();
-            } else {
-                exportDir = profileDir;
-            }
-        }
-
-        // Гарантированно создаем корневую папку O2Test, если ее еще нет
+        // Проверяем наличие папки, если нет — создаем
         if (!exportDir.exists()) {
             exportDir.mkdirs();
         }
@@ -327,10 +231,19 @@ public class SettingsDialogManager {
         File backupFile = new File(exportDir, "o2test_backup.db");
         boolean hasBackup = backupFile.exists();
 
-        CharSequence[] backupOptions = {
-            "Экспорт базы данных (Создать бэкап)",
-            hasBackup ? "Импорт базы данных (Восстановить бэкап)" : "Импорт базы данных (Недоступно: нет файла)"
-        };
+        // Формируем пункты меню в зависимости от наличия бэкапа согласно логике
+        CharSequence[] backupOptions;
+        if (hasBackup) {
+            backupOptions = new CharSequence[]{
+                "Экспорт базы данных (Создать бэкап)",
+                "Импорт базы данных (Восстановить бэкап)"
+            };
+        } else {
+            backupOptions = new CharSequence[]{
+                "Экспорт базы данных (Создать бэкап)",
+                "Импорт базы данных (Недоступно: нет файла)"
+            };
+        }
 
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
         builder.setTitle(getCenteredTitle("Резервное копирование базы данных"));
@@ -360,32 +273,5 @@ public class SettingsDialogManager {
         });
 
         dialog.show();
-    }
-
-    // Вспомогательный метод миграции файлов
-    private static void copyAndRmvFile(File src, File dst) {
-        try {
-            FileChannel in = new FileInputStream(src).getChannel();
-            FileChannel out = new FileOutputStream(dst).getChannel();
-            out.transferFrom(in, 0, in.size());
-            in.close();
-            out.close();
-            src.delete();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    // Вспомогательный метод удаления старой папки
-    private static boolean deleteDirRecursively(File dir) {
-        if (dir.isDirectory()) {
-            File[] children = dir.listFiles();
-            if (children != null) {
-                for (File child : children) {
-                    deleteDirRecursively(child);
-                }
-            }
-        }
-        return dir.delete();
     }
 }
