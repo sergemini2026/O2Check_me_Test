@@ -81,10 +81,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private double lastPstiScore = 0.0;
     private double lastPstiRmssdRatio = 0.0;
 
-    // --- МУЛЬТИМОДАЛЬНЫЙ АУДИО И ТАКТОВЫЙ КОНТУР ---
-    private MasterClock masterClock;
-    private AudioPacerEngine audioEngine;
-
     private int currentSpo2 = 0;
     private float currentPi = 0.0f;
     private int currentBattery = 0;
@@ -106,11 +102,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             HrvForegroundService.LocalBinder binder = (HrvForegroundService.LocalBinder) service;
             hrvService = binder.getService();
             isBound = true;
-            
-            if (hrvService != null) {
-                hrvService.stopSessionRecording();
-            }
-            isRecording = false;
             
             updateRightPanelStatus();
             if (ui.btnHeart != null) {
@@ -183,7 +174,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         });
 
         ui.btnExit.setOnClickListener(v -> {
-            stopAudioAndClock();
+            stopAudioAndClockInService();
             if (ui != null && ui.pacerView != null) {
                 ui.pacerView.stopMonitoring();
             }
@@ -246,9 +237,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         });
     }
 
-    /**
-     * Интегрированное меню «Настройки» с подразделами А, Б, В, Г
-     */
     private void showSettingsDialog() {
         CharSequence[] menuItems = {
             "Сохранение сессий",
@@ -274,9 +262,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         builder.show();
     }
 
-    /**
-     * п. А: Настройки сохранения сессий (Documents / Downloads -> O2Test -> Profile)
-     */
     private void showFolderSettingsDialog() {
         CharSequence[] paths = {"Папка Документы (Documents)", "Папка Загрузки (Downloads)"};
         SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
@@ -294,13 +279,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     ? Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
                     : Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
 
-            // Создаем папку O2Test
             File o2TestDir = new File(baseDir, "O2Test");
             if (!o2TestDir.exists()) {
                 o2TestDir.mkdirs();
             }
 
-            // Создаем вложенную папку текущего профиля
             File profileDir = new File(o2TestDir, activeProfileName);
             if (!profileDir.exists()) {
                 profileDir.mkdirs();
@@ -314,9 +297,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         builder.show();
     }
 
-    /**
-     * п. Б: Выбор аудиодорожки (1-4)
-     */
     private void showAudioSettingsDialog() {
         CharSequence[] audioOptions = {
             "Спокойствие",
@@ -351,15 +331,15 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     break;
             }
             prefs.edit().putInt("selected_audio_res", selectedResId).putString("selected_audio_name", trackName).apply();
+            if (isBound && hrvService != null) {
+                hrvService.setAudioResource(selectedResId);
+            }
             onLog("[НАСТРОЙКИ] Выбрана аудиодорожка: " + trackName);
             Toast.makeText(this, "Аудио: " + trackName, Toast.LENGTH_SHORT).show();
         });
         builder.show();
     }
 
-    /**
-     * п. В: Режимы видео (Одиночный / Трансляция)
-     */
     private void showVideoSettingsDialog() {
         CharSequence[] videoModes = {
             "Одиночный",
@@ -379,9 +359,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         builder.show();
     }
 
-    /**
-     * п. Г: Резервирование (Экспорт / Импорт бэкапа базы данных)
-     */
     private void showBackupSettingsDialog() {
         SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
         String customPath = prefs.getString("custom_export_path", null);
@@ -421,7 +398,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             try {
                 File dbFile = getDatabasePath("o2test_db");
                 if (!dbFile.exists()) {
-                    // Альтернативное имя файла Room базы
                     dbFile = getDatabasePath("app_database");
                 }
                 if (!dbFile.exists()) {
@@ -458,7 +434,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                             dbFile = getDatabasePath("app_database");
                         }
 
-                        // Закрываем инстанс базы перед перезаписью
                         AppDatabase.getInstance(getApplicationContext()).close();
 
                         FileChannel src = new FileInputStream(backupFile).getChannel();
@@ -496,7 +471,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             } else if (isTrainingModeActive) {
                 ui.tvStatusValue.setText("Статус: " + currentWorkoutMode);
             } else {
-                ui.tvStatusValue.setText("Статус: Мониторинг");
+                // ИЗМЕНЕНО: вместо «Мониторинг» выводится «Пранаяма»
+                ui.tvStatusValue.setText("Статус: Пранаяма");
             }
         }
     }
@@ -547,7 +523,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             onLog("Система запущена. Выберите профиль для начала работы.");
         });
         builder.setNegativeButton("Выход", (dialog, which) -> {
-            stopAudioAndClock();
+            stopAudioAndClockInService();
             if (ui != null && ui.pacerView != null) ui.pacerView.stopMonitoring();
             finish();
         });
@@ -581,7 +557,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             }
         });
         builder.setNegativeButton("Выход", (dialog, which) -> {
-            stopAudioAndClock();
+            stopAudioAndClockInService();
             if (ui != null && ui.pacerView != null) ui.pacerView.stopMonitoring();
             finish();
         });
@@ -680,9 +656,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     @Override
     protected void onStop() {
         super.onStop();
-        if (isRecording) {
-            stopMonitoring();
-        }
+        // Сервис фоновой работы удерживает сессию, аудио и отсчеты при свертывании приложения
         if (isBound) {
             unbindService(serviceConnection);
             isBound = false;
@@ -739,7 +713,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             return;
         }
 
-        stopAudioAndClock();
+        stopAudioAndClockInService();
 
         isRecording = true;
         isCalibrationCompleted = false;
@@ -762,8 +736,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 @Override
                 public void onPhaseCorrectionCalculated(float correctionDelta) {
                     runOnUiThread(() -> {
-                        if (masterClock != null && isRecording) {
-                            masterClock.adjustPhase(correctionDelta);
+                        if (isBound && hrvService != null && isRecording) {
+                            hrvService.adjustServicePhase(correctionDelta);
                         }
                     });
                 }
@@ -786,13 +760,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             ui.pacerView.stopMonitoring();
         }
 
-        // Загружаем выбранную в настройках аудиодорожку (по умолчанию R.raw.o2test_01)
-        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
-        int selectedAudioRes = prefs.getInt("selected_audio_res", R.raw.o2test_01);
-
-        audioEngine = new AudioPacerEngine(MainActivity.this, selectedAudioRes);
-        audioEngine.prepareAsync(null);
-        
         updateMetricsDisplay("--", "--", "--", "--");
         updateRightPanelStatus();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
@@ -803,14 +770,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         postiStartTime = System.currentTimeMillis();
         pstiRemainingSec = POSTI_WINDOW_SEC;
         
-        if (audioEngine != null) {
-            audioEngine.stop();
-            audioEngine = null;
-        }
-        if (masterClock != null) {
-            masterClock.stop();
-            masterClock = null;
-        }
+        stopAudioAndClockInService();
         if (ui != null && ui.pacerView != null) {
             ui.pacerView.stopMonitoring();
         }
@@ -875,24 +835,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         onLog("[PSTI] Завершено. Возобновление дыхательного контура и аудио...");
         runOnUiThread(() -> {
-            if (isRecording) {
-                SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
-                int selectedAudioRes = prefs.getInt("selected_audio_res", R.raw.o2test_01);
-
-                audioEngine = new AudioPacerEngine(MainActivity.this, selectedAudioRes);
-                audioEngine.prepareAsync(() -> {
-                    if (audioEngine != null) audioEngine.start();
-                });
-
-                masterClock = new MasterClock(phase -> {
+            if (isRecording && isBound && hrvService != null) {
+                hrvService.startAudioAndClock(MainActivity.this, 0.0f, phase -> {
                     if (ui.pacerView != null) {
                         ui.pacerView.updatePhaseExternal(phase);
                     }
-                    if (audioEngine != null) {
-                        audioEngine.updatePhase(phase);
-                    }
                 });
-                masterClock.start(0.0f);
             }
         });
     }
@@ -904,7 +852,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         sessionDumpCount = 0;
         pstiHandler.removeCallbacks(pstiCountdownRunnable);
         
-        stopAudioAndClock();
+        stopAudioAndClockInService();
 
         if (isBound && hrvService != null) {
             hrvService.stopSessionRecording();
@@ -928,15 +876,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         onLog("Мониторинг остановлен и сброшен.");
     }
 
-    private void stopAudioAndClock() {
+    private void stopAudioAndClockInService() {
         pstiHandler.removeCallbacks(pstiCountdownRunnable);
-        if (masterClock != null) {
-            masterClock.stop();
-            masterClock = null;
-        }
-        if (audioEngine != null) {
-            audioEngine.stop();
-            audioEngine = null;
+        if (isBound && hrvService != null) {
+            hrvService.stopAudioAndClock();
         }
     }
 
@@ -1154,19 +1097,13 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                         ui.tvStatusValue.setText("Сбор завершен");
                                     }
                                     
-                                    if (audioEngine != null) {
-                                        audioEngine.start();
+                                    if (isBound && hrvService != null) {
+                                        hrvService.startAudioAndClock(MainActivity.this, initialPhase, phase -> {
+                                            if (ui.pacerView != null) {
+                                                ui.pacerView.updatePhaseExternal(phase);
+                                            }
+                                        });
                                     }
-
-                                    masterClock = new MasterClock(phase -> {
-                                        if (ui.pacerView != null) {
-                                            ui.pacerView.updatePhaseExternal(phase);
-                                        }
-                                        if (audioEngine != null) {
-                                            audioEngine.updatePhase(phase);
-                                        }
-                                    });
-                                    masterClock.start(initialPhase);
 
                                     if (ui.tvStatusValue != null) {
                                         ui.tvStatusValue.postDelayed(() -> updateRightPanelStatus(), 1000);
@@ -1226,7 +1163,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 sessionDumpCount++;
                 onLog(String.format(Locale.US, "[Дамп #%d завершен]", sessionDumpCount));
 
-                // Запуск PSTI с учетом кратности равной 3
                 if (sessionDumpCount % POSTI_INTERVAL_DUMPS == 0) {
                     startPostiTraceWindow();
                     if (isBound && hrvService != null) {
@@ -1255,7 +1191,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     protected void onDestroy() {
         super.onDestroy();
         stopMonitoring();
-        stopAudioAndClock();
+        stopAudioAndClockInService();
         
         if (ui != null && ui.pacerView != null) {
             ui.pacerView.stopMonitoring();
