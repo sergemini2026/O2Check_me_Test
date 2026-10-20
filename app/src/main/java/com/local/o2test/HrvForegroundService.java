@@ -29,37 +29,33 @@ public class HrvForegroundService extends Service {
     private final IBinder binder = new LocalBinder();
     private PowerManager.WakeLock wakeLock;
 
-    // Полный накопительный массив всей сессии (для графиков, CSV и общего анализа)
     private final List<Integer> rrSessionList = Collections.synchronizedList(new ArrayList<>());
-    
-    // Буфер для накопления текущих RR-интервалов перед расчетом окна
     private final List<Integer> slidingWindowList = Collections.synchronizedList(new ArrayList<>());
-    
-    // Изолированный потокобезопасный буфер и флаг для замера следовой когерентности (PSTI)
     private final List<Integer> postiRrBuffer = Collections.synchronizedList(new ArrayList<>());
     private boolean isPostiTraceActive = false;
 
-    // --- НОВЫЕ БУФЕРЫ ДЛЯ МЯГКОЙ ФАЗОВОЙ АВТОКОРРЕКЦИИ (1 РАЗ ЗА ЦИКЛ 10 СЕК) ---
     private final List<Integer> rsaCycleBuffer = Collections.synchronizedList(new ArrayList<>());
     private int rsaCycleAccumulatedMs = 0;
-    private static final int TARGET_CYCLE_MS = 10000; // 10 секунд на дыхательный цикл (0.1 Гц)
+    private static final int TARGET_CYCLE_MS = 10000;
 
     private boolean isRecording = false;
     private ServiceCallback callback;
 
-    // Буфер готовых снимков для базы данных и хронологического лога PDF отчета
     private final List<SessionSnapshot> snapshotBuffer = Collections.synchronizedList(new ArrayList<>());
 
-    // Настройки скользящего окна
-    private static final int WINDOW_SIZE = 150; // Размер окна анализа
-    private static final int STEP_SIZE = 50;    // Шаг смещения (новые удары для следующего расчёта)
+    private static final int WINDOW_SIZE = 150;
+    private static final int STEP_SIZE = 50;
     private int counterSinceLastProcess = 0;
+
+    // --- АУДИО И ТАКТОВЫЙ КОНТУР В СЕРВИСЕ ДЛЯ ФОНОВОЙ РАБОТЫ ---
+    private AudioPacerEngine serviceAudioEngine;
+    private MasterClock serviceMasterClock;
+    private int currentAudioResId = R.raw.o2test_01;
 
     public interface ServiceCallback {
         void onRrDataReceived(int rrMs, int hr);
         void onO2DataReceived(int spo2, int hr);
         void onConnectionStatusChanged(String deviceType, boolean isConnected);
-        // Расширяем интерфейс для передачи мягкой фазовой коррекции на стыке циклов
         default void onPhaseCorrectionCalculated(float correctionDelta) {}
     }
 
@@ -107,6 +103,7 @@ public class HrvForegroundService extends Service {
     }
 
     private void stopForegroundServiceInternal() {
+        stopAudioAndClock();
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
         }
@@ -169,24 +166,54 @@ public class HrvForegroundService extends Service {
         return callback;
     }
 
-    // --- Управление накопительными буферами ---
+    public void setAudioResource(int resId) {
+        this.currentAudioResId = resId;
+    }
+
+    public void startAudioAndClock(Context context, float initialPhase, MasterClock.MasterClockListener tickListener) {
+        stopAudioAndClock();
+        
+        serviceAudioEngine = new AudioPacerEngine(context, currentAudioResId);
+        serviceAudioEngine.prepareAsync(() -> {
+            if (serviceAudioEngine != null && isRecording) {
+                serviceAudioEngine.start();
+            }
+        });
+
+        serviceMasterClock = new MasterClock(phase -> {
+            if (serviceAudioEngine != null) {
+                serviceAudioEngine.updatePhase(phase);
+            }
+            if (tickListener != null) {
+                tickListener.onTick(phase);
+            }
+        });
+        serviceMasterClock.start(initialPhase);
+    }
+
+    public void adjustServicePhase(float targetPhase) {
+        if (serviceMasterClock != null) {
+            serviceMasterClock.adjustPhase(targetPhase);
+        }
+    }
+
+    public void stopAudioAndClock() {
+        if (serviceMasterClock != null) {
+            serviceMasterClock.stop();
+            serviceMasterClock = null;
+        }
+        if (serviceAudioEngine != null) {
+            serviceAudioEngine.stop();
+            serviceAudioEngine = null;
+        }
+    }
 
     public void startSessionRecording() {
-        synchronized (rrSessionList) {
-            rrSessionList.clear();
-        }
-        synchronized (slidingWindowList) {
-            slidingWindowList.clear();
-        }
-        synchronized (snapshotBuffer) {
-            snapshotBuffer.clear();
-        }
-        synchronized (postiRrBuffer) {
-            postiRrBuffer.clear();
-        }
-        synchronized (rsaCycleBuffer) {
-            rsaCycleBuffer.clear();
-        }
+        synchronized (rrSessionList) { rrSessionList.clear(); }
+        synchronized (slidingWindowList) { slidingWindowList.clear(); }
+        synchronized (snapshotBuffer) { snapshotBuffer.clear(); }
+        synchronized (postiRrBuffer) { postiRrBuffer.clear(); }
+        synchronized (rsaCycleBuffer) { rsaCycleBuffer.clear(); }
         rsaCycleAccumulatedMs = 0;
         isPostiTraceActive = false;
         counterSinceLastProcess = 0;
@@ -197,6 +224,7 @@ public class HrvForegroundService extends Service {
     public void stopSessionRecording() {
         isRecording = false;
         isPostiTraceActive = false;
+        stopAudioAndClock();
         
         synchronized (slidingWindowList) {
             if (slidingWindowList.size() >= 16 && counterSinceLastProcess > 0) {
@@ -211,13 +239,12 @@ public class HrvForegroundService extends Service {
         updateNotificationText("Мониторинг активен (запись остановлена)");
     }
 
-    // --- Управление режимом замера следа (PSTI) ---
-
     public void startPostiRecording() {
         synchronized (postiRrBuffer) {
             postiRrBuffer.clear();
         }
         isPostiTraceActive = true;
+        stopAudioAndClock();
         updateNotificationText("Замер следовой когерентности (PSTI)...");
     }
 
@@ -238,7 +265,6 @@ public class HrvForegroundService extends Service {
 
     public void addRrInterval(int rrMs) {
         if (rrMs > 300 && rrMs < 2000) {
-            // Если активен этап замера следовой когерентности (PSTI), пишем в изолированный буфер
             if (isPostiTraceActive) {
                 synchronized (postiRrBuffer) {
                     postiRrBuffer.add(rrMs);
@@ -247,34 +273,28 @@ public class HrvForegroundService extends Service {
             }
 
             if (isRecording) {
-                // 1. Накапливаем абсолютно все RR-интервалы в длинный массив всей сессии
                 synchronized (rrSessionList) {
                     rrSessionList.add(rrMs);
                 }
                 
-                // 2. Управляем скользящим окном для хронологических снимков
                 synchronized (slidingWindowList) {
                     slidingWindowList.add(rrMs);
-                    
                     while (slidingWindowList.size() > WINDOW_SIZE) {
                         slidingWindowList.remove(0);
                     }
 
                     counterSinceLastProcess++;
-
                     if (slidingWindowList.size() >= WINDOW_SIZE && counterSinceLastProcess >= STEP_SIZE) {
                         counterSinceLastProcess = 0;
                         processAndSaveWindow(new ArrayList<>(slidingWindowList));
                     }
                 }
 
-                // 3. Накопление буфера для мягкой фазовой автокоррекции (1 раз за цикл ~10 секунд)
                 synchronized (rsaCycleBuffer) {
                     rsaCycleBuffer.add(rrMs);
                     rsaCycleAccumulatedMs += rrMs;
 
                     if (rsaCycleAccumulatedMs >= TARGET_CYCLE_MS) {
-                        // Отработал полный дыхательный цикл: оцениваем фазовое рассогласование
                         List<Integer> cycleCopy = new ArrayList<>(rsaCycleBuffer);
                         rsaCycleBuffer.clear();
                         rsaCycleAccumulatedMs = 0;
@@ -286,16 +306,10 @@ public class HrvForegroundService extends Service {
         }
     }
 
-    /**
-     * Оценка фазового сдвига по завершенному 10-секундному циклу RSA
-     */
     private void evaluateCyclePhaseCorrection(List<Integer> cycleRrList) {
         if (cycleRrList == null || cycleRrList.size() < 5) return;
         try {
-            // Вычисляем фазовую поправку, используя принципы анализа волн Майера
             float measuredPhase = MayerWaveAnalyzer.calculateInitialPhase(cycleRrList);
-            
-            // Передаем рассчитанное отклонение наружу через callback для плавной коррекции MasterClock
             if (callback != null) {
                 callback.onPhaseCorrectionCalculated(measuredPhase);
             }
@@ -304,9 +318,6 @@ public class HrvForegroundService extends Service {
         }
     }
 
-    /**
-     * Расчет метрик по текущему срезу скользящего окна и запись в буфер снимков
-     */
     private void processAndSaveWindow(List<Integer> windowData) {
         try {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(windowData);
@@ -321,9 +332,6 @@ public class HrvForegroundService extends Service {
         }
     }
 
-    /**
-     * Получение полного массива всей сессии для анализа и экспорта
-     */
     public List<Integer> getSessionRrData() {
         synchronized (rrSessionList) {
             return new ArrayList<>(rrSessionList);
@@ -334,9 +342,6 @@ public class HrvForegroundService extends Service {
         return isRecording;
     }
 
-    /**
-     * Атомарный сброс и получение буфера готовых снимков для записи в БД Room
-     */
     public List<SessionSnapshot> flushSnapshotBuffer() {
         synchronized (snapshotBuffer) {
             List<SessionSnapshot> snapshotCopy = new ArrayList<>(snapshotBuffer);
@@ -347,6 +352,7 @@ public class HrvForegroundService extends Service {
 
     @Override
     public void onDestroy() {
+        stopAudioAndClock();
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
         }
