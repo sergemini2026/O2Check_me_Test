@@ -189,7 +189,7 @@ public class SettingsDialogManager {
         int currentVideoIndex = prefs.getInt("pref_video_index", 0);
 
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        builder.setTitle(getCenteredTitle("Режим визуализации видео"));
+        builder.setTitle(getCenteredTitle("Режим визуализации"));
 
         HighlightArrayAdapter adapter = new HighlightArrayAdapter(context, videoModes, currentVideoIndex);
         AlertDialog dialog = builder.setAdapter(adapter, null).create();
