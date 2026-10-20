@@ -26,14 +26,16 @@ public class AudioPacerEngine {
 
     private volatile float currentPhase = 0f;
     private final Context context;
+    private final int audioResId; // Поддерживаемый ресурс выбранной аудиодорожки
     private short[] decodedPcmSamples;
 
     // Параметры для плавного изменения громкости (Fade-in / Fade-out) исключающие акустический шок
     private volatile float currentVolumeGain = 0.0f;
     private static final float VOLUME_STEP = 0.002f; // Скорость изменения громкости за один цикл буфера
 
-    public AudioPacerEngine(Context context) {
+    public AudioPacerEngine(Context context, int audioResId) {
         this.context = context;
+        this.audioResId = audioResId;
     }
 
     /**
@@ -41,8 +43,8 @@ public class AudioPacerEngine {
      */
     public void prepareAsync(Runnable onReadyCallback) {
         Executors.newSingleThreadExecutor().execute(() -> {
-            Log.d(TAG, "Старт фоновой декодировки MP3...");
-            short[] rawPcm = loadPcmFromRaw(context, R.raw.o2test_01);
+            Log.d(TAG, "Старт фоновой декодировки MP3 (resId: " + audioResId + ")...");
+            short[] rawPcm = loadPcmFromRaw(context, audioResId);
             
             // Применяем кроссфейд для бесшовной кольцевой закольцовки (окна по 2048 семплов на стерео-канал)
             decodedPcmSamples = applyLoopCrossfade(rawPcm, 2048);
@@ -101,7 +103,7 @@ public class AudioPacerEngine {
 
         // Если предзагрузка не успела или не была вызвана, подгружаем синхронно с кроссфейдом
         if (decodedPcmSamples == null || decodedPcmSamples.length == 0) {
-            short[] rawPcm = loadPcmFromRaw(context, R.raw.o2test_01);
+            short[] rawPcm = loadPcmFromRaw(context, audioResId);
             decodedPcmSamples = applyLoopCrossfade(rawPcm, 2048);
         }
 
