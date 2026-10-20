@@ -19,6 +19,10 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.channels.FileChannel;
 
 public class SettingsDialogManager {
 
@@ -46,31 +50,38 @@ public class SettingsDialogManager {
      */
     private static StateListDrawable createRowSelector() {
         StateListDrawable drawable = new StateListDrawable();
-        // Цвет при нажатии / фокусе (полупрозрачный неоновый бирюзовый)
         drawable.addState(new int[]{android.R.attr.state_pressed}, new ColorDrawable(0x4000F2FE));
         drawable.addState(new int[]{android.R.attr.state_focused}, new ColorDrawable(0x4000F2FE));
-        // Обычное состояние (прозрачное)
         drawable.addState(new int[]{}, new ColorDrawable(Color.TRANSPARENT));
         return drawable;
     }
 
     /**
-     * Кастомный адаптер списков с интерактивным откликом и отступом (~1 см слева)
+     * Кастомный адаптер списков с подсветкой текущего активного пункта и отступом (~1 см слева)
      */
     private static class HighlightArrayAdapter extends ArrayAdapter<CharSequence> {
-        public HighlightArrayAdapter(Context context, CharSequence[] items) {
+        private final int selectedIndex;
+
+        public HighlightArrayAdapter(Context context, CharSequence[] items, int selectedIndex) {
             super(context, android.R.layout.select_dialog_item, items);
+            this.selectedIndex = selectedIndex;
         }
 
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
             View view = super.getView(position, convertView, parent);
-            view.setBackground(createRowSelector());
+            
+            // Если это сохраненный/выбранный пункт, подсвечиваем его при открытии
+            if (position == selectedIndex) {
+                view.setBackgroundColor(0x2500F2FE); // Легкая постоянная подсветка выбранного
+            } else {
+                view.setBackground(createRowSelector());
+            }
+
             if (view instanceof TextView) {
                 TextView tv = (TextView) view;
                 tv.setTextColor(Color.WHITE);
                 tv.setTextSize(16);
-                // Увеличенный отступ слева (~1 см) и комфортные вертикальные отступы
                 tv.setPadding(75, 28, 32, 28);
             }
             return view;
@@ -91,7 +102,7 @@ public class SettingsDialogManager {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
         builder.setTitle(getCenteredTitle("Настройки системы"));
 
-        HighlightArrayAdapter adapter = new HighlightArrayAdapter(context, menuItems);
+        HighlightArrayAdapter adapter = new HighlightArrayAdapter(context, menuItems, -1);
         AlertDialog dialog = builder.setAdapter(adapter, null).setNegativeButton("Закрыть", null).create();
 
         dialog.getListView().setOnItemClickListener((parent, view, position, id) -> {
@@ -114,15 +125,18 @@ public class SettingsDialogManager {
     }
 
     /**
-     * Подменю А: Настройки сохранения сессий
+     * Подменю А: Настройки сохранения сессий с миграцией файлов и бэкапов
      */
     private static void showFolderSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
         CharSequence[] paths = {"Папка Документы (Documents)", "Папка Загрузки (Downloads)"};
+        
+        // Читаем последний выбор (по умолчанию 0 - Documents)
+        int currentFolderIndex = prefs.getInt("pref_folder_index", 0);
 
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
         builder.setTitle(getCenteredTitle("Выбор корневой папки отчетов"));
 
-        HighlightArrayAdapter adapter = new HighlightArrayAdapter(context, paths);
+        HighlightArrayAdapter adapter = new HighlightArrayAdapter(context, paths, currentFolderIndex);
         AlertDialog dialog = builder.setAdapter(adapter, null).create();
 
         dialog.getListView().setOnItemClickListener((parent, view, position, id) -> {
@@ -131,34 +145,53 @@ public class SettingsDialogManager {
                 dialog.dismiss();
 
                 if (callback != null && !callback.isProfileAuthorized()) {
-                    Toast.makeText(context, "Сначала выберите профиль для создания папки!", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(context, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
                     callback.openProfilesManager();
                     return;
                 }
 
                 String profileName = (callback != null) ? callback.getActiveProfileName() : "DefaultProfile";
 
-                File baseDir = (position == 0) 
+                // Определяем старую и новую директории
+                File oldBaseDir = (currentFolderIndex == 0) 
                         ? Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
                         : Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                File oldO2Dir = new File(oldBaseDir, "O2Test");
+                File oldProfileDir = new File(oldO2Dir, profileName);
 
-                File o2TestDir = new File(baseDir, "O2Test");
-                if (!o2TestDir.exists()) {
-                    o2TestDir.mkdirs();
+                File newBaseDir = (position == 0) 
+                        ? Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+                        : Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                File newO2Dir = new File(newBaseDir, "O2Test");
+                if (!newO2Dir.exists()) newO2Dir.mkdirs();
+
+                File newProfileDir = new File(newO2Dir, profileName);
+                if (!newProfileDir.exists()) newProfileDir.mkdirs();
+
+                // Миграция файлов (сессии, PDF, бэкапы) со старого места на новое
+                if (oldProfileDir.exists() && oldProfileDir.isDirectory() && !oldProfileDir.equals(newProfileDir)) {
+                    File[] files = oldProfileDir.listFiles();
+                    if (files != null) {
+                        for (File file : files) {
+                            if (file.isFile()) {
+                                File destFile = new File(newProfileDir, file.getName());
+                                copyAndRmvFile(file, destFile);
+                            }
+                        }
+                    }
+                    // Удаляем старую пустую папку профиля
+                    deleteDirRecursively(oldProfileDir);
                 }
 
-                File profileDir = new File(o2TestDir, profileName);
-                if (!profileDir.exists()) {
-                    profileDir.mkdirs();
-                }
+                String finalPath = newProfileDir.getAbsolutePath();
+                prefs.edit().putString("custom_export_path", finalPath)
+                            .putInt("pref_folder_index", position)
+                            .apply();
 
-                String finalPath = profileDir.getAbsolutePath();
-                prefs.edit().putString("custom_export_path", finalPath).apply();
-                
                 if (callback != null) {
-                    callback.onLog("[НАСТРОЙКИ] Путь сохранения сессий установлен: " + finalPath);
+                    callback.onLog("[НАСТРОЙКИ] Путь сохранения изменен: " + finalPath);
                 }
-                Toast.makeText(context, "Папка создана: " + profileName, Toast.LENGTH_SHORT).show();
+                Toast.makeText(context, "Папка установлена: " + (position == 0 ? "Documents" : "Downloads"), Toast.LENGTH_SHORT).show();
             }, CLICK_DELAY_MS);
         });
 
@@ -166,7 +199,7 @@ public class SettingsDialogManager {
     }
 
     /**
-     * Подменю Б: Выбор аудиодорожки
+     * Подменю Б: Выбор аудиодорожки с запоминанием выбора
      */
     private static void showAudioSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
         CharSequence[] audioOptions = {
@@ -176,10 +209,12 @@ public class SettingsDialogManager {
             "Удовлетворение"
         };
 
+        int currentAudioIndex = prefs.getInt("pref_audio_index", 0);
+
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
         builder.setTitle(getCenteredTitle("Выбор аудио сопровождения"));
 
-        HighlightArrayAdapter adapter = new HighlightArrayAdapter(context, audioOptions);
+        HighlightArrayAdapter adapter = new HighlightArrayAdapter(context, audioOptions, currentAudioIndex);
         AlertDialog dialog = builder.setAdapter(adapter, null).create();
 
         dialog.getListView().setOnItemClickListener((parent, view, position, id) -> {
@@ -211,6 +246,7 @@ public class SettingsDialogManager {
 
                 prefs.edit().putInt("selected_audio_res", selectedResId)
                             .putString("selected_audio_name", trackName)
+                            .putInt("pref_audio_index", position)
                             .apply();
 
                 if (callback != null) {
@@ -225,7 +261,7 @@ public class SettingsDialogManager {
     }
 
     /**
-     * Подменю В: Режимы видео
+     * Подменю В: Режимы видео с запоминанием выбора
      */
     private static void showVideoSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
         CharSequence[] videoModes = {
@@ -233,10 +269,12 @@ public class SettingsDialogManager {
             "Трансляция"
         };
 
+        int currentVideoIndex = prefs.getInt("pref_video_index", 0);
+
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
         builder.setTitle(getCenteredTitle("Режим визуализации видео"));
 
-        HighlightArrayAdapter adapter = new HighlightArrayAdapter(context, videoModes);
+        HighlightArrayAdapter adapter = new HighlightArrayAdapter(context, videoModes, currentVideoIndex);
         AlertDialog dialog = builder.setAdapter(adapter, null).create();
 
         dialog.getListView().setOnItemClickListener((parent, view, position, id) -> {
@@ -245,7 +283,9 @@ public class SettingsDialogManager {
                 dialog.dismiss();
 
                 String modeStr = (position == 0) ? "single" : "broadcast";
-                prefs.edit().putString("video_render_mode", modeStr).apply();
+                prefs.edit().putString("video_render_mode", modeStr)
+                            .putInt("pref_video_index", position)
+                            .apply();
                 String label = (position == 0) ? "Одиночный" : "Трансляция";
 
                 if (callback != null) {
@@ -259,7 +299,7 @@ public class SettingsDialogManager {
     }
 
     /**
-     * Подменю Г: Резервное копирование
+     * Подменю Г: Резервное копирование (синхронизировано с выбранной папкой сессий)
      */
     private static void showBackupSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
         String customPath = prefs.getString("custom_export_path", null);
@@ -270,6 +310,8 @@ public class SettingsDialogManager {
         }
 
         File exportDir = new File(customPath);
+        if (!exportDir.exists()) exportDir.mkdirs();
+
         File backupFile = new File(exportDir, "o2test_backup.db");
         boolean hasBackup = backupFile.exists();
 
@@ -281,7 +323,7 @@ public class SettingsDialogManager {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
         builder.setTitle(getCenteredTitle("Резервное копирование базы данных"));
 
-        HighlightArrayAdapter adapter = new HighlightArrayAdapter(context, backupOptions);
+        HighlightArrayAdapter adapter = new HighlightArrayAdapter(context, backupOptions, -1);
         AlertDialog dialog = builder.setAdapter(adapter, null).create();
 
         dialog.getListView().setOnItemClickListener((parent, view, position, id) -> {
@@ -306,5 +348,32 @@ public class SettingsDialogManager {
         });
 
         dialog.show();
+    }
+
+    // Вспомогательный метод миграции файлов
+    private static void copyAndRmvFile(File src, File dst) {
+        try {
+            FileChannel in = new FileInputStream(src).getChannel();
+            FileChannel out = new FileOutputStream(dst).getChannel();
+            out.transferFrom(in, 0, in.size());
+            in.close();
+            out.close();
+            src.delete();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // Вспомогательный метод удаления старой папки
+    private static boolean deleteDirRecursively(File dir) {
+        if (dir.isDirectory()) {
+            File[] children = dir.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteDirRecursively(child);
+                }
+            }
+        }
+        return dir.delete();
     }
 }
