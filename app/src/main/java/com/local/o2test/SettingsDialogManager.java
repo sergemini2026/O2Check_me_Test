@@ -23,6 +23,7 @@ import java.io.File;
 public class SettingsDialogManager {
 
     private static final String PREF_NAME = "O2AppPrefs";
+    private static final long CLICK_DELAY_MS = 500; // Задержка 0.5 сек для визуального отклика
 
     public interface SettingsCallback {
         void onLog(String message);
@@ -54,7 +55,7 @@ public class SettingsDialogManager {
     }
 
     /**
-     * Кастомный адаптер списков с интерактивным откликом при клике
+     * Кастомный адаптер списков с интерактивным откликом и отступом (~1 см слева)
      */
     private static class HighlightArrayAdapter extends ArrayAdapter<CharSequence> {
         public HighlightArrayAdapter(Context context, CharSequence[] items) {
@@ -66,9 +67,11 @@ public class SettingsDialogManager {
             View view = super.getView(position, convertView, parent);
             view.setBackground(createRowSelector());
             if (view instanceof TextView) {
-                ((TextView) view).setTextColor(Color.WHITE);
-                ((TextView) view).setTextSize(15);
-                view.setPadding(32, 24, 32, 24);
+                TextView tv = (TextView) view;
+                tv.setTextColor(Color.WHITE);
+                tv.setTextSize(16);
+                // Увеличенный отступ слева (~1 см) и комфортные вертикальные отступы
+                tv.setPadding(75, 28, 32, 28);
             }
             return view;
         }
@@ -91,7 +94,6 @@ public class SettingsDialogManager {
         HighlightArrayAdapter adapter = new HighlightArrayAdapter(context, menuItems);
         AlertDialog dialog = builder.setAdapter(adapter, null).setNegativeButton("Закрыть", null).create();
 
-        // Кастомная обработка клика с задержкой для визуального отклика
         dialog.getListView().setOnItemClickListener((parent, view, position, id) -> {
             view.setPressed(true);
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
@@ -105,7 +107,7 @@ public class SettingsDialogManager {
                 } else if (position == 3) {
                     showBackupSettingsDialog(context, prefs, callback);
                 }
-            }, 120);
+            }, CLICK_DELAY_MS);
         });
 
         dialog.show();
@@ -157,7 +159,7 @@ public class SettingsDialogManager {
                     callback.onLog("[НАСТРОЙКИ] Путь сохранения сессий установлен: " + finalPath);
                 }
                 Toast.makeText(context, "Папка создана: " + profileName, Toast.LENGTH_SHORT).show();
-            }, 120);
+            }, CLICK_DELAY_MS);
         });
 
         dialog.show();
@@ -216,7 +218,7 @@ public class SettingsDialogManager {
                     callback.onLog("[НАСТРОЙКИ] Выбрана аудиодорожка: " + trackName);
                 }
                 Toast.makeText(context, "Аудио: " + trackName, Toast.LENGTH_SHORT).show();
-            }, 120);
+            }, CLICK_DELAY_MS);
         });
 
         dialog.show();
@@ -250,7 +252,7 @@ public class SettingsDialogManager {
                     callback.onLog("[НАСТРОЙКИ] Режим видео изменен на: " + label);
                 }
                 Toast.makeText(context, "Режим видео: " + label, Toast.LENGTH_SHORT).show();
-            }, 120);
+            }, CLICK_DELAY_MS);
         });
 
         dialog.show();
@@ -300,7 +302,7 @@ public class SettingsDialogManager {
                         callback.onImportBackupRequested(backupFile);
                     }
                 }
-            }, 120);
+            }, CLICK_DELAY_MS);
         });
 
         dialog.show();
