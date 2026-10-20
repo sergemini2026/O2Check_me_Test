@@ -319,10 +319,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
      */
     private void showAudioSettingsDialog() {
         CharSequence[] audioOptions = {
-            "1. Спокойствие (o2test_01)",
-            "2. Безмятежность (o2test_02)",
-            "3. Мечтательность (o2test_03)",
-            "4. Удовлетворение (o2test_04)"
+            "Спокойствие",
+            "Безмятежность",
+            "Мечтательность",
+            "Удовлетворение",
+            " "
         };
         SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
 
