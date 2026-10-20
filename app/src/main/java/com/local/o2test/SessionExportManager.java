@@ -81,7 +81,7 @@ public class SessionExportManager {
                 if (callback != null) {
                     callback.onLog("Ошибка сохранения CSV: " + errorMessage);
                 }
-                saveSessionToDatabase(context, prefs, copyForExport, "", activeProfileId, 
+                saveSessionToDatabase(context, copyForExport, "", activeProfileId, 
                         activeProfileName, sessionStartTime, currentPolarHr, currentSpo2, 
                         lastPstiScore, lastPstiRmssdRatio, dbExecutor, hrvService, isBound, callback);
             }
@@ -213,7 +213,7 @@ public class SessionExportManager {
     }
 
     /**
-     * Экспорт (создание бэкапа): упаковка всей папки O2Test в o2test_backup.zip
+     * Экспорт (создание бэкапа): чистая упаковка базы данных и папок профилей в o2test_backup.zip
      */
     public static void exportDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
         dbExecutor.execute(() -> {
@@ -230,25 +230,49 @@ public class SessionExportManager {
                     exportDir.mkdirs();
                 }
 
-                File tempDbCopy = new File(exportDir, "o2test_backup.db");
-                try (FileChannel src = new FileInputStream(dbFile).getChannel();
-                     FileChannel dst = new FileOutputStream(tempDbCopy).getChannel()) {
-                    dst.transferFrom(src, 0, src.size());
-                }
+                // Временный архив для атомарной записи
+                File tempZip = new File(exportDir, "temp_backup.zip");
+                if (tempZip.exists()) tempZip.delete();
 
-                File walFile = new File(dbFile.getParentFile(), "synergy_database-wal");
-                File tempWalCopy = new File(exportDir, "o2test_backup.db-wal");
-                if (walFile.exists()) {
-                    try (FileChannel src = new FileInputStream(walFile).getChannel();
-                         FileChannel dst = new FileOutputStream(tempWalCopy).getChannel()) {
-                        dst.transferFrom(src, 0, src.size());
+                try (FileOutputStream fos = new FileOutputStream(tempZip);
+                     ZipOutputStream zos = new ZipOutputStream(fos)) {
+
+                    // 1. Добавляем файл базы данных внутрь архива как o2test_backup.db
+                    addFileToZip(dbFile, "o2test_backup.db", zos);
+
+                    // 2. Добавляем wal-файл БД, если он существует
+                    File walFile = new File(dbFile.getParentFile(), "synergy_database-wal");
+                    if (walFile.exists()) {
+                        addFileToZip(walFile, "o2test_backup.db-wal", zos);
+                    }
+
+                    // 3. Рекурсивно добавляем все папки профилей и их отчеты (PDF/CSV)
+                    File[] children = exportDir.listFiles();
+                    if (children != null) {
+                        for (File child : children) {
+                            // Пропускаем сам целевой архив и временные файлы
+                            if (child.equals(backupFile) || child.equals(tempZip)) {
+                                continue;
+                            }
+                            addRecursiveToZip(exportDir, child, zos);
+                        }
                     }
                 }
 
-                zipFolder(exportDir, backupFile);
+                // Переименовываем временный архив в финальный backupFile
+                if (backupFile.exists()) {
+                    backupFile.delete();
+                }
+                if (!tempZip.renameTo(backupFile)) {
+                    copyFile(tempZip, backupFile);
+                    tempZip.delete();
+                }
 
-                if (tempDbCopy.exists()) tempDbCopy.delete();
-                if (tempWalCopy.exists()) tempWalCopy.delete();
+                // Удаляем оставшиеся "мусорные" файлы старых неудачных экспортов, если они были
+                File oldDb = new File(exportDir, "o2test_backup.db");
+                if (oldDb.exists()) oldDb.delete();
+                File oldWal = new File(exportDir, "o2test_backup.db-wal");
+                if (oldWal.exists()) oldWal.delete();
 
                 android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
                 mainHandler.post(() -> {
@@ -257,7 +281,7 @@ public class SessionExportManager {
                     }
                     Toast.makeText(context, "Экспорт бэкапа выполнен успешно", Toast.LENGTH_LONG).show();
                 });
-            } catch (IOException e) {
+            } catch (Exception e) {
                 e.printStackTrace();
                 android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
                 mainHandler.post(() -> Toast.makeText(context, "Ошибка экспорта: " + e.getMessage(), Toast.LENGTH_LONG).show());
@@ -280,6 +304,7 @@ public class SessionExportManager {
                             return;
                         }
 
+                        // Распаковываем архив в папку O2Test
                         unzipFolder(backupFile, exportDir);
 
                         File extractedDb = new File(exportDir, "o2test_backup.db");
@@ -289,6 +314,7 @@ public class SessionExportManager {
                             return;
                         }
 
+                        // Закрываем текущую базу данных
                         AppDatabase.getInstance(context.getApplicationContext()).close();
 
                         File dbFile = context.getDatabasePath("synergy_database");
@@ -297,6 +323,7 @@ public class SessionExportManager {
                             dst.transferFrom(src, 0, src.size());
                         }
 
+                        // Восстанавливаем wal-файл, если он был в архиве
                         File extractedWal = new File(exportDir, "o2test_backup.db-wal");
                         File walFile = new File(dbFile.getParentFile(), "synergy_database-wal");
                         if (extractedWal.exists()) {
@@ -329,42 +356,41 @@ public class SessionExportManager {
             .show();
     }
 
-    private static void zipFolder(File sourceFolder, File zipFile) throws IOException {
-        try (FileOutputStream fos = new FileOutputStream(zipFile);
-             ZipOutputStream zos = new ZipOutputStream(fos)) {
-            zipFileRecursive(sourceFolder, sourceFolder, zos);
+    private static void addFileToZip(File file, String entryName, ZipOutputStream zos) throws IOException {
+        zos.putNextEntry(new ZipEntry(entryName));
+        try (FileInputStream fis = new FileInputStream(file)) {
+            byte[] buffer = new byte[1024];
+            int length;
+            while ((length = fis.read(buffer)) >= 0) {
+                zos.write(buffer, 0, length);
+            }
         }
+        zos.closeEntry();
     }
 
-    private static void zipFileRecursive(File rootFolder, File file, ZipOutputStream zos) throws IOException {
-        if (file.getName().equals("o2test_backup.zip")) {
-            return;
-        }
+    private static void addRecursiveToZip(File rootFolder, File file, ZipOutputStream zos) throws IOException {
         String filePath = file.getAbsolutePath();
         String rootPath = rootFolder.getAbsolutePath();
         String zipEntryName = filePath.substring(rootPath.length() + 1);
 
         if (file.isDirectory()) {
-            if (!zipEntryName.isEmpty()) {
-                zos.putNextEntry(new ZipEntry(zipEntryName + "/"));
-                zos.closeEntry();
-            }
+            zos.putNextEntry(new ZipEntry(zipEntryName + "/"));
+            zos.closeEntry();
             File[] children = file.listFiles();
             if (children != null) {
                 for (File child : children) {
-                    zipFileRecursive(rootFolder, child, zos);
+                    addRecursiveToZip(rootFolder, child, zos);
                 }
             }
         } else {
-            zos.putNextEntry(new ZipEntry(zipEntryName));
-            try (FileInputStream fis = new FileInputStream(file)) {
-                byte[] bytes = new byte[1024];
-                int length;
-                while ((length = fis.read(bytes)) >= 0) {
-                    zos.write(bytes, 0, length);
-                }
-            }
-            zos.closeEntry();
+            addFileToZip(file, zipEntryName, zos);
+        }
+    }
+
+    private static void copyFile(File src, File dst) throws IOException {
+        try (FileChannel in = new FileInputStream(src).getChannel();
+             FileChannel out = new FileOutputStream(dst).getChannel()) {
+            dst.transferFrom(in, 0, in.size());
         }
     }
 
