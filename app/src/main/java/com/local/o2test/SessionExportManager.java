@@ -3,6 +3,7 @@ package com.local.o2test;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Environment;
 import android.widget.Toast;
 
 import com.local.o2test.db.AppDatabase;
@@ -18,6 +19,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 
 public class SessionExportManager {
 
@@ -53,7 +57,13 @@ public class SessionExportManager {
             copyForExport = new ArrayList<>(sessionData);
         }
 
-        String customPath = prefs.getString("custom_export_path", null);
+        File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+        File o2TestDir = new File(baseDir, "O2Test");
+        File profileDir = new File(o2TestDir, activeProfileName);
+        if (!profileDir.exists()) {
+            profileDir.mkdirs();
+        }
+        String customPath = profileDir.getAbsolutePath();
 
         CsvExporter.saveSessionToCsv(context, copyForExport, customPath, new CsvExporter.ExportCallback() {
             @Override
@@ -105,7 +115,10 @@ public class SessionExportManager {
             capturedSnapshots = new ArrayList<>();
         }
 
-        String customPath = prefs.getString("custom_export_path", null);
+        File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+        File o2TestDir = new File(baseDir, "O2Test");
+        File profileDir = new File(o2TestDir, activeProfileName);
+        String customPath = profileDir.getAbsolutePath();
 
         dbExecutor.execute(() -> {
             try {
@@ -115,7 +128,7 @@ public class SessionExportManager {
                 SessionEntity session = new SessionEntity(
                         0,
                         activeProfileId,
-                        "Базовый мониторинг", // или текущий режим тренировки
+                        "Базовый мониторинг",
                         sessionStartTime,
                         endTime,
                         currentPolarHr > 0 ? currentPolarHr : 75,
@@ -156,7 +169,6 @@ public class SessionExportManager {
                             String.format(Locale.US, "%.1f%%", lastPstiScore));
                 }
 
-                // Генерация PDF на главном потоке (требуется для работы с графикой/контекстом UI если нужно)
                 android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
                 mainHandler.post(() -> PdfExporter.generateHrvPdfReport(
                         context,
@@ -201,31 +213,51 @@ public class SessionExportManager {
     }
 
     /**
-     * Экспорт (создание бэкапа) базы данных
+     * Экспорт (создание бэкапа): упаковка всей папки O2Test (включая БД и папки профилей с отчетами) в o2test_backup.zip
      */
     public static void exportDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
         dbExecutor.execute(() -> {
             try {
-                File dbFile = context.getDatabasePath("o2test_db");
-                if (!dbFile.exists()) {
-                    dbFile = context.getDatabasePath("app_database");
-                }
+                File dbFile = context.getDatabasePath("synergy_database");[span_3](start_span)[span_3](end_span)
                 if (!dbFile.exists()) {
                     android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
                     mainHandler.post(() -> Toast.makeText(context, "Файл базы данных не найден!", Toast.LENGTH_SHORT).show());
                     return;
                 }
 
-                FileChannel src = new FileInputStream(dbFile).getChannel();
-                FileChannel dst = new FileOutputStream(backupFile).getChannel();
-                dst.transferFrom(src, 0, src.size());
-                src.close();
-                dst.close();
+                File exportDir = backupFile.getParentFile();
+                if (exportDir != null && !exportDir.exists()) {
+                    exportDir.mkdirs();
+                }
+
+                // Временно сохраняем копию БД в корень O2Test как o2test_backup.db для включения в zip-архив
+                File tempDbCopy = new File(exportDir, "o2test_backup.db");
+                try (FileChannel src = new FileInputStream(dbFile).getChannel();
+                     FileChannel dst = new FileOutputStream(tempDbCopy).getChannel()) {
+                    dst.transferFrom(src, 0, src.size());
+                }
+
+                // Копируем wal-файл, если он существует
+                File walFile = new File(dbFile.getParentFile(), "synergy_database-wal");
+                File tempWalCopy = new File(exportDir, "o2test_backup.db-wal");
+                if (walFile.exists()) {
+                    try (FileChannel src = new FileInputStream(walFile).getChannel();
+                         FileChannel dst = new FileOutputStream(tempWalCopy).getChannel()) {
+                        dst.transferFrom(src, 0, src.size());
+                    }
+                }
+
+                // Упаковываем всю папку O2Test в o2test_backup.zip
+                zipFolder(exportDir, backupFile);
+
+                // Удаляем временные файлы из открытой папки (они теперь внутри архива)
+                if (tempDbCopy.exists()) tempDbCopy.delete();
+                if (tempWalCopy.exists()) tempWalCopy.delete();
 
                 android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
                 mainHandler.post(() -> {
                     if (callback != null) {
-                        callback.onLog("[БЭКАП] База данных успешно экспортирована: " + backupFile.getAbsolutePath());
+                        callback.onLog("[БЭКАП] Полный архив успешно создан: " + backupFile.getAbsolutePath());
                     }
                     Toast.makeText(context, "Экспорт бэкапа выполнен успешно", Toast.LENGTH_LONG).show();
                 });
@@ -238,32 +270,59 @@ public class SessionExportManager {
     }
 
     /**
-     * Импорт (восстановление бэкапа) базы данных
+     * Импорт (восстановление бэкапа): распаковка o2test_backup.zip в Documents/O2Test и восстановление БД
      */
     public static void importDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
         new AlertDialog.Builder(context)
             .setTitle("Внимание!")
-            .setMessage("Импорт базы данных перезапишет текущие локальные данные. Продолжить?")
+            .setMessage("Импорт бэкапа перезапишет текущие профили и сессии. Продолжить?")
             .setPositiveButton("Да", (d, w) -> {
                 dbExecutor.execute(() -> {
                     try {
-                        File dbFile = context.getDatabasePath("o2test_db");
-                        if (!dbFile.exists()) {
-                            dbFile = context.getDatabasePath("app_database");
+                        File exportDir = backupFile.getParentFile();
+                        if (exportDir == null || !exportDir.exists()) {
+                            return;
                         }
 
-                        AppDatabase.getInstance(context.getApplicationContext()).close();
+                        // Распаковываем архив в папку O2Test (восстанавливаются папки профилей с отчетами и o2test_backup.db)
+                        unzipFolder(backupFile, exportDir);
 
-                        FileChannel src = new FileInputStream(backupFile).getChannel();
-                        FileChannel dst = new FileOutputStream(dbFile).getChannel();
-                        dst.transferFrom(src, 0, src.size());
-                        src.close();
-                        dst.close();
+                        File extractedDb = new File(exportDir, "o2test_backup.db");
+                        if (!extractedDb.exists()) {
+                            android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
+                            mainHandler.post(() -> Toast.makeText(context, "В архиве не найден файл базы данных!", Toast.LENGTH_LONG).show());
+                            return;
+                        }
+
+                        // Закрываем текущую базу данных
+                        AppDatabase.getInstance(context.getApplicationContext()).close();[span_4](start_span)[span_4](end_span)
+
+                        File dbFile = context.getDatabasePath("synergy_database");[span_5](start_span)[span_5](end_span)
+                        try (FileChannel src = new FileInputStream(extractedDb).getChannel();
+                             FileChannel dst = new FileOutputStream(dbFile).getChannel()) {
+                            dst.transferFrom(src, 0, src.size());
+                        }
+
+                        // Восстанавливаем wal-файл, если он был в архиве
+                        File extractedWal = new File(exportDir, "o2test_backup.db-wal");
+                        File walFile = new File(dbFile.getParentFile(), "synergy_database-wal");
+                        if (extractedWal.exists()) {
+                            try (FileChannel src = new FileInputStream(extractedWal).getChannel();
+                                 FileChannel dst = new FileOutputStream(walFile).getChannel()) {
+                                dst.transferFrom(src, 0, src.size());
+                            }
+                            extractedWal.delete();
+                        } else if (walFile.exists()) {
+                            walFile.delete();
+                        }
+
+                        // Удаляем временный файл o2test_backup.db из папки O2Test после восстановления
+                        extractedDb.delete();
 
                         android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
                         mainHandler.post(() -> {
                             if (callback != null) {
-                                callback.onLog("[БЭКАП] База данных успешно восстановлена из бэкапа.");
+                                callback.onLog("[БЭКАП] База данных и отчеты сессий успешно восстановлены из архива.");
                             }
                             Toast.makeText(context, "Импорт выполнен. Перезапустите приложение.", Toast.LENGTH_LONG).show();
                         });
@@ -276,5 +335,72 @@ public class SessionExportManager {
             })
             .setNegativeButton("Отмена", null)
             .show();
+    }
+
+    private static void zipFolder(File sourceFolder, File zipFile) throws IOException {
+        try (FileOutputStream fos = new FileOutputStream(zipFile);
+             ZipOutputStream zos = new ZipOutputStream(fos)) {
+            zipFileRecursive(sourceFolder, sourceFolder, zos);
+        }
+    }
+
+    private static void zipFileRecursive(File rootFolder, File file, ZipOutputStream zos) throws IOException {
+        if (file.getName().equals("o2test_backup.zip")) {
+            return; // Пропускаем сам архив бэкапа
+        }
+        String filePath = file.getAbsolutePath();
+        String rootPath = rootFolder.getAbsolutePath();
+        String zipEntryName = filePath.substring(rootPath.length() + 1);
+
+        if (file.isDirectory()) {
+            if (!zipEntryName.isEmpty()) {
+                zos.putNextEntry(new ZipEntry(zipEntryName + "/"));
+                zos.closeEntry();
+            }
+            File[] children = file.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    zipFileRecursive(rootFolder, child, zos);
+                }
+            }
+        } else {
+            zos.putNextEntry(new ZipEntry(zipEntryName));
+            try (FileInputStream fis = new FileInputStream(file)) {
+                byte[] bytes = new byte[1024];
+                int length;
+                while ((length = fis.read(bytes)) >= 0) {
+                    zos.write(bytes, 0, length);
+                }
+            }
+            zos.closeEntry();
+        }
+    }
+
+    private static void unzipFolder(File zipFile, File targetFolder) throws IOException {
+        try (ZipInputStream zis = new ZipInputStream(new FileInputStream(zipFile))) {
+            ZipEntry zipEntry = zis.getNextEntry();
+            while (zipEntry != null) {
+                File newFile = new File(targetFolder, zipEntry.getName());
+                if (zipEntry.isDirectory()) {
+                    if (!newFile.isDirectory() && !newFile.mkdirs()) {
+                        throw new IOException("Failed to create directory " + newFile);
+                    }
+                } else {
+                    File parent = newFile.getParentFile();
+                    if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+                        throw new IOException("Failed to create directory " + parent);
+                    }
+                    try (FileOutputStream fos = new FileOutputStream(newFile)) {
+                        byte[] bytes = new byte[1024];
+                        int length;
+                        while ((length = zis.read(bytes)) >= 0) {
+                            fos.write(bytes, 0, length);
+                        }
+                    }
+                }
+                zipEntry = zis.getNextEntry();
+            }
+            zis.closeEntry();
+        }
     }
 }
