@@ -28,6 +28,11 @@ import com.local.o2test.db.AppDatabase;
 import com.local.o2test.db.entity.HrvSnapshotEntity;
 import com.local.o2test.db.entity.SessionEntity;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.channels.FileChannel;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -241,25 +246,238 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         });
     }
 
+    /**
+     * Интегрированное меню «Настройки» с подразделами А, Б, В, Г
+     */
     private void showSettingsDialog() {
+        CharSequence[] menuItems = {
+            "а) Сохранение сессий (Папка O2Test / Профиль)",
+            "б) Аудио (Выбор звукового сопровождения)",
+            "в) Видео (Режимы визуализации)",
+            "г) Резервирование (Экспорт / Импорт БД)"
+        };
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(getCenteredTitle("Настройки системы"));
+        builder.setItems(menuItems, (dialog, which) -> {
+            if (which == 0) {
+                showFolderSettingsDialog();
+            } else if (which == 1) {
+                showAudioSettingsDialog();
+            } else if (which == 2) {
+                showVideoSettingsDialog();
+            } else if (which == 3) {
+                showBackupSettingsDialog();
+            }
+        });
+        builder.setNegativeButton("Закрыть", null);
+        builder.show();
+    }
+
+    /**
+     * п. А: Настройки сохранения сессий (Documents / Downloads -> O2Test -> Profile)
+     */
+    private void showFolderSettingsDialog() {
         CharSequence[] paths = {"Папка Документы (Documents)", "Папка Загрузки (Downloads)"};
         SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
-        
+
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(getCenteredTitle("Настройки: Путь сохранения отчетов"));
+        builder.setTitle(getCenteredTitle("Выбор корневой папки отчетов"));
         builder.setItems(paths, (dialog, which) -> {
-            String dirPath;
-            if (which == 0) {
-                dirPath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS).getAbsolutePath();
-                Toast.makeText(this, "Выбрана папка: Documents", Toast.LENGTH_SHORT).show();
-            } else {
-                dirPath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath();
-                Toast.makeText(this, "Выбрана папка: Downloads", Toast.LENGTH_SHORT).show();
+            if (!isProfileAuthorized) {
+                Toast.makeText(this, "Сначала выберите профиль для создания папки!", Toast.LENGTH_SHORT).show();
+                openProfilesManager();
+                return;
             }
-            prefs.edit().putString("custom_export_path", dirPath).apply();
-            onLog("[НАСТРОЙКИ] Путь экспорта изменен: " + dirPath);
+
+            File baseDir = (which == 0) 
+                    ? Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+                    : Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+
+            // Создаем папку O2Test
+            File o2TestDir = new File(baseDir, "O2Test");
+            if (!o2TestDir.exists()) {
+                o2TestDir.mkdirs();
+            }
+
+            // Создаем вложенную папку текущего профиля
+            File profileDir = new File(o2TestDir, activeProfileName);
+            if (!profileDir.exists()) {
+                profileDir.mkdirs();
+            }
+
+            String finalPath = profileDir.getAbsolutePath();
+            prefs.edit().putString("custom_export_path", finalPath).apply();
+            onLog("[НАСТРОЙКИ] Путь сохранения сессий установлен: " + finalPath);
+            Toast.makeText(this, "Папка создана: " + activeProfileName, Toast.LENGTH_SHORT).show();
         });
         builder.show();
+    }
+
+    /**
+     * п. Б: Выбор аудиодорожки (1-4)
+     */
+    private void showAudioSettingsDialog() {
+        CharSequence[] audioOptions = {
+            "1. Спокойствие (o2test_01)",
+            "2. Безмятежность (o2test_02)",
+            "3. Мечтательность (o2test_03)",
+            "4. Удовлетворение (o2test_04)"
+        };
+        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(getCenteredTitle("Выбор аудио сопровождения"));
+        builder.setItems(audioOptions, (dialog, which) -> {
+            int selectedResId = R.raw.o2test_01;
+            String trackName = "Спокойствие";
+            switch (which) {
+                case 0:
+                    selectedResId = R.raw.o2test_01;
+                    trackName = "Спокойствие";
+                    break;
+                case 1:
+                    selectedResId = R.raw.o2test_02;
+                    trackName = "Безмятежность";
+                    break;
+                case 2:
+                    selectedResId = R.raw.o2test_03;
+                    trackName = "Мечтательность";
+                    break;
+                case 3:
+                    selectedResId = R.raw.o2test_04;
+                    trackName = "Удовлетворение";
+                    break;
+            }
+            prefs.edit().putInt("selected_audio_res", selectedResId).putString("selected_audio_name", trackName).apply();
+            onLog("[НАСТРОЙКИ] Выбрана аудиодорожка: " + trackName);
+            Toast.makeText(this, "Аудио: " + trackName, Toast.LENGTH_SHORT).show();
+        });
+        builder.show();
+    }
+
+    /**
+     * п. В: Режимы видео (Одиночный / Трансляция)
+     */
+    private void showVideoSettingsDialog() {
+        CharSequence[] videoModes = {
+            "Одиночный (оператор / пользователь)",
+            "Трансляция (вывод видеопотока в slave-программу очков)"
+        };
+        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(getCenteredTitle("Режим визуализации видео"));
+        builder.setItems(videoModes, (dialog, which) -> {
+            String modeStr = (which == 0) ? "single" : "broadcast";
+            prefs.edit().putString("video_render_mode", modeStr).apply();
+            String label = (which == 0) ? "Одиночный" : "Трансляция";
+            onLog("[НАСТРОЙКИ] Режим видео изменен на: " + label);
+            Toast.makeText(this, "Режим видео: " + label, Toast.LENGTH_SHORT).show();
+        });
+        builder.show();
+    }
+
+    /**
+     * п. Г: Резервирование (Экспорт / Импорт бэкапа базы данных)
+     */
+    private void showBackupSettingsDialog() {
+        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+        String customPath = prefs.getString("custom_export_path", null);
+
+        if (customPath == null || customPath.isEmpty()) {
+            Toast.makeText(this, "Сначала задайте путь сохранения в пункте 'Сохранение сессий'!", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        File exportDir = new File(customPath);
+        File backupFile = new File(exportDir, "o2test_backup.db");
+        boolean hasBackup = backupFile.exists();
+
+        CharSequence[] backupOptions = {
+            "Экспорт базы данных (Создать бэкап)",
+            hasBackup ? "Импорт базы данных (Восстановить бэкап)" : "Импорт базы данных (Недоступно: нет файла)"
+        };
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(getCenteredTitle("Резервное копирование базы данных"));
+        builder.setItems(backupOptions, (dialog, which) -> {
+            if (which == 0) {
+                exportDatabaseBackup(backupFile);
+            } else if (which == 1) {
+                if (!hasBackup) {
+                    Toast.makeText(this, "Файл бэкапа не найден в папке сессий!", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                importDatabaseBackup(backupFile);
+            }
+        });
+        builder.show();
+    }
+
+    private void exportDatabaseBackup(File backupFile) {
+        dbExecutor.execute(() -> {
+            try {
+                File dbFile = getDatabasePath("o2test_db");
+                if (!dbFile.exists()) {
+                    // Альтернативное имя файла Room базы
+                    dbFile = getDatabasePath("app_database");
+                }
+                if (!dbFile.exists()) {
+                    runOnUiThread(() -> Toast.makeText(this, "Файл базы данных не найден!", Toast.LENGTH_SHORT).show());
+                    return;
+                }
+
+                FileChannel src = new FileInputStream(dbFile).getChannel();
+                FileChannel dst = new FileOutputStream(backupFile).getChannel();
+                dst.transferFrom(src, 0, src.size());
+                src.close();
+                dst.close();
+
+                runOnUiThread(() -> {
+                    onLog("[БЭКАП] База данных успешно экспортирована: " + backupFile.getAbsolutePath());
+                    Toast.makeText(this, "Экспорт бэкапа выполнен успешно", Toast.LENGTH_LONG).show();
+                });
+            } catch (IOException e) {
+                e.printStackTrace();
+                runOnUiThread(() -> Toast.makeText(this, "Ошибка экспорта: " + e.getMessage(), Toast.LENGTH_LONG).show());
+            }
+        });
+    }
+
+    private void importDatabaseBackup(File backupFile) {
+        new AlertDialog.Builder(this)
+            .setTitle("Внимание!")
+            .setMessage("Импорт базы данных перезапишет текущие локальные данные. Продолжить?")
+            .setPositiveButton("Да", (d, w) -> {
+                dbExecutor.execute(() -> {
+                    try {
+                        File dbFile = getDatabasePath("o2test_db");
+                        if (!dbFile.exists()) {
+                            dbFile = getDatabasePath("app_database");
+                        }
+
+                        // Закрываем инстанс базы перед перезаписью
+                        AppDatabase.getInstance(getApplicationContext()).close();
+
+                        FileChannel src = new FileInputStream(backupFile).getChannel();
+                        FileChannel dst = new FileOutputStream(dbFile).getChannel();
+                        dst.transferFrom(src, 0, src.size());
+                        src.close();
+                        dst.close();
+
+                        runOnUiThread(() -> {
+                            onLog("[БЭКАП] База данных успешно восстановлена из бэкапа.");
+                            Toast.makeText(this, "Импорт выполнен. Перезапустите приложение.", Toast.LENGTH_LONG).show();
+                        });
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                        runOnUiThread(() -> Toast.makeText(this, "Ошибка импорта: " + e.getMessage(), Toast.LENGTH_LONG).show());
+                    }
+                });
+            })
+            .setNegativeButton("Отмена", null)
+            .show();
     }
 
     private void updateRightPanelStatus() {
@@ -532,7 +750,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             hrvService.stopPostiRecording();
             hrvService.startSessionRecording();
             
-            // --- ПОДКЛЮЧАЕМ CALLBACK ФАЗОВОЙ АВТОКОРРЕКЦИИ ---
             hrvService.setCallback(new HrvForegroundService.ServiceCallback() {
                 @Override
                 public void onRrDataReceived(int rrMs, int hr) {}
@@ -568,7 +785,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             ui.pacerView.stopMonitoring();
         }
 
-        audioEngine = new AudioPacerEngine(MainActivity.this);
+        // Загружаем выбранную в настройках аудиодорожку (по умолчанию R.raw.o2test_01)
+        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+        int selectedAudioRes = prefs.getInt("selected_audio_res", R.raw.o2test_01);
+
+        audioEngine = new AudioPacerEngine(MainActivity.this, selectedAudioRes);
         audioEngine.prepareAsync(null);
         
         updateMetricsDisplay("--", "--", "--", "--");
@@ -654,7 +875,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         onLog("[PSTI] Завершено. Возобновление дыхательного контура и аудио...");
         runOnUiThread(() -> {
             if (isRecording) {
-                audioEngine = new AudioPacerEngine(MainActivity.this);
+                SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
+                int selectedAudioRes = prefs.getInt("selected_audio_res", R.raw.o2test_01);
+
+                audioEngine = new AudioPacerEngine(MainActivity.this, selectedAudioRes);
                 audioEngine.prepareAsync(() -> {
                     if (audioEngine != null) audioEngine.start();
                 });
