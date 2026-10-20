@@ -2,13 +2,17 @@ package com.local.o2test;
 
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.StateListDrawable;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.text.Layout;
 import android.text.SpannableString;
 import android.text.style.AlignmentSpan;
@@ -83,7 +87,7 @@ public class SettingsDialogManager {
     }
 
     /**
-     * Главное меню настроек (без пункта сохранения сессий — всё строго по стандарту Documents/O2Test)
+     * Главное меню настроек
      */
     public static void showSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
         CharSequence[] menuItems = {
@@ -216,22 +220,19 @@ public class SettingsDialogManager {
     }
 
     /**
-     * Подменю В: Резервное копирование с проверкой папки Documents/O2Test и файла бэкапа
+     * Подменю В: Резервное копирование с проверкой папки Documents/O2Test и прав доступа (Android 11+)
      */
     private static void showBackupSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
-        // Жестко фиксированный путь: Documents/O2Test
         File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
         File exportDir = new File(baseDir, "O2Test");
 
-        // Проверяем наличие папки, если нет — создаем
         if (!exportDir.exists()) {
             exportDir.mkdirs();
         }
 
-        File backupFile = new File(exportDir, "o2test_backup.db");
+        File backupFile = new File(exportDir, "o2test_backup.zip");
         boolean hasBackup = backupFile.exists();
 
-        // Формируем пункты меню в зависимости от наличия бэкапа согласно логике
         CharSequence[] backupOptions;
         if (hasBackup) {
             backupOptions = new CharSequence[]{
@@ -257,6 +258,23 @@ public class SettingsDialogManager {
                 dialog.dismiss();
 
                 if (position == 0) {
+                    // Проверка наличия полного доступа к хранилищу для Android 11+ перед экспортом
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        if (!Environment.isExternalStorageManager()) {
+                            try {
+                                Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                                context.startActivity(intent);
+                                Toast.makeText(context, "Пожалуйста, разрешите доступ к управлению файлами для бэкапов", Toast.LENGTH_LONG).show();
+                                return;
+                            } catch (Exception e) {
+                                Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                        Uri.parse("package:" + context.getPackageName()));
+                                context.startActivity(intent);
+                                return;
+                            }
+                        }
+                    }
+
                     if (callback != null) {
                         callback.onExportBackupRequested(backupFile);
                     }
