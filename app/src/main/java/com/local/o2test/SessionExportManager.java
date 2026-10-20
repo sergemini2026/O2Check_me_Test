@@ -213,12 +213,12 @@ public class SessionExportManager {
     }
 
     /**
-     * Экспорт (создание бэкапа): упаковка всей папки O2Test (включая БД и папки профилей с отчетами) в o2test_backup.zip
+     * Экспорт (создание бэкапа): упаковка всей папки O2Test в o2test_backup.zip
      */
     public static void exportDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
         dbExecutor.execute(() -> {
             try {
-                File dbFile = context.getDatabasePath("synergy_database");[span_3](start_span)[span_3](end_span)
+                File dbFile = context.getDatabasePath("synergy_database");
                 if (!dbFile.exists()) {
                     android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
                     mainHandler.post(() -> Toast.makeText(context, "Файл базы данных не найден!", Toast.LENGTH_SHORT).show());
@@ -230,14 +230,12 @@ public class SessionExportManager {
                     exportDir.mkdirs();
                 }
 
-                // Временно сохраняем копию БД в корень O2Test как o2test_backup.db для включения в zip-архив
                 File tempDbCopy = new File(exportDir, "o2test_backup.db");
                 try (FileChannel src = new FileInputStream(dbFile).getChannel();
                      FileChannel dst = new FileOutputStream(tempDbCopy).getChannel()) {
                     dst.transferFrom(src, 0, src.size());
                 }
 
-                // Копируем wal-файл, если он существует
                 File walFile = new File(dbFile.getParentFile(), "synergy_database-wal");
                 File tempWalCopy = new File(exportDir, "o2test_backup.db-wal");
                 if (walFile.exists()) {
@@ -247,10 +245,8 @@ public class SessionExportManager {
                     }
                 }
 
-                // Упаковываем всю папку O2Test в o2test_backup.zip
                 zipFolder(exportDir, backupFile);
 
-                // Удаляем временные файлы из открытой папки (они теперь внутри архива)
                 if (tempDbCopy.exists()) tempDbCopy.delete();
                 if (tempWalCopy.exists()) tempWalCopy.delete();
 
@@ -270,7 +266,7 @@ public class SessionExportManager {
     }
 
     /**
-     * Импорт (восстановление бэкапа): распаковка o2test_backup.zip в Documents/O2Test и восстановление БД
+     * Импорт (восстановление бэкапа): распаковка o2test_backup.zip в Documents/O2Test
      */
     public static void importDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
         new AlertDialog.Builder(context)
@@ -284,7 +280,6 @@ public class SessionExportManager {
                             return;
                         }
 
-                        // Распаковываем архив в папку O2Test (восстанавливаются папки профилей с отчетами и o2test_backup.db)
                         unzipFolder(backupFile, exportDir);
 
                         File extractedDb = new File(exportDir, "o2test_backup.db");
@@ -294,16 +289,14 @@ public class SessionExportManager {
                             return;
                         }
 
-                        // Закрываем текущую базу данных
-                        AppDatabase.getInstance(context.getApplicationContext()).close();[span_4](start_span)[span_4](end_span)
+                        AppDatabase.getInstance(context.getApplicationContext()).close();
 
-                        File dbFile = context.getDatabasePath("synergy_database");[span_5](start_span)[span_5](end_span)
+                        File dbFile = context.getDatabasePath("synergy_database");
                         try (FileChannel src = new FileInputStream(extractedDb).getChannel();
                              FileChannel dst = new FileOutputStream(dbFile).getChannel()) {
                             dst.transferFrom(src, 0, src.size());
                         }
 
-                        // Восстанавливаем wal-файл, если он был в архиве
                         File extractedWal = new File(exportDir, "o2test_backup.db-wal");
                         File walFile = new File(dbFile.getParentFile(), "synergy_database-wal");
                         if (extractedWal.exists()) {
@@ -316,7 +309,6 @@ public class SessionExportManager {
                             walFile.delete();
                         }
 
-                        // Удаляем временный файл o2test_backup.db из папки O2Test после восстановления
                         extractedDb.delete();
 
                         android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
@@ -346,7 +338,7 @@ public class SessionExportManager {
 
     private static void zipFileRecursive(File rootFolder, File file, ZipOutputStream zos) throws IOException {
         if (file.getName().equals("o2test_backup.zip")) {
-            return; // Пропускаем сам архив бэкапа
+            return;
         }
         String filePath = file.getAbsolutePath();
         String rootPath = rootFolder.getAbsolutePath();
