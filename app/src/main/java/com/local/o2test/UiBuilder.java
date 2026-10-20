@@ -167,14 +167,14 @@ public class UiBuilder {
         v.btnProfiles.setLayoutParams(new LinearLayout.LayoutParams(iconSizePx, iconSizePx));
         actionPanel.addView(createActionItem(context, v.btnProfiles, "Профили"));
 
-        // 4. Кнопка "Панель монитора" (Сердце)
+        // 4. Кнопка "Монитор" (Сердце) — подпись изменена с "Панель монитора" на "Монитор"
         v.btnHeart = new ImageButton(context);
         v.btnHeart.setBackgroundColor(Color.TRANSPARENT);
         v.btnHeart.setImageResource(R.drawable.ic_heart_pulse);
         v.btnHeart.setScaleType(ImageView.ScaleType.FIT_CENTER);
         v.btnHeart.setAlpha(0.5f);
         v.btnHeart.setLayoutParams(new LinearLayout.LayoutParams(iconSizePx, iconSizePx));
-        actionPanel.addView(createActionItem(context, v.btnHeart, "Панель монитора"));
+        actionPanel.addView(createActionItem(context, v.btnHeart, "Монитор"));
 
         v.mainLayout.addView(actionPanel);
 
