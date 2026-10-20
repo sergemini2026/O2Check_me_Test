@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -52,6 +53,7 @@ public class PdfExporter {
             String customDirPath,
             double pstiScore,
             double pstiRmssdRatio,
+            List<Double> pstiHistory,
             PdfExportCallback callback
     ) {
         PdfDocument document = new PdfDocument();
@@ -95,7 +97,7 @@ public class PdfExporter {
 
         try {
             // ==========================================
-            // СТРАНИЦА 1: Шапка, Сводка (включая PSTI), Интерпретация, Гистограмма, Графики
+            // СТРАНИЦА 1: Шапка, Сводка, Клинический статус, Гистограмма PSTI, Гистограмма RR, Графики
             // ==========================================
             PdfDocument.PageInfo pageInfo1 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 1).create();
             PdfDocument.Page page1 = document.startPage(pageInfo1);
@@ -131,7 +133,7 @@ public class PdfExporter {
             textPaint.setFakeBoldText(true);
             canvas1.drawText("1. Сводные вегетативные показатели и индекс следа (PSTI)", MARGIN, 82, textPaint);
 
-            // Сводные строки (добавлен 8-й параметр PSTI)
+            // Сводные строки
             drawMetricRow(canvas1, 95, "RMSSD (мск):", String.format(Locale.US, "%.1f", avgRmssd), "Норма: 20-100 (Вагусный тонус)");
             drawMetricRow(canvas1, 108, "SDNN (мск):", String.format(Locale.US, "%.1f", avgSdnn), "Общая вариабельность ритма");
             drawMetricRow(canvas1, 121, "Индекс Баевского (SI):", String.format(Locale.US, "%.1f у.е.", avgSi), "Индекс напряжения регуляторных систем");
@@ -194,21 +196,22 @@ public class PdfExporter {
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
             canvas1.restore();
 
-            // Гистограмма (смещена ниже с учетом новой строки)
-            drawHistogram(canvas1, rawRrList, MARGIN, 262, PAGE_WIDTH - 2 * MARGIN, 68, Color.parseColor("#DC2626"), "Гистограмма RR-интервалов (мс) — распределение ритма");
+            // 3. НОВАЯ ГИСТОГРАММА ДИНАМИКИ PSTI ПО СЕССИЯМ (15 столбцов с цветовой градацией)
+            drawPstiHistoryHistogram(canvas1, pstiHistory, MARGIN, 262, PAGE_WIDTH - 2 * MARGIN, 55, "Динамика индекса PSTI по сессиям (динамика: рост=зеленый, равно=синий, спад=красный)");
+
+            // Гистограмма RR-интервалов (смещена ниже)
+            drawHistogram(canvas1, rawRrList, MARGIN, 325, PAGE_WIDTH - 2 * MARGIN, 60, Color.parseColor("#DC2626"), "Гистограмма RR-интервалов (мс) — распределение ритма");
             
             TextPaint histExpPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
             histExpPaint.setTextSize(7.5f);
             histExpPaint.setColor(Color.parseColor("#334155"));
 
             String[] histLines = {
-                "Ширина и форма: Широкое основание («колокол») говорит о высокой вариабельности и хороших адаптационных резервах. Узкий, высокий пик — о ригидности ритма и напряжении регуляторных систем.",
-                "Мода (Mo): Самый высокий столбец показывает наиболее частый пульс в сессии.",
-                "Вариационный размах (MxDMx): Ширина распределения от минимального до максимального RR показывает диапазон автономных влияний.",
-                "Асимметрия: Смещение влево говорит о преобладании симпатического тонуса (нагрузка), вправо — о парасимпатическом (отдых)."
+                "Ширина и форма: Широкое основание («колокол») говорит о высокой вариабельности. Узкий, высокий пик — о ригидности ритма.",
+                "Динамика PSTI: Отображает до 15 последних сессий. Зеленый столбец — рост показателя, синий — стабильность, красный — снижение."
             };
 
-            int histTextY = 336;
+            int histTextY = 390;
             for (String line : histLines) {
                 canvas1.save();
                 canvas1.translate(MARGIN, histTextY);
@@ -221,8 +224,8 @@ public class PdfExporter {
             }
 
             // Графики SpO2 и ЧСС
-            drawOxygenationChart(canvas1, dataPoints, MARGIN, 400, PAGE_WIDTH - 2 * MARGIN, 55, Color.parseColor("#0284C7"), "Динамика оксигенации SpO2 (%)");
-            drawHeartRateChart(canvas1, dataPoints, MARGIN, 465, PAGE_WIDTH - 2 * MARGIN, 55, Color.parseColor("#10B981"), "Динамика ЧСС (HR, уд/мин)");
+            drawOxygenationChart(canvas1, dataPoints, MARGIN, 420, PAGE_WIDTH - 2 * MARGIN, 50, Color.parseColor("#0284C7"), "Динамика оксигенации SpO2 (%)");
+            drawHeartRateChart(canvas1, dataPoints, MARGIN, 478, PAGE_WIDTH - 2 * MARGIN, 50, Color.parseColor("#10B981"), "Динамика ЧСС (HR, уд/мин)");
 
             document.finishPage(page1);
 
@@ -252,10 +255,9 @@ public class PdfExporter {
 
             String[] poincareDescriptions = {
                 "• Смысл графика: Каждый удар сердца сравнивается с предыдущим. Точки образуют «облако», показывающее общую стабильность ритма.",
-                "• Цветовой градиент: От серовато-голубых точек (начало сеанса / спокойные зоны) до насыщенных темно-синих (активные фазы во время теста).",
-                "• SD1 (поперечная ось): Отвечает за короткие интервалы и мягкий парасимпатический тонус (отдых/расслабление).",
-                "• SD2 (продольная ось): Характеризует общие долгосрочные резервы и стабильность работы сердца.",
-                "• Форма облака: Вытянутый эллиптический вид («комета») подтверждает нормальный здоровый ритм без срывов."
+                "• Цветовой градиент: От серовато-голубых точек (начало сеанса) до насыщенных темно-синих (активные фазы во время теста).",
+                "• SD1 (поперечная ось): Отвечает за короткие интервалы и парасимпатический тонус.",
+                "• SD2 (продольная ось): Характеризует долгосрочные резервы и стабильность работы сердца."
             };
 
             int currentDescY = 434;
@@ -434,6 +436,81 @@ public class PdfExporter {
         rowPaint.setFakeBoldText(false);
         rowPaint.setColor(Color.parseColor("#64748B"));
         canvas.drawText(desc, MARGIN + 260, y, rowPaint);
+    }
+
+    /**
+     * Отрисовка гистограммы динамики PSTI по сессиям (окно до 15 столбцов, цветовая градация)
+     */
+    private static void drawPstiHistoryHistogram(Canvas canvas, List<Double> history, int left, int top, int width, int height, String title) {
+        Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        fillPaint.setStyle(Paint.Style.FILL);
+
+        Paint strokePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        strokePaint.setStyle(Paint.Style.STROKE);
+
+        fillPaint.setColor(Color.parseColor("#F8FAFC"));
+        canvas.drawRect(left, top, left + width, top + height, fillPaint);
+
+        strokePaint.setColor(Color.parseColor("#CBD5E1"));
+        strokePaint.setStrokeWidth(1f);
+        canvas.drawRect(left, top, left + width, top + height, strokePaint);
+
+        Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        textPaint.setColor(Color.parseColor("#0F172A"));
+        textPaint.setTextSize(9.5f);
+        textPaint.setFakeBoldText(true);
+        canvas.drawText(title, left + 8, top + 12, textPaint);
+
+        if (history == null || history.isEmpty()) {
+            textPaint.setTextSize(9f);
+            textPaint.setColor(Color.parseColor("#64748B"));
+            textPaint.setFakeBoldText(false);
+            canvas.drawText("Нет предшествующих сессий для отображения динамики", left + 10, top + 35, textPaint);
+            return;
+        }
+
+        // Выбираем последние 15 сессий для реализации прокрутки/окна
+        List<Double> recentHistory = new ArrayList<>();
+        int startIndex = Math.max(0, history.size() - 15);
+        for (int i = startIndex; i < history.size(); i++) {
+            recentHistory.add(history.get(i));
+        }
+
+        int plotLeft = left + 15;
+        int plotTop = top + 18;
+        int plotWidth = width - 30;
+        int plotHeight = height - 25;
+
+        int count = recentHistory.size();
+        float barW = (float) plotWidth / Math.max(1, count);
+        double maxVal = 100.0;
+
+        for (int i = 0; i < count; i++) {
+            double val = recentHistory.get(i);
+            float barH = (float) Math.min(plotHeight, (val / maxVal) * plotHeight);
+
+            int barColor;
+            if (i == 0) {
+                barColor = Color.parseColor("#0284C7"); // Синий для первой сессии в окне
+            } else {
+                double prevVal = recentHistory.get(i - 1);
+                if (val > prevVal) {
+                    barColor = Color.parseColor("#047857"); // Зеленый (выше предыдущего)
+                } else if (val == prevVal) {
+                    barColor = Color.parseColor("#0284C7"); // Синий (равно)
+                } else {
+                    barColor = Color.parseColor("#DC2626"); // Красный (ниже предыдущего)
+                }
+            }
+
+            fillPaint.setColor(barColor);
+            float x1 = plotLeft + i * barW + 2;
+            float x2 = plotLeft + (i + 1) * barW - 2;
+            float y1 = plotTop + plotHeight - barH;
+            float y2 = plotTop + plotHeight;
+
+            canvas.drawRect(x1, y1, x2, y2, fillPaint);
+        }
     }
 
     private static void drawHistogram(Canvas canvas, List<Integer> rawRrList, int left, int top, int width, int height, int lineColor, String title) {
