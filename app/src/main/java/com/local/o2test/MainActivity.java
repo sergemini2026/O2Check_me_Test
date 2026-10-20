@@ -251,10 +251,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
      */
     private void showSettingsDialog() {
         CharSequence[] menuItems = {
-            "а) Сохранение сессий (Папка O2Test / Профиль)",
-            "б) Аудио (Выбор звукового сопровождения)",
-            "в) Видео (Режимы визуализации)",
-            "г) Резервирование (Экспорт / Импорт БД)"
+            "Сохранение сессий",
+            "Аудио",
+            "Видео",
+            "Резервирование"
         };
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
@@ -361,8 +361,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
      */
     private void showVideoSettingsDialog() {
         CharSequence[] videoModes = {
-            "Одиночный (оператор / пользователь)",
-            "Трансляция (вывод видеопотока в slave-программу очков)"
+            "Одиночный",
+            "Трансляция"
         };
         SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
 
@@ -521,7 +521,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         layout.setPadding(40, 20, 40, 20);
 
         final EditText inputPass = new EditText(this);
-        inputPass.setHint("Пароль (ровно 4 символа)");
+        inputPass.setHint("Пароль (4 символа)");
         inputPass.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
         layout.addView(inputPass);
 
@@ -536,7 +536,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             String confirm = inputConfirm.getText().toString().trim();
 
             if (pass.length() != 4 || !pass.equals(confirm)) {
-                Toast.makeText(this, "Ошибка! Пароль должен содержать ровно 4 символа и совпадать.", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Ошибка! Пароль должен содержать 4 символа и совпадать.", Toast.LENGTH_LONG).show();
                 showCreateMasterPasswordDialog(prefs);
                 return;
             }
@@ -633,7 +633,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 setInterfaceAuthorizedState(true);
                 updateMetricsDisplay("--", "--", "--", "--");
                 onLog("[GATEKEEPER] Активный профиль: " + profileName + " (ID: " + profileId + ")");
-                Toast.makeText(MainActivity.this, "Профиль активирован. Теперь доступна связь с датчиками.", Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, "Профиль активирован. Доступна связь с датчиками.", Toast.LENGTH_SHORT).show();
             }
 
             @Override
@@ -834,7 +834,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         pstiHandler.postDelayed(pstiCountdownRunnable, 1000);
 
         updateRightPanelStatusWithCountdown(pstiRemainingSec);
-        onLog("[PSTI] Модуляция остановлена. Запуск 2-минутного окна замера следовой когерентности в сервисе...");
+        onLog("[PSTI] Модуляция остановлена. Запуск 2-минутного окна замера индекса консолидации барорефлекса PSTI в сервисе...");
     }
 
     private void evaluateAndFinishPostiTrace() {
@@ -856,14 +856,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             if (pstiResult.isValid) {
                 lastPstiScore = pstiResult.pstiScore;
                 lastPstiRmssdRatio = pstiResult.pstiRmssdRatio;
-                onLog(String.format(Locale.US, "[PSTI РЕЗУЛЬТАТ] Индекс консолидации барорефлекса: %.1f%% (RMSSD ratio: %.2f)",
+                onLog(String.format(Locale.US, "[PSTI РЕЗУЛЬТАТ] Индекс консолидации барорефлекса PSTI: %.1f%% (RMSSD ratio: %.2f)",
                         lastPstiScore, lastPstiRmssdRatio));
             } else {
                 HrvCalculator.Metrics postiMetrics = HrvCalculator.calculate(snapshotRr);
                 if (postiMetrics != null) {
                     lastPstiScore = Math.min(100.0, (postiMetrics.rmssd / 50.0) * 50.0 + (Math.min(postiMetrics.totalPower, 2500.0) / 2500.0) * 50.0);
                     lastPstiRmssdRatio = 1.0;
-                    onLog(String.format(Locale.US, "[PSTI РЕЗУЛЬТАТ (fallback)] Индекс консолидации: %.1f%%", lastPstiScore));
+                    onLog(String.format(Locale.US, "[PSTI РЕЗУЛЬТАТ (fallback)] Индекс консолидации PSTI: %.1f%%", lastPstiScore));
                 }
             }
         } else {
