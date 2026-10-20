@@ -299,18 +299,30 @@ public class SettingsDialogManager {
     }
 
     /**
-     * Подменю Г: Резервное копирование (синхронизировано с выбранной папкой сессий)
+     * Подменю Г: Резервное копирование (автоматически создает папку O2Test в Documents по умолчанию)
      */
     private static void showBackupSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
         String customPath = prefs.getString("custom_export_path", null);
 
+        File exportDir;
         if (customPath == null || customPath.isEmpty()) {
-            Toast.makeText(context, "Сначала задайте путь сохранения в пункте 'Сохранение сессий'!", Toast.LENGTH_LONG).show();
-            return;
+            // Если путь не задан, берем дефолтную папку Documents и подпапку O2Test
+            File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+            exportDir = new File(baseDir, "O2Test");
+        } else {
+            // Если в customPath прописан путь до конкретного профиля, поднимаемся на уровень выше к корневой O2Test
+            File profileDir = new File(customPath);
+            if (profileDir.getParentFile() != null && profileDir.getParentFile().getName().equals("O2Test")) {
+                exportDir = profileDir.getParentFile();
+            } else {
+                exportDir = profileDir;
+            }
         }
 
-        File exportDir = new File(customPath);
-        if (!exportDir.exists()) exportDir.mkdirs();
+        // Гарантированно создаем корневую папку O2Test, если ее еще нет
+        if (!exportDir.exists()) {
+            exportDir.mkdirs();
+        }
 
         File backupFile = new File(exportDir, "o2test_backup.db");
         boolean hasBackup = backupFile.exists();
@@ -337,7 +349,7 @@ public class SettingsDialogManager {
                     }
                 } else if (position == 1) {
                     if (!hasBackup) {
-                        Toast.makeText(context, "Файл бэкапа не найден в папке сессий!", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(context, "Файл бэкапа не найден в папке O2Test!", Toast.LENGTH_SHORT).show();
                         return;
                     }
                     if (callback != null) {
