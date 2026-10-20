@@ -170,12 +170,12 @@ public class AudioPacerEngine {
                     }
                 }
 
-                // Модуляция дельты бинаурального ритма
-                double targetDelta = 8.0 + 4.0 * Math.sin(phase * 2.0 * Math.PI);
+                // Фиксированная частота бинаурального ритма на частоте Шумана (7.83 Гц)
+                double binauralDelta = 7.83;
                 double freqLeft = baseFreq;
-                double freqRight = baseFreq + targetDelta;
+                double freqRight = baseFreq + binauralDelta;
 
-                // Амплитудная огибающая с учетом текущего глобального гейна
+                // Единая амплитудная огибающая для основного трека и бинаурального сигнала с учетом MasterClock и гейна
                 float volumeEnvelope = (float) (0.4f + 0.6f * Math.abs(Math.sin(phase * 2.0 * Math.PI))) * currentVolumeGain;
 
                 for (int i = 0; i < outBuffer.length; i += 2) {
@@ -194,6 +194,7 @@ public class AudioPacerEngine {
                         }
                     }
 
+                    // Модуляция основного аудиосигнала амплитудной огибающей
                     short modAmbientL = (short) (ambientL * volumeEnvelope);
                     short modAmbientR = (short) (ambientR * volumeEnvelope);
 
@@ -203,8 +204,9 @@ public class AudioPacerEngine {
                     if (phaseLeft > 2.0 * Math.PI) phaseLeft -= 2.0 * Math.PI;
                     if (phaseRight > 2.0 * Math.PI) phaseRight -= 2.0 * Math.PI;
 
-                    short binauralL = (short) (Math.sin(phaseLeft) * 1500 * currentVolumeGain);
-                    short binauralR = (short) (Math.sin(phaseRight) * 1500 * currentVolumeGain);
+                    // Модуляция бинаурального сигнала (7.83 Гц) той же амплитудной огибающей
+                    short binauralL = (short) (Math.sin(phaseLeft) * 1500 * volumeEnvelope);
+                    short binauralR = (short) (Math.sin(phaseRight) * 1500 * volumeEnvelope);
 
                     outBuffer[i]     = (short) clamp(modAmbientL + binauralL);
                     outBuffer[i + 1] = (short) clamp(modAmbientR + binauralR);
@@ -228,7 +230,7 @@ public class AudioPacerEngine {
         });
 
         audioThread.start();
-        Log.d(TAG, "Аудиодвижок запущен с кроссфейдом и плавной регулировкой громкости.");
+        Log.d(TAG, "Аудиодвижок запущен: трек + бинауральный ритм Шумана (7.83 Гц) с единой амплитудной огибающей.");
     }
 
     private short[] loadPcmFromRaw(Context context, int resId) {
