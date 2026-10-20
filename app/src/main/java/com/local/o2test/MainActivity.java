@@ -1,7 +1,6 @@
 package com.local.o2test;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.bluetooth.BluetoothDevice;
 import android.content.ComponentName;
 import android.content.Context;
@@ -11,28 +10,13 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.text.InputType;
-import android.text.Layout;
-import android.text.SpannableString;
-import android.text.style.AlignmentSpan;
-import android.widget.EditText;
-import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Toast;
 
-import com.local.o2test.db.AppDatabase;
-import com.local.o2test.db.entity.HrvSnapshotEntity;
-import com.local.o2test.db.entity.SessionEntity;
-
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.nio.channels.FileChannel;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -46,7 +30,6 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private static final String PREF_NAME = "O2AppPrefs";
-    private static final String KEY_MASTER_PASS = "master_password";
     private static final int PI_SMOOTHING_WINDOW = 5;
     private static final int CALIBRATION_TARGET = 100; // Целевое число интервалов для автоподстройки (90-100)
     private static final int POSTI_WINDOW_SEC = 120; // Окно оценки следовой когерентности (2 минуты)
@@ -115,11 +98,65 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     };
 
-    private static SpannableString getCenteredTitle(String title) {
-        SpannableString s = new SpannableString(title);
-        s.setSpan(new AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER), 0, s.length(), 0);
-        return s;
-    }
+    // Callback для менеджера настроек SettingsDialogManager
+    private final SettingsDialogManager.SettingsCallback settingsCallback = new SettingsDialogManager.SettingsCallback() {
+        @Override
+        public void onLog(String message) {
+            MainActivity.this.onLog(message);
+        }
+
+        @Override
+        public void onAudioResourceChanged(int resId, String trackName) {
+            if (isBound && hrvService != null) {
+                hrvService.setAudioResource(resId);
+            }
+        }
+
+        @Override
+        public void onExportBackupRequested(File backupFile) {
+            SessionExportManager.exportDatabaseBackup(MainActivity.this, backupFile, dbExecutor, msg -> onLog(msg));
+        }
+
+        @Override
+        public void onImportBackupRequested(File backupFile) {
+            SessionExportManager.importDatabaseBackup(MainActivity.this, backupFile, dbExecutor, msg -> onLog(msg));
+        }
+
+        @Override
+        public boolean isProfileAuthorized() {
+            return isProfileAuthorized;
+        }
+
+        @Override
+        public String getActiveProfileName() {
+            return activeProfileName;
+        }
+
+        @Override
+        public void openProfilesManager() {
+            MainActivity.this.openProfilesManager();
+        }
+    };
+
+    // Callback для менеджера авторизации PasswordAuthManager
+    private final PasswordAuthManager.AuthCallback authCallback = new PasswordAuthManager.AuthCallback() {
+        @Override
+        public void onPasswordAuthorized() {
+            onLog("Система запущена. Выберите профиль для начала работы.");
+        }
+
+        @Override
+        public void onExitRequested() {
+            stopAudioAndClockInService();
+            if (ui != null && ui.pacerView != null) ui.pacerView.stopMonitoring();
+            finish();
+        }
+
+        @Override
+        public void onLog(String message) {
+            MainActivity.this.onLog(message);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -170,7 +207,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         });
 
         ui.btnSettings.setOnClickListener(v -> {
-            showSettingsDialog();
+            SettingsDialogManager.showSettingsDialog(this, getSharedPreferences(PREF_NAME, MODE_PRIVATE), settingsCallback);
         });
 
         ui.btnExit.setOnClickListener(v -> {
@@ -212,248 +249,26 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         setContentView(ui.mainLayout);
-        checkMasterPasswordOnStart();
+        PasswordAuthManager.checkMasterPasswordOnStart(this, getSharedPreferences(PREF_NAME, MODE_PRIVATE), authCallback);
     }
 
     private void saveSessionAutomatically() {
-        onLog("Сохранение сессии в CSV и PDF...");
-        List<DataPoint> copyForExport;
-        synchronized (sessionData) { copyForExport = new ArrayList<>(sessionData); }
-        
-        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
-        String customPath = prefs.getString("custom_export_path", null);
-        
-        CsvExporter.saveSessionToCsv(this, copyForExport, customPath, new CsvExporter.ExportCallback() {
-            @Override
-            public void onSuccess(String filePath, String fileName) {
-                onLog("CSV успешно сохранен: " + fileName);
-                saveSessionToDatabase(copyForExport, filePath);
-            }
-            @Override
-            public void onError(String errorMessage) {
-                onLog("Ошибка сохранения CSV: " + errorMessage);
-                saveSessionToDatabase(copyForExport, "");
-            }
-        });
-    }
-
-    private void showSettingsDialog() {
-        CharSequence[] menuItems = {
-            "Сохранение сессий",
-            "Аудио",
-            "Видео",
-            "Резервирование"
-        };
-
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(getCenteredTitle("Настройки системы"));
-        builder.setItems(menuItems, (dialog, which) -> {
-            if (which == 0) {
-                showFolderSettingsDialog();
-            } else if (which == 1) {
-                showAudioSettingsDialog();
-            } else if (which == 2) {
-                showVideoSettingsDialog();
-            } else if (which == 3) {
-                showBackupSettingsDialog();
-            }
-        });
-        builder.setNegativeButton("Закрыть", null);
-        builder.show();
-    }
-
-    private void showFolderSettingsDialog() {
-        CharSequence[] paths = {"Папка Документы (Documents)", "Папка Загрузки (Downloads)"};
-        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
-
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(getCenteredTitle("Выбор корневой папки отчетов"));
-        builder.setItems(paths, (dialog, which) -> {
-            if (!isProfileAuthorized) {
-                Toast.makeText(this, "Сначала выберите профиль для создания папки!", Toast.LENGTH_SHORT).show();
-                openProfilesManager();
-                return;
-            }
-
-            File baseDir = (which == 0) 
-                    ? Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-                    : Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-
-            File o2TestDir = new File(baseDir, "O2Test");
-            if (!o2TestDir.exists()) {
-                o2TestDir.mkdirs();
-            }
-
-            File profileDir = new File(o2TestDir, activeProfileName);
-            if (!profileDir.exists()) {
-                profileDir.mkdirs();
-            }
-
-            String finalPath = profileDir.getAbsolutePath();
-            prefs.edit().putString("custom_export_path", finalPath).apply();
-            onLog("[НАСТРОЙКИ] Путь сохранения сессий установлен: " + finalPath);
-            Toast.makeText(this, "Папка создана: " + activeProfileName, Toast.LENGTH_SHORT).show();
-        });
-        builder.show();
-    }
-
-    private void showAudioSettingsDialog() {
-        CharSequence[] audioOptions = {
-            "Спокойствие",
-            "Безмятежность",
-            "Мечтательность",
-            "Удовлетворение",
-            " "
-        };
-        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
-
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(getCenteredTitle("Выбор аудио сопровождения"));
-        builder.setItems(audioOptions, (dialog, which) -> {
-            int selectedResId = R.raw.o2test_01;
-            String trackName = "Спокойствие";
-            switch (which) {
-                case 0:
-                    selectedResId = R.raw.o2test_01;
-                    trackName = "Спокойствие";
-                    break;
-                case 1:
-                    selectedResId = R.raw.o2test_02;
-                    trackName = "Безмятежность";
-                    break;
-                case 2:
-                    selectedResId = R.raw.o2test_03;
-                    trackName = "Мечтательность";
-                    break;
-                case 3:
-                    selectedResId = R.raw.o2test_04;
-                    trackName = "Удовлетворение";
-                    break;
-            }
-            prefs.edit().putInt("selected_audio_res", selectedResId).putString("selected_audio_name", trackName).apply();
-            if (isBound && hrvService != null) {
-                hrvService.setAudioResource(selectedResId);
-            }
-            onLog("[НАСТРОЙКИ] Выбрана аудиодорожка: " + trackName);
-            Toast.makeText(this, "Аудио: " + trackName, Toast.LENGTH_SHORT).show();
-        });
-        builder.show();
-    }
-
-    private void showVideoSettingsDialog() {
-        CharSequence[] videoModes = {
-            "Одиночный",
-            "Трансляция"
-        };
-        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
-
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(getCenteredTitle("Режим визуализации видео"));
-        builder.setItems(videoModes, (dialog, which) -> {
-            String modeStr = (which == 0) ? "single" : "broadcast";
-            prefs.edit().putString("video_render_mode", modeStr).apply();
-            String label = (which == 0) ? "Одиночный" : "Трансляция";
-            onLog("[НАСТРОЙКИ] Режим видео изменен на: " + label);
-            Toast.makeText(this, "Режим видео: " + label, Toast.LENGTH_SHORT).show();
-        });
-        builder.show();
-    }
-
-    private void showBackupSettingsDialog() {
-        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
-        String customPath = prefs.getString("custom_export_path", null);
-
-        if (customPath == null || customPath.isEmpty()) {
-            Toast.makeText(this, "Сначала задайте путь сохранения в пункте 'Сохранение сессий'!", Toast.LENGTH_LONG).show();
-            return;
-        }
-
-        File exportDir = new File(customPath);
-        File backupFile = new File(exportDir, "o2test_backup.db");
-        boolean hasBackup = backupFile.exists();
-
-        CharSequence[] backupOptions = {
-            "Экспорт базы данных (Создать бэкап)",
-            hasBackup ? "Импорт базы данных (Восстановить бэкап)" : "Импорт базы данных (Недоступно: нет файла)"
-        };
-
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(getCenteredTitle("Резервное копирование базы данных"));
-        builder.setItems(backupOptions, (dialog, which) -> {
-            if (which == 0) {
-                exportDatabaseBackup(backupFile);
-            } else if (which == 1) {
-                if (!hasBackup) {
-                    Toast.makeText(this, "Файл бэкапа не найден в папке сессий!", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                importDatabaseBackup(backupFile);
-            }
-        });
-        builder.show();
-    }
-
-    private void exportDatabaseBackup(File backupFile) {
-        dbExecutor.execute(() -> {
-            try {
-                File dbFile = getDatabasePath("o2test_db");
-                if (!dbFile.exists()) {
-                    dbFile = getDatabasePath("app_database");
-                }
-                if (!dbFile.exists()) {
-                    runOnUiThread(() -> Toast.makeText(this, "Файл базы данных не найден!", Toast.LENGTH_SHORT).show());
-                    return;
-                }
-
-                FileChannel src = new FileInputStream(dbFile).getChannel();
-                FileChannel dst = new FileOutputStream(backupFile).getChannel();
-                dst.transferFrom(src, 0, src.size());
-                src.close();
-                dst.close();
-
-                runOnUiThread(() -> {
-                    onLog("[БЭКАП] База данных успешно экспортирована: " + backupFile.getAbsolutePath());
-                    Toast.makeText(this, "Экспорт бэкапа выполнен успешно", Toast.LENGTH_LONG).show();
-                });
-            } catch (IOException e) {
-                e.printStackTrace();
-                runOnUiThread(() -> Toast.makeText(this, "Ошибка экспорта: " + e.getMessage(), Toast.LENGTH_LONG).show());
-            }
-        });
-    }
-
-    private void importDatabaseBackup(File backupFile) {
-        new AlertDialog.Builder(this)
-            .setTitle("Внимание!")
-            .setMessage("Импорт базы данных перезапишет текущие локальные данные. Продолжить?")
-            .setPositiveButton("Да", (d, w) -> {
-                dbExecutor.execute(() -> {
-                    try {
-                        File dbFile = getDatabasePath("o2test_db");
-                        if (!dbFile.exists()) {
-                            dbFile = getDatabasePath("app_database");
-                        }
-
-                        AppDatabase.getInstance(getApplicationContext()).close();
-
-                        FileChannel src = new FileInputStream(backupFile).getChannel();
-                        FileChannel dst = new FileOutputStream(dbFile).getChannel();
-                        dst.transferFrom(src, 0, src.size());
-                        src.close();
-                        dst.close();
-
-                        runOnUiThread(() -> {
-                            onLog("[БЭКАП] База данных успешно восстановлена из бэкапа.");
-                            Toast.makeText(this, "Импорт выполнен. Перезапустите приложение.", Toast.LENGTH_LONG).show();
-                        });
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                        runOnUiThread(() -> Toast.makeText(this, "Ошибка импорта: " + e.getMessage(), Toast.LENGTH_LONG).show());
-                    }
-                });
-            })
-            .setNegativeButton("Отмена", null)
-            .show();
+        SessionExportManager.saveSessionAutomatically(
+                this,
+                getSharedPreferences(PREF_NAME, MODE_PRIVATE),
+                sessionData,
+                activeProfileId,
+                activeProfileName,
+                sessionStartTime,
+                currentPolarHr,
+                currentSpo2,
+                lastPstiScore,
+                lastPstiRmssdRatio,
+                dbExecutor,
+                hrvService,
+                isBound,
+                msg -> onLog(msg)
+        );
     }
 
     private void updateRightPanelStatus() {
@@ -471,98 +286,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             } else if (isTrainingModeActive) {
                 ui.tvStatusValue.setText("Статус: " + currentWorkoutMode);
             } else {
-                // ИЗМЕНЕНО: вместо «Мониторинг» выводится «Пранаяма»
                 ui.tvStatusValue.setText("Статус: Пранаяма");
             }
         }
-    }
-
-    private void checkMasterPasswordOnStart() {
-        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
-        String savedPass = prefs.getString(KEY_MASTER_PASS, null);
-
-        if (savedPass == null) {
-            showCreateMasterPasswordDialog(prefs);
-        } else {
-            showEnterMasterPasswordDialog(savedPass);
-        }
-    }
-
-    private void showCreateMasterPasswordDialog(SharedPreferences prefs) {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(getCenteredTitle("Создание мастер-пароля системы"));
-        builder.setMessage("Введите 4-значный пароль администратора для защиты доступа к данным.");
-
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(40, 20, 40, 20);
-
-        final EditText inputPass = new EditText(this);
-        inputPass.setHint("Пароль (4 символа)");
-        inputPass.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
-        layout.addView(inputPass);
-
-        final EditText inputConfirm = new EditText(this);
-        inputConfirm.setHint("Подтвердите пароль (4 символа)");
-        inputConfirm.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
-        layout.addView(inputConfirm);
-
-        builder.setView(layout);
-        builder.setPositiveButton("Создать", (dialog, which) -> {
-            String pass = inputPass.getText().toString().trim();
-            String confirm = inputConfirm.getText().toString().trim();
-
-            if (pass.length() != 4 || !pass.equals(confirm)) {
-                Toast.makeText(this, "Ошибка! Пароль должен содержать 4 символа и совпадать.", Toast.LENGTH_LONG).show();
-                showCreateMasterPasswordDialog(prefs);
-                return;
-            }
-
-            prefs.edit().putString(KEY_MASTER_PASS, pass).apply();
-            Toast.makeText(this, "Мастер-пароль успешно создан!", Toast.LENGTH_SHORT).show();
-            onLog("Система запущена. Выберите профиль для начала работы.");
-        });
-        builder.setNegativeButton("Выход", (dialog, which) -> {
-            stopAudioAndClockInService();
-            if (ui != null && ui.pacerView != null) ui.pacerView.stopMonitoring();
-            finish();
-        });
-        builder.setCancelable(false);
-        builder.show();
-    }
-
-    private void showEnterMasterPasswordDialog(String savedPass) {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle(getCenteredTitle("Авторизация администратора"));
-        builder.setMessage("Введите 4-значный мастер-пароль для доступа к системе.");
-
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(40, 20, 40, 20);
-
-        final EditText inputPass = new EditText(this);
-        inputPass.setHint("4-значный пароль");
-        inputPass.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_VARIATION_PASSWORD);
-        layout.addView(inputPass);
-
-        builder.setView(layout);
-        builder.setPositiveButton("Войти", (dialog, which) -> {
-            String pass = inputPass.getText().toString().trim();
-            if (pass.equals(savedPass)) {
-                Toast.makeText(this, "Доступ разрешен!", Toast.LENGTH_SHORT).show();
-                onLog("Система запущена. Выберите профиль для начала работы.");
-            } else {
-                Toast.makeText(this, "Неверный пароль!", Toast.LENGTH_SHORT).show();
-                showEnterMasterPasswordDialog(savedPass);
-            }
-        });
-        builder.setNegativeButton("Выход", (dialog, which) -> {
-            stopAudioAndClockInService();
-            if (ui != null && ui.pacerView != null) ui.pacerView.stopMonitoring();
-            finish();
-        });
-        builder.setCancelable(false);
-        builder.show();
     }
 
     private void updateMetricsDisplay(String rmssd, String pnn50, String lfHf, String tp) {
@@ -656,7 +382,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     @Override
     protected void onStop() {
         super.onStop();
-        // Сервис фоновой работы удерживает сессию, аудио и отсчеты при свертывании приложения
         if (isBound) {
             unbindService(serviceConnection);
             isBound = false;
@@ -881,101 +606,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (isBound && hrvService != null) {
             hrvService.stopAudioAndClock();
         }
-    }
-
-    private void saveSessionToDatabase(List<DataPoint> points, String csvPath) {
-        if (activeProfileId == -1L) return;
-
-        final List<SessionSnapshot> capturedSnapshots;
-        if (isBound && hrvService != null) {
-            capturedSnapshots = hrvService.flushSnapshotBuffer();
-        } else {
-            capturedSnapshots = new ArrayList<>();
-        }
-
-        SharedPreferences prefs = getSharedPreferences(PREF_NAME, MODE_PRIVATE);
-        String customPath = prefs.getString("custom_export_path", null);
-
-        dbExecutor.execute(() -> {
-            try {
-                AppDatabase db = AppDatabase.getInstance(getApplicationContext());
-                long endTime = System.currentTimeMillis();
-                
-                SessionEntity session = new SessionEntity(
-                        0,
-                        activeProfileId,
-                        currentWorkoutMode,
-                        sessionStartTime,
-                        endTime,
-                        currentPolarHr > 0 ? currentPolarHr : 75,
-                        currentSpo2 > 0 ? currentSpo2 : 98,
-                        45.0,
-                        50.0,
-                        1.2,
-                        35.0,
-                        "",
-                        csvPath,
-                        lastPstiScore,
-                        lastPstiRmssdRatio
-                );
-                long sessionId = db.sessionDao().insertSessionSync(session);
-
-                List<HrvSnapshotEntity> entityList = new ArrayList<>();
-                if (!capturedSnapshots.isEmpty()) {
-                    for (SessionSnapshot snapshot : capturedSnapshots) {
-                        HrvSnapshotEntity entity = new HrvSnapshotEntity(snapshot.getTimestamp(), snapshot.getMetrics());
-                        if (entity.getBaevskySi() > 0 && entity.getBaevskySi() <= 300) {
-                            entityList.add(entity);
-                        }
-                    }
-                    if (!entityList.isEmpty()) {
-                        db.hrvSnapshotDao().insertAll(entityList);
-                    }
-                }
-
-                List<Integer> sessionRrList = new ArrayList<>();
-                for (DataPoint dp : points) {
-                    if (dp.rrMs > 0) {
-                        sessionRrList.add(dp.rrMs);
-                    }
-                }
-
-                runOnUiThread(() -> {
-                    onLog("Сессия #" + sessionId + " зарегистрирована в БД. Индекс PSTI: " + String.format(Locale.US, "%.1f%%", lastPstiScore));
-                    PdfExporter.generateHrvPdfReport(
-                            MainActivity.this,
-                            activeProfileName,
-                            currentWorkoutMode,
-                            sessionStartTime,
-                            endTime,
-                            entityList,
-                            sessionRrList,
-                            points,
-                            customPath,
-                            lastPstiScore,
-                            lastPstiRmssdRatio,
-                            new PdfExporter.PdfExportCallback() {
-                                @Override
-                                public void onSuccess(String pdfFilePath, String fileNamePdf) {
-                                    dbExecutor.execute(() -> {
-                                        db.sessionDao().updatePathsSync(sessionId, pdfFilePath, csvPath);
-                                    });
-
-                                    onLog("PDF успешно создан: " + fileNamePdf);
-                                    Toast.makeText(MainActivity.this, "Сессия и отчеты успешно сохранены", Toast.LENGTH_LONG).show();
-                                }
-                                @Override
-                                public void onError(String errorMessage) {
-                                    onLog("Ошибка создания PDF: " + errorMessage);
-                                }
-                            }
-                    );
-                });
-
-            } catch (Exception e) {
-                runOnUiThread(() -> onLog("Ошибка записи сессии в БД: " + e.getMessage()));
-            }
-        });
     }
 
     private float getSmoothedPi(float rawPi) {
