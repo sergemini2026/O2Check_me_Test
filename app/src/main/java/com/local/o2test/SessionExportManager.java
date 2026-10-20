@@ -169,6 +169,16 @@ public class SessionExportManager {
                             String.format(Locale.US, "%.1f%%", lastPstiScore));
                 }
 
+                // Получаем историю сессий профиля для построения гистограммы PSTI (сортируем от старых к новым)
+                List<SessionEntity> profileSessions = db.sessionDao().getSessionsByProfileSync(activeProfileId);
+                List<Double> pstiHistory = new ArrayList<>();
+                for (int i = profileSessions.size() - 1; i >= 0; i--) {
+                    pstiHistory.add(profileSessions.get(i).getPstiScore());
+                }
+                if (pstiHistory.isEmpty() || pstiHistory.get(pstiHistory.size() - 1) != lastPstiScore) {
+                    pstiHistory.add(lastPstiScore);
+                }
+
                 android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
                 mainHandler.post(() -> PdfExporter.generateHrvPdfReport(
                         context,
@@ -182,6 +192,7 @@ public class SessionExportManager {
                         customPath,
                         lastPstiScore,
                         lastPstiRmssdRatio,
+                        pstiHistory,
                         new PdfExporter.PdfExportCallback() {
                             @Override
                             public void onSuccess(String pdfFilePath, String fileNamePdf) {
@@ -230,27 +241,22 @@ public class SessionExportManager {
                     exportDir.mkdirs();
                 }
 
-                // Временный архив для атомарной записи
                 File tempZip = new File(exportDir, "temp_backup.zip");
                 if (tempZip.exists()) tempZip.delete();
 
                 try (FileOutputStream fos = new FileOutputStream(tempZip);
                      ZipOutputStream zos = new ZipOutputStream(fos)) {
 
-                    // 1. Добавляем файл базы данных внутрь архива как o2test_backup.db
                     addFileToZip(dbFile, "o2test_backup.db", zos);
 
-                    // 2. Добавляем wal-файл БД, если он существует
                     File walFile = new File(dbFile.getParentFile(), "synergy_database-wal");
                     if (walFile.exists()) {
                         addFileToZip(walFile, "o2test_backup.db-wal", zos);
                     }
 
-                    // 3. Рекурсивно добавляем все папки профилей и их отчеты (PDF/CSV)
                     File[] children = exportDir.listFiles();
                     if (children != null) {
                         for (File child : children) {
-                            // Пропускаем сам целевой архив и временные файлы
                             if (child.equals(backupFile) || child.equals(tempZip)) {
                                 continue;
                             }
@@ -259,7 +265,6 @@ public class SessionExportManager {
                     }
                 }
 
-                // Переименовываем временный архив в финальный backupFile
                 if (backupFile.exists()) {
                     backupFile.delete();
                 }
@@ -268,7 +273,6 @@ public class SessionExportManager {
                     tempZip.delete();
                 }
 
-                // Удаляем оставшиеся "мусорные" файлы старых неудачных экспортов, если они были
                 File oldDb = new File(exportDir, "o2test_backup.db");
                 if (oldDb.exists()) oldDb.delete();
                 File oldWal = new File(exportDir, "o2test_backup.db-wal");
@@ -304,7 +308,6 @@ public class SessionExportManager {
                             return;
                         }
 
-                        // Распаковываем архив в папку O2Test
                         unzipFolder(backupFile, exportDir);
 
                         File extractedDb = new File(exportDir, "o2test_backup.db");
@@ -314,7 +317,6 @@ public class SessionExportManager {
                             return;
                         }
 
-                        // Закрываем текущую базу данных
                         AppDatabase.getInstance(context.getApplicationContext()).close();
 
                         File dbFile = context.getDatabasePath("synergy_database");
@@ -323,7 +325,6 @@ public class SessionExportManager {
                             dst.transferFrom(src, 0, src.size());
                         }
 
-                        // Восстанавливаем wal-файл, если он был в архиве
                         File extractedWal = new File(exportDir, "o2test_backup.db-wal");
                         File walFile = new File(dbFile.getParentFile(), "synergy_database-wal");
                         if (extractedWal.exists()) {
