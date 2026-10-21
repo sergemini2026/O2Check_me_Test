@@ -3,6 +3,7 @@ package com.local.o2test;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.os.Environment;
 import android.widget.Toast;
 
@@ -32,8 +33,33 @@ public class SessionExportManager {
     }
 
     /**
+     * Очистка старых папок профилей и сессий в Documents/O2Test/ при наличии полного доступа к хранилищу
+     */
+    public static void cleanLegacyO2TestDirectory(Context context) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                if (!Environment.isExternalStorageManager()) {
+                    return; // Нет системного разрешения "Все файлы" — ОС заблокирует удаление
+                }
+            }
+
+            File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+            File o2TestDir = new File(baseDir, "O2Test");
+            if (o2TestDir.exists() && o2TestDir.isDirectory()) {
+                File[] children = o2TestDir.listFiles();
+                if (children != null) {
+                    for (File child : children) {
+                        deleteDirRecursive(child);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
      * Автоматическое сохранение сессии: экспорт в CSV -> запись в БД -> генерация PDF
-     * Файлы сохраняются строго в папку профиля: /Documents/O2Test/Имя Фамилия/
      */
     public static void saveSessionAutomatically(Context context, 
                                                 SharedPreferences prefs,
@@ -58,7 +84,6 @@ public class SessionExportManager {
             copyForExport = new ArrayList<>(sessionData);
         }
 
-        // Жесткая привязка к подпапке профиля: /Documents/O2Test/Имя Фамилия/
         File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
         File o2TestDir = new File(baseDir, "O2Test");
         File profileDir = new File(o2TestDir, activeProfileName);
@@ -90,9 +115,6 @@ public class SessionExportManager {
         });
     }
 
-    /**
-     * Внутренняя логика записи сессии и HRV-снимков в базу данных
-     */
     private static void saveSessionToDatabase(Context context,
                                               SharedPreferences prefs,
                                               List<DataPoint> points,
@@ -227,9 +249,6 @@ public class SessionExportManager {
         });
     }
 
-    /**
-     * Экспорт (создание бэкапа): чистая упаковка базы данных и папок профилей в o2test_backup.zip (без удаления файлов сессий)
-     */
     public static void exportDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
         dbExecutor.execute(() -> {
             try {
@@ -297,9 +316,6 @@ public class SessionExportManager {
         });
     }
 
-    /**
-     * Импорт (восстановление бэкапа): распаковка o2test_backup.zip в Documents/O2Test
-     */
     public static void importDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
         new AlertDialog.Builder(context)
             .setTitle("Внимание!")
@@ -425,5 +441,17 @@ public class SessionExportManager {
             }
             zis.closeEntry();
         }
+    }
+
+    private static boolean deleteDirRecursive(File dir) {
+        if (dir != null && dir.isDirectory()) {
+            File[] children = dir.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteDirRecursive(child);
+                }
+            }
+        }
+        return dir != null && dir.delete();
     }
 }
