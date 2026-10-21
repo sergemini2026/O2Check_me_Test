@@ -5,7 +5,7 @@ import java.util.List;
 public class MayerWaveAnalyzer {
 
     /**
-     * Анализирует массив RR-интервалов и вычисляет начальную фазу волн Майера (0.1 Гц, период 10 с).
+     * Анализирует массив RR-интервалов и вычисляет начальную фазу волн Майера на основе частоты MasterClock.
      * @param rrList список RR-интервалов в миллисекундах
      * @return нормализованная фаза в диапазоне [0.0, 1.0), где 0.0 - начало вдоха, 0.5 - начало выдоха
      */
@@ -14,7 +14,8 @@ public class MayerWaveAnalyzer {
             return 0.0f;
         }
 
-        double targetFrequency = 0.1; // 0.1 Гц (период 10 секунд)
+        // Динамический расчет целевой частоты на основе единого периода из MasterClock (7.83 с)
+        double targetFrequency = 1000.0 / MasterClock.BASE_DURATION_MS;
         double sumCos = 0.0;
         double sumSin = 0.0;
 
@@ -24,7 +25,7 @@ public class MayerWaveAnalyzer {
             currentTime += tSec;
             double angle = 2.0 * Math.PI * targetFrequency * currentTime;
 
-            // Корреляция сигнала с опорной частотой 0.1 Гц
+            // Корреляция сигнала с опорной частотой
             sumCos += rr * Math.cos(angle);
             sumSin += rr * Math.sin(angle);
         }
