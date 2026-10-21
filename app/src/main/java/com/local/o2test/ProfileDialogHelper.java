@@ -428,9 +428,9 @@ public class ProfileDialogHelper {
             });
         });
         
-        // Кнопка Отмена полностью исключена
+        // Кнопка Отмена удалена полностью
         AlertDialog dialog = builder.create();
-        dialog.setCancelable(false); // Запрещаем закрытие тапом мимо окна, раз отмены нет
+        dialog.setCancelable(false);
         dialog.show();
     }
 
