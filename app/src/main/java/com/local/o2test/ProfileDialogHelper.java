@@ -111,7 +111,7 @@ public class ProfileDialogHelper {
 
             dbExecutor.execute(() -> {
                 AppDatabase db = AppDatabase.getInstance(context.getApplicationContext());
-                ProfileEntity newProfile = new ProfileEntity(0, firstName, lastName, System.currentTimeMillis());
+                ProfileEntity newProfile = new ProfileEntity(0, firstName, lastName, (int) (System.currentTimeMillis() / 1000));
                 long newId = db.profileDao().insertProfileSync(newProfile);
 
                 String fullName = firstName + (TextUtils.isEmpty(lastName) ? "" : " " + lastName);
