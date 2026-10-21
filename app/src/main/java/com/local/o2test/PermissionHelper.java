@@ -17,6 +17,21 @@ public class PermissionHelper {
     public static final int PERMISSION_REQUEST_CODE = 101;
 
     public static boolean checkAndRequestPermissions(Activity activity) {
+        // 1. Для Android 11+ (API 30+) первым делом проверяем специальный доступ к управлению всеми файлами (для импорта/экспорта бэкапов)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                    activity.startActivity(intent);
+                } catch (Exception e) {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                            Uri.parse("package:" + activity.getPackageName()));
+                    activity.startActivity(intent);
+                }
+                return false;
+            }
+        }
+
         List<String> permissions = new ArrayList<>();
 
         // Проверка разрешений на Bluetooth (Android 12+)
@@ -44,21 +59,6 @@ public class PermissionHelper {
         if (!permissions.isEmpty()) {
             activity.requestPermissions(permissions.toArray(new String[0]), PERMISSION_REQUEST_CODE);
             return false;
-        }
-
-        // Для Android 11+ проверяем специальный доступ к управлению всеми файлами (для импорта/экспорта бэкапов в Documents/O2Test)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (!Environment.isExternalStorageManager()) {
-                try {
-                    Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
-                    activity.startActivity(intent);
-                } catch (Exception e) {
-                    Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                            Uri.parse("package:" + activity.getPackageName()));
-                    activity.startActivity(intent);
-                }
-                return false;
-            }
         }
 
         return true;
