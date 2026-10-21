@@ -427,8 +427,11 @@ public class ProfileDialogHelper {
                 }
             });
         });
-        builder.setNegativeButton("Отмена", (dialog, which) -> openProfilesDialog(context, dbExecutor, callback));
-        builder.show();
+        
+        // Кнопка Отмена полностью исключена
+        AlertDialog dialog = builder.create();
+        dialog.setCancelable(false); // Запрещаем закрытие тапом мимо окна, раз отмены нет
+        dialog.show();
     }
 
     private static boolean deleteFileWithMediaStore(Context context, File file) {
