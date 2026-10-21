@@ -171,8 +171,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateMetricsDisplay("--", "--", "--", "--");
         updateRightPanelStatus();
 
-        // Запрашиваем все необходимые разрешения сразу при старте приложения
-        PermissionHelper.checkAndRequestPermissions(this);
+        // Запрашиваем права на хранилище/файлы при первом запуске
+        PermissionHelper.checkAndRequestStoragePermissions(this);
 
         ui.btnHeart.setOnClickListener(v -> {
             if (!isProfileAuthorized) {
@@ -206,8 +206,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 return;
             }
 
-            onLog("Переподключение BLE устройств...");
-            checkAndRequestPermissions();
+            onLog("Подключение BLE устройств и запрос прав...");
+            checkAndRequestBlePermissions();
         });
 
         ui.btnSave.setOnClickListener(v -> {
@@ -276,6 +276,38 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             networkEnabled = lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
         } catch (Exception ignored) {}
         return gpsEnabled || networkEnabled;
+    }
+
+    private void checkAndRequestBlePermissions() {
+        if (!isProfileAuthorized) {
+            Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
+            openProfilesManager();
+            return;
+        }
+        if (PermissionHelper.checkAndRequestBlePermissions(this)) {
+            startHrvForegroundService();
+            bleManager.initAndStartScan();
+        } else {
+            onLog("Запрос разрешений BLE датчиков...");
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PermissionHelper.BLE_PERMISSION_REQUEST_CODE) {
+            boolean allGranted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) { allGranted = false; break; }
+            }
+            if (allGranted) {
+                onLog("Разрешения BLE получены, запуск сканирования...");
+                startHrvForegroundService();
+                bleManager.initAndStartScan();
+            } else {
+                onLog("Ошибка: необходимые разрешения BLE не предоставлены!");
+            }
+        }
     }
 
     private void saveSessionAutomatically() {
@@ -411,38 +443,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (isBound) {
             unbindService(serviceConnection);
             isBound = false;
-        }
-    }
-
-    private void checkAndRequestPermissions() {
-        if (!isProfileAuthorized) {
-            Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
-            openProfilesManager();
-            return;
-        }
-        if (PermissionHelper.checkAndRequestPermissions(this)) {
-            startHrvForegroundService();
-            bleManager.initAndStartScan();
-        } else {
-            onLog("Запрос разрешений BLE и хранилища...");
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == PermissionHelper.PERMISSION_REQUEST_CODE) {
-            boolean allGranted = true;
-            for (int result : grantResults) {
-                if (result != PackageManager.PERMISSION_GRANTED) { allGranted = false; break; }
-            }
-            if (allGranted) {
-                onLog("Разрешения получены, запуск сканирования...");
-                startHrvForegroundService();
-                bleManager.initAndStartScan();
-            } else {
-                onLog("Ошибка: необходимые разрешения не предоставлены!");
-            }
         }
     }
 
