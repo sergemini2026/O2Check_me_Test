@@ -33,23 +33,34 @@ public class SessionExportManager {
     }
 
     /**
-     * Очистка старых папок профилей и сессий в Documents/O2Test/ при наличии полного доступа к хранилищу
+     * 1) Проверка наличия папки O2Test (при отсутствии — создание),
+     * очистка только старых папок профилей (директорий),
+     * с сохранением файла бэкапа (o2test_backup.zip) для возможности импорта.
      */
     public static void cleanLegacyO2TestDirectory(Context context) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 if (!Environment.isExternalStorageManager()) {
-                    return; // Нет системного разрешения "Все файлы" — ОС заблокирует удаление
+                    return; // Нет системного разрешения "Все файлы"
                 }
             }
 
             File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
             File o2TestDir = new File(baseDir, "O2Test");
-            if (o2TestDir.exists() && o2TestDir.isDirectory()) {
+            
+            if (!o2TestDir.exists()) {
+                o2TestDir.mkdirs();
+                return;
+            }
+
+            if (o2TestDir.isDirectory()) {
                 File[] children = o2TestDir.listFiles();
                 if (children != null) {
                     for (File child : children) {
-                        deleteDirRecursive(child);
+                        // Удаляем исключительно старые папки профилей, оставляя o2test_backup.zipтронутым
+                        if (child.isDirectory()) {
+                            deleteDirRecursive(child);
+                        }
                     }
                 }
             }
@@ -249,6 +260,9 @@ public class SessionExportManager {
         });
     }
 
+    /**
+     * 3) При экспорте (создании бэкапа) перезаписывается только сам бэкап, никакие другие файлы и папки не удаляются.
+     */
     public static void exportDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
         dbExecutor.execute(() -> {
             try {
@@ -316,6 +330,9 @@ public class SessionExportManager {
         });
     }
 
+    /**
+     * 2) После импорта и восстановления базы через бэкап, никакие проверки и удаления не производятся.
+     */
     public static void importDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
         new AlertDialog.Builder(context)
             .setTitle("Внимание!")
