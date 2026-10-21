@@ -47,7 +47,6 @@ public class ProfileDialogHelper {
 
         ListView listView = new ListView(context);
         
-        // Кастомный адаптер для отображения имени профиля и кнопок действий (Редактировать / Удалить)
         ArrayAdapter<ProfileEntity> adapter = new ArrayAdapter<ProfileEntity>(context, android.R.layout.simple_list_item_1, profiles) {
             @Override
             public View getView(int position, View convertView, ViewGroup parent) {
@@ -70,7 +69,6 @@ public class ProfileDialogHelper {
                 btnEdit.setText("Изменить");
                 btnEdit.setTextSize(12f);
                 btnEdit.setOnClickListener(v -> {
-                    // Логика редактирования профиля
                     showEditProfileDialog(context, dbExecutor, profile, callback);
                 });
                 itemLayout.addView(btnEdit);
@@ -86,7 +84,7 @@ public class ProfileDialogHelper {
                         .setPositiveButton("Да", (dialogD, whichD) -> {
                             dbExecutor.execute(() -> {
                                 AppDatabase db = AppDatabase.getInstance(context.getApplicationContext());
-                                db.profileDao().deleteProfileSync(profile);
+                                db.profileDao().deleteProfileSync(profile.getId());
                                 android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
                                 mainHandler.post(() -> {
                                     if (callback != null) {
@@ -113,7 +111,6 @@ public class ProfileDialogHelper {
         listView.setLayoutParams(listParams);
         layout.addView(listView);
 
-        // Кнопка создания нового профиля возвращена под список
         Button btnNewProfile = new Button(context);
         btnNewProfile.setText("+ Создать новый профиль");
         layout.addView(btnNewProfile);
@@ -221,9 +218,8 @@ public class ProfileDialogHelper {
 
             dbExecutor.execute(() -> {
                 AppDatabase db = AppDatabase.getInstance(context.getApplicationContext());
-                profile.setFirstName(firstName);
-                profile.setLastName(lastName);
-                db.profileDao().updateProfileSync(profile);
+                ProfileEntity updatedProfile = new ProfileEntity(profile.getId(), firstName, lastName, profile.getCreatedAt());
+                db.profileDao().updateProfileSync(updatedProfile);
 
                 String fullName = firstName + (TextUtils.isEmpty(lastName) ? "" : " " + lastName);
                 android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
