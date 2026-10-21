@@ -1,6 +1,7 @@
 package com.local.o2test;
 
 import android.app.Activity;
+import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.content.ComponentName;
 import android.content.Context;
@@ -8,11 +9,13 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.location.LocationManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.provider.Settings;
 import android.widget.ScrollView;
 import android.widget.Toast;
 
@@ -31,9 +34,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private static final String PREF_NAME = "O2AppPrefs";
     private static final int PI_SMOOTHING_WINDOW = 5;
-    private static final int CALIBRATION_TARGET = 100; // Целевое число интервалов для автоподстройки (90-100)
-    private static final int POSTI_WINDOW_SEC = 120; // Окно оценки следовой когерентности (2 минуты)
-    private static final int POSTI_INTERVAL_DUMPS = 3; // Кратность: запускать замер PSTI каждый 3-й завершенный дамп
+    private static final int CALIBRATION_TARGET = 100;
+    private static final int POSTI_WINDOW_SEC = 120;
+    private static final int POSTI_INTERVAL_DUMPS = 3;
 
     private O2BleManager bleManager;
     private PolarH10Manager polarManager;
@@ -46,7 +49,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private boolean isRecording = false;
     private boolean isTrainingModeActive = false;
     private boolean isCalibrationCompleted = false;
-    private int sessionDumpCount = 0; // Счетчик завершенных дампов для регулирования кратности
+    private int sessionDumpCount = 0;
     private long sessionStartTime = 0;
     private long postiStartTime = 0;
     private String currentWorkoutMode = "Базовый мониторинг";
@@ -55,12 +58,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private final Queue<Float> piWindow = new LinkedList<>();
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
 
-    // Таймер обратного отсчета для статуса PSTI
     private final Handler pstiHandler = new Handler(Looper.getMainLooper());
     private Runnable pstiCountdownRunnable;
     private int pstiRemainingSec = POSTI_WINDOW_SEC;
 
-    // --- ПОКАЗАТЕЛИ СЛЕДОВОЙ КОГЕРЕНТНОСТИ (PSTI) ---
     private double lastPstiScore = 0.0;
     private double lastPstiRmssdRatio = 0.0;
 
@@ -72,7 +73,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private int prevRrMs = 0;
     private int consecutiveArtifactsCount = 0;
 
-    // --- GATEKEEPER & PROFILE STATE ---
     private long activeProfileId = -1L;
     private boolean isProfileAuthorized = false;
     private String activeProfileName = "Не выбран";
@@ -98,7 +98,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     };
 
-    // Callback для менеджера настроек SettingsDialogManager
     private final SettingsDialogManager.SettingsCallback settingsCallback = new SettingsDialogManager.SettingsCallback() {
         @Override
         public void onLog(String message) {
@@ -138,7 +137,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     };
 
-    // Callback для менеджера авторизации PasswordAuthManager
     private final PasswordAuthManager.AuthCallback authCallback = new PasswordAuthManager.AuthCallback() {
         @Override
         public void onPasswordAuthorized() {
@@ -173,6 +171,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateMetricsDisplay("--", "--", "--", "--");
         updateRightPanelStatus();
 
+        // Запрашиваем все необходимые разрешения сразу при старте приложения
+        PermissionHelper.checkAndRequestPermissions(this);
+
         ui.btnHeart.setOnClickListener(v -> {
             if (!isProfileAuthorized) {
                 Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
@@ -193,6 +194,18 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 openProfilesManager();
                 return;
             }
+            
+            // Проверка включенной геолокации перед подключением датчиков
+            if (!isLocationEnabled(this)) {
+                Toast.makeText(this, "Для работы Bluetooth необходимо включить геолокацию!", Toast.LENGTH_LONG).show();
+                try {
+                    startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS));
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+                return;
+            }
+
             onLog("Переподключение BLE устройств...");
             checkAndRequestPermissions();
         });
@@ -250,6 +263,19 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         setContentView(ui.mainLayout);
         PasswordAuthManager.checkMasterPasswordOnStart(this, getSharedPreferences(PREF_NAME, MODE_PRIVATE), authCallback);
+    }
+
+    private boolean isLocationEnabled(Context context) {
+        LocationManager lm = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
+        boolean gpsEnabled = false;
+        boolean networkEnabled = false;
+        try {
+            gpsEnabled = lm.isProviderEnabled(LocationManager.GPS_PROVIDER);
+        } catch (Exception ignored) {}
+        try {
+            networkEnabled = lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
+        } catch (Exception ignored) {}
+        return gpsEnabled || networkEnabled;
     }
 
     private void saveSessionAutomatically() {
@@ -398,7 +424,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             startHrvForegroundService();
             bleManager.initAndStartScan();
         } else {
-            onLog("Запрос разрешений BLE...");
+            onLog("Запрос разрешений BLE и хранилища...");
         }
     }
 
@@ -415,7 +441,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 startHrvForegroundService();
                 bleManager.initAndStartScan();
             } else {
-                onLog("Ошибка: разрешения Bluetooth не предоставлены!");
+                onLog("Ошибка: необходимые разрешения не предоставлены!");
             }
         }
     }
