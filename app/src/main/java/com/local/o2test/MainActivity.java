@@ -171,8 +171,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateMetricsDisplay("--", "--", "--", "--");
         updateRightPanelStatus();
 
-        // Запрашиваем права на хранилище/файлы при первом запуске
-        PermissionHelper.checkAndRequestStoragePermissions(this);
+        // 1. При старте запрашиваем права на хранилище/файлы и сразу очищаем мусор, если доступ уже есть
+        if (PermissionHelper.checkAndRequestStoragePermissions(this)) {
+            SessionExportManager.cleanLegacyO2TestDirectory(this);
+        }
 
         ui.btnHeart.setOnClickListener(v -> {
             if (!isProfileAuthorized) {
@@ -306,6 +308,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 bleManager.initAndStartScan();
             } else {
                 onLog("Ошибка: необходимые разрешения BLE не предоставлены!");
+            }
+        } else if (requestCode == PermissionHelper.PERMISSION_REQUEST_CODE) {
+            boolean allGranted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) { allGranted = false; break; }
+            }
+            if (allGranted) {
+                SessionExportManager.cleanLegacyO2TestDirectory(this);
             }
         }
     }
