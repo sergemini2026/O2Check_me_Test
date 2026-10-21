@@ -383,6 +383,8 @@ public class ProfileDialogHelper {
         layout.addView(fitnessLayout);
 
         builder.setView(layout);
+        
+        // Кнопка сохранения остается
         builder.setPositiveButton(isEditMode ? "Сохранить" : "Создать", (dialog, which) -> {
             String firstName = inputFirstName.getText().toString().trim();
             String lastName = inputLastName.getText().toString().trim();
@@ -427,10 +429,12 @@ public class ProfileDialogHelper {
                 }
             });
         });
+
+        // Возвращаем негативную кнопку как "ПРОПУСТИТЬ" / закрыть, чтобы окно не зависало мертво
+        builder.setNegativeButton("ПРОПУСТИТЬ", (dialog, which) -> dialog.dismiss());
         
-        // Кнопка Отмена удалена полностью
         AlertDialog dialog = builder.create();
-        dialog.setCancelable(false);
+        dialog.setCancelable(true); // Разрешаем закрывать тапом снаружи и кнопкой "Назад"
         dialog.show();
     }
 
