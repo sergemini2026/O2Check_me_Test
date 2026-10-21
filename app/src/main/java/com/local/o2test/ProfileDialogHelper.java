@@ -3,7 +3,8 @@ package com.local.o2test;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.text.TextUtils;
-import android.view.Gravity;
+import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -15,7 +16,6 @@ import android.widget.Toast;
 import com.local.o2test.db.AppDatabase;
 import com.local.o2test.db.entity.ProfileEntity;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 
@@ -45,20 +45,78 @@ public class ProfileDialogHelper {
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(30, 20, 30, 20);
 
+        ListView listView = new ListView(context);
+        
+        // Кастомный адаптер для отображения имени профиля и кнопок действий (Редактировать / Удалить)
+        ArrayAdapter<ProfileEntity> adapter = new ArrayAdapter<ProfileEntity>(context, android.R.layout.simple_list_item_1, profiles) {
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                LinearLayout itemLayout = new LinearLayout(context);
+                itemLayout.setOrientation(LinearLayout.HORIZONTAL);
+                itemLayout.setPadding(10, 15, 10, 15);
+
+                ProfileEntity profile = getItem(position);
+                String fullName = profile.getFirstName() + (TextUtils.isEmpty(profile.getLastName()) ? "" : " " + profile.getLastName());
+
+                TextView tvName = new TextView(context);
+                tvName.setText(fullName);
+                tvName.setTextSize(16f);
+                tvName.setTextColor(context.getResources().getColor(android.R.color.black));
+                LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.0f);
+                tvName.setLayoutParams(nameParams);
+                itemLayout.addView(tvName);
+
+                Button btnEdit = new Button(context);
+                btnEdit.setText("Изменить");
+                btnEdit.setTextSize(12f);
+                btnEdit.setOnClickListener(v -> {
+                    // Логика редактирования профиля
+                    showEditProfileDialog(context, dbExecutor, profile, callback);
+                });
+                itemLayout.addView(btnEdit);
+
+                Button btnDelete = new Button(context);
+                btnDelete.setText("Удалить");
+                btnDelete.setTextSize(12f);
+                btnDelete.setTextColor(context.getResources().getColor(android.R.color.holo_red_dark));
+                btnDelete.setOnClickListener(v -> {
+                    new AlertDialog.Builder(context)
+                        .setTitle("Удаление профиля")
+                        .setMessage("Удалить профиль " + fullName + "?")
+                        .setPositiveButton("Да", (dialogD, whichD) -> {
+                            dbExecutor.execute(() -> {
+                                AppDatabase db = AppDatabase.getInstance(context.getApplicationContext());
+                                db.profileDao().deleteProfileSync(profile);
+                                android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
+                                mainHandler.post(() -> {
+                                    if (callback != null) {
+                                        callback.onProfileDeleted(profile.getId());
+                                        callback.onLog("[ПРОФИЛЬ] Удален профиль: " + fullName);
+                                    }
+                                    Toast.makeText(context, "Профиль удален", Toast.LENGTH_SHORT).show();
+                                    openProfilesDialog(context, dbExecutor, callback);
+                                });
+                            });
+                        })
+                        .setNegativeButton("Нет", null)
+                        .show();
+                });
+                itemLayout.addView(btnDelete);
+
+                return itemLayout;
+            }
+        };
+
+        listView.setAdapter(adapter);
+        
+        LinearLayout.LayoutParams listParams = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 400);
+        listView.setLayoutParams(listParams);
+        layout.addView(listView);
+
+        // Кнопка создания нового профиля возвращена под список
         Button btnNewProfile = new Button(context);
         btnNewProfile.setText("+ Создать новый профиль");
         layout.addView(btnNewProfile);
-
-        ListView listView = new ListView(context);
-        List<String> profileNames = new ArrayList<>();
-        for (ProfileEntity p : profiles) {
-            String name = p.getFirstName() + (TextUtils.isEmpty(p.getLastName()) ? "" : " " + p.getLastName());
-            profileNames.add(name);
-        }
-
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(context, android.R.layout.simple_list_item_1, profileNames);
-        listView.setAdapter(adapter);
-        layout.addView(listView);
 
         builder.setView(layout);
         builder.setNegativeButton("Закрыть", (dialog, which) -> dialog.dismiss());
@@ -126,7 +184,59 @@ public class ProfileDialogHelper {
             });
         });
 
-        // Кнопка «Отмена» теперь возвращает пользователя в меню управления профилями
+        builder.setNegativeButton("Отмена", (dialog, which) -> {
+            dialog.dismiss();
+            openProfilesDialog(context, dbExecutor, callback);
+        });
+
+        builder.show();
+    }
+
+    private static void showEditProfileDialog(Context context, ExecutorService dbExecutor, ProfileEntity profile, ProfileCallback callback) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(context);
+        builder.setTitle("Редактировать профиль");
+
+        LinearLayout layout = new LinearLayout(context);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(40, 20, 40, 20);
+
+        final EditText etFirstName = new EditText(context);
+        etFirstName.setText(profile.getFirstName());
+        layout.addView(etFirstName);
+
+        final EditText etLastName = new EditText(context);
+        etLastName.setText(profile.getLastName() != null ? profile.getLastName() : "");
+        layout.addView(etLastName);
+
+        builder.setView(layout);
+
+        builder.setPositiveButton("Сохранить", (dialog, which) -> {
+            String firstName = etFirstName.getText().toString().trim();
+            String lastName = etLastName.getText().toString().trim();
+
+            if (TextUtils.isEmpty(firstName)) {
+                Toast.makeText(context, "Имя не может быть пустым!", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            dbExecutor.execute(() -> {
+                AppDatabase db = AppDatabase.getInstance(context.getApplicationContext());
+                profile.setFirstName(firstName);
+                profile.setLastName(lastName);
+                db.profileDao().updateProfileSync(profile);
+
+                String fullName = firstName + (TextUtils.isEmpty(lastName) ? "" : " " + lastName);
+                android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
+                mainHandler.post(() -> {
+                    if (callback != null) {
+                        callback.onLog("[ПРОФИЛЬ] Изменен профиль: " + fullName);
+                    }
+                    Toast.makeText(context, "Профиль обновлен", Toast.LENGTH_SHORT).show();
+                    openProfilesDialog(context, dbExecutor, callback);
+                });
+            });
+        });
+
         builder.setNegativeButton("Отмена", (dialog, which) -> {
             dialog.dismiss();
             openProfilesDialog(context, dbExecutor, callback);
