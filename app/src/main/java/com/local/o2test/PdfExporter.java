@@ -196,10 +196,10 @@ public class PdfExporter {
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
             canvas1.restore();
 
-            // 3. НОВАЯ ГИСТОГРАММА ДИНАМИКИ PSTI ПО СЕССИЯМ (15 столбцов с цветовой градацией)
+            // 3. Гистограмма динамики PSTI по сессиям
             drawPstiHistoryHistogram(canvas1, pstiHistory, MARGIN, 262, PAGE_WIDTH - 2 * MARGIN, 55, "Динамика индекса PSTI по сессиям (динамика: рост=зеленый, равно=синий, спад=красный)");
 
-            // Гистограмма RR-интервалов (смещена ниже)
+            // Гистограмма RR-интервалов
             drawHistogram(canvas1, rawRrList, MARGIN, 325, PAGE_WIDTH - 2 * MARGIN, 60, Color.parseColor("#DC2626"), "Гистограмма RR-интервалов (мс) — распределение ритма");
             
             TextPaint histExpPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -346,61 +346,31 @@ public class PdfExporter {
             }
 
             // ==========================================
-            // Сохранение файла
+            // Сохранение файла в папку профиля
             // ==========================================
             String fileName = "HRV_Report_" + System.currentTimeMillis() + ".pdf";
-            Uri publicUri = null;
-            File legacyFile = null;
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                ContentValues values = new ContentValues();
-                values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
-                values.put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf");
-                values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOCUMENTS);
-
-                ContentResolver resolver = context.getContentResolver();
-                Uri collection = MediaStore.Files.getContentUri("external");
-                publicUri = resolver.insert(collection, values);
-
-                if (publicUri != null) {
-                    try (OutputStream fos = resolver.openOutputStream(publicUri)) {
-                        document.writeTo(fos);
-                    }
-                }
+            File targetDir;
+            if (customDirPath != null && !customDirPath.isEmpty()) {
+                targetDir = new File(customDirPath);
             } else {
-                File publicDir;
-                if (customDirPath != null && !customDirPath.isEmpty()) {
-                    publicDir = new File(customDirPath);
-                } else {
-                    publicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
-                }
-                if (!publicDir.exists()) publicDir.mkdirs();
-                legacyFile = new File(publicDir, fileName);
-                try (FileOutputStream fos = new FileOutputStream(legacyFile)) {
-                    document.writeTo(fos);
-                }
+                targetDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+            }
+            if (!targetDir.exists()) targetDir.mkdirs();
+
+            File pdfFile = new File(targetDir, fileName);
+            try (FileOutputStream fos = new FileOutputStream(pdfFile)) {
+                document.writeTo(fos);
             }
             document.close();
 
+            // Копирование в внутреннее хранилище для надежности доступа
             File internalDir = context.getExternalFilesDir(null);
             if (internalDir != null && !internalDir.exists()) internalDir.mkdirs();
             File internalFile = new File(internalDir, fileName);
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && publicUri != null) {
-                try (InputStream in = context.getContentResolver().openInputStream(publicUri);
-                     OutputStream out = new FileOutputStream(internalFile)) {
-                    byte[] buf = new byte[4096];
-                    int len;
-                    while ((len = in.read(buf)) > 0) {
-                        out.write(buf, 0, len);
-                    }
-                }
-            } else if (legacyFile != null) {
-                copyFile(legacyFile, internalFile);
-            }
+            copyFile(pdfFile, internalFile);
 
             if (callback != null) {
-                callback.onSuccess(internalFile.getAbsolutePath(), fileName);
+                callback.onSuccess(pdfFile.getAbsolutePath(), fileName);
             }
 
         } catch (IOException e) {
@@ -438,9 +408,6 @@ public class PdfExporter {
         canvas.drawText(desc, MARGIN + 260, y, rowPaint);
     }
 
-    /**
-     * Отрисовка гистограммы динамики PSTI по сессиям (окно до 15 столбцов, цветовая градация)
-     */
     private static void drawPstiHistoryHistogram(Canvas canvas, List<Double> history, int left, int top, int width, int height, String title) {
         Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         fillPaint.setStyle(Paint.Style.FILL);
@@ -469,7 +436,6 @@ public class PdfExporter {
             return;
         }
 
-        // Выбираем последние 15 сессий для реализации прокрутки/окна
         List<Double> recentHistory = new ArrayList<>();
         int startIndex = Math.max(0, history.size() - 15);
         for (int i = startIndex; i < history.size(); i++) {
@@ -491,15 +457,15 @@ public class PdfExporter {
 
             int barColor;
             if (i == 0) {
-                barColor = Color.parseColor("#0284C7"); // Синий для первой сессии в окне
+                barColor = Color.parseColor("#0284C7");
             } else {
                 double prevVal = recentHistory.get(i - 1);
                 if (val > prevVal) {
-                    barColor = Color.parseColor("#047857"); // Зеленый (выше предыдущего)
+                    barColor = Color.parseColor("#047857");
                 } else if (val == prevVal) {
-                    barColor = Color.parseColor("#0284C7"); // Синий (равно)
+                    barColor = Color.parseColor("#0284C7");
                 } else {
-                    barColor = Color.parseColor("#DC2626"); // Красный (ниже предыдущего)
+                    barColor = Color.parseColor("#DC2626");
                 }
             }
 
