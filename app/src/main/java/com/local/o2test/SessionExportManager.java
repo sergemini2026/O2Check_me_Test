@@ -33,6 +33,7 @@ public class SessionExportManager {
 
     /**
      * Автоматическое сохранение сессии: экспорт в CSV -> запись в БД -> генерация PDF
+     * Файлы сохраняются строго в папку профиля: /Documents/O2Test/Имя Фамилия/
      */
     public static void saveSessionAutomatically(Context context, 
                                                 SharedPreferences prefs,
@@ -49,7 +50,7 @@ public class SessionExportManager {
                                                 boolean isBound,
                                                 ExportCallback callback) {
         if (callback != null) {
-            callback.onLog("Сохранение сессии в CSV и PDF...");
+            callback.onLog("Сохранение сессии в папку профиля " + activeProfileName + "...");
         }
 
         List<DataPoint> copyForExport;
@@ -57,6 +58,7 @@ public class SessionExportManager {
             copyForExport = new ArrayList<>(sessionData);
         }
 
+        // Жесткая привязка к подпапке профиля: /Documents/O2Test/Имя Фамилия/
         File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
         File o2TestDir = new File(baseDir, "O2Test");
         File profileDir = new File(o2TestDir, activeProfileName);
@@ -69,7 +71,7 @@ public class SessionExportManager {
             @Override
             public void onSuccess(String filePath, String fileName) {
                 if (callback != null) {
-                    callback.onLog("CSV успешно сохранен: " + fileName);
+                    callback.onLog("CSV успешно сохранен в папку профиля: " + fileName);
                 }
                 saveSessionToDatabase(context, prefs, copyForExport, filePath, activeProfileId, 
                         activeProfileName, sessionStartTime, currentPolarHr, currentSpo2, 
@@ -118,6 +120,9 @@ public class SessionExportManager {
         File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
         File o2TestDir = new File(baseDir, "O2Test");
         File profileDir = new File(o2TestDir, activeProfileName);
+        if (!profileDir.exists()) {
+            profileDir.mkdirs();
+        }
         String customPath = profileDir.getAbsolutePath();
 
         dbExecutor.execute(() -> {
@@ -189,7 +194,7 @@ public class SessionExportManager {
                         entityList,
                         sessionRrList,
                         points,
-                        customPath,
+                        customPath, // Передаем путь к папке профиля для сохранения PDF
                         lastPstiScore,
                         lastPstiRmssdRatio,
                         pstiHistory,
@@ -201,9 +206,9 @@ public class SessionExportManager {
                                 });
 
                                 if (callback != null) {
-                                    callback.onLog("PDF успешно создан: " + fileNamePdf);
+                                    callback.onLog("PDF успешно создан в папке профиля: " + fileNamePdf);
                                 }
-                                Toast.makeText(context, "Сессия и отчеты успешно сохранены", Toast.LENGTH_LONG).show();
+                                Toast.makeText(context, "Сессия и отчеты сохранены в папку профиля", Toast.LENGTH_LONG).show();
                             }
 
                             @Override
