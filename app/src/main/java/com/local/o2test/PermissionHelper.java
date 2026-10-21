@@ -15,9 +15,10 @@ import java.util.List;
 public class PermissionHelper {
 
     public static final int PERMISSION_REQUEST_CODE = 101;
+    public static final int BLE_PERMISSION_REQUEST_CODE = 102;
 
-    public static boolean checkAndRequestPermissions(Activity activity) {
-        // 1. Для Android 11+ (API 30+) первым делом проверяем специальный доступ к управлению всеми файлами (для импорта/экспорта бэкапов)
+    // Запрос только прав на хранилище/файлы при первом запуске
+    public static boolean checkAndRequestStoragePermissions(Activity activity) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             if (!Environment.isExternalStorageManager()) {
                 try {
@@ -32,9 +33,20 @@ public class PermissionHelper {
             }
         }
 
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            if (activity.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                activity.requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, PERMISSION_REQUEST_CODE);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Запрос прав на BLE датчики и геолокацию при нажатии кнопки "Связь"
+    public static boolean checkAndRequestBlePermissions(Activity activity) {
         List<String> permissions = new ArrayList<>();
 
-        // Проверка разрешений на Bluetooth (Android 12+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (activity.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
                 permissions.add(Manifest.permission.BLUETOOTH_SCAN);
@@ -43,24 +55,20 @@ public class PermissionHelper {
                 permissions.add(Manifest.permission.BLUETOOTH_CONNECT);
             }
         }
-        
-        // Проверка геолокации (обязательна для сканирования BLE на Android)
+
         if (activity.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
         }
 
-        // Проверка разрешений на хранилище для старых версий Android
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            if (activity.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                permissions.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
-            }
-        }
-
         if (!permissions.isEmpty()) {
-            activity.requestPermissions(permissions.toArray(new String[0]), PERMISSION_REQUEST_CODE);
+            activity.requestPermissions(permissions.toArray(new String[0]), BLE_PERMISSION_REQUEST_CODE);
             return false;
         }
 
         return true;
+    }
+
+    public static boolean checkAndRequestPermissions(Activity activity) {
+        return checkAndRequestStoragePermissions(activity);
     }
 }
