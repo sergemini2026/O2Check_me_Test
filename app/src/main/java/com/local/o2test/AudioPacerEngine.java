@@ -170,7 +170,7 @@ public class AudioPacerEngine {
                     }
                 }
 
-                // Фиксированная частота бинаурального ритма на частоте Шумана (7.83 Гц)
+                // Бинауральный ритм на частоте Шумана (7.83 Гц), согласованный с периодом MasterClock
                 double binauralDelta = 7.83;
                 double freqLeft = baseFreq;
                 double freqRight = baseFreq + binauralDelta;
