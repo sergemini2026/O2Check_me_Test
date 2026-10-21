@@ -10,7 +10,7 @@ public class MasterClock {
     private float currentPhaseValue = 0f;
     
     // Базовая длительность цикла: гармоника частоты Шумана (7.83 секунды = 7830 мс)
-    public static final long BASE_DURATION_MS = 7830;
+    public static final long BASE_DURATION_MS = 10000;
 
     public interface MasterClockListener {
         void onTick(float phase);
