@@ -174,7 +174,6 @@ public class SessionExportManager {
                             String.format(Locale.US, "%.1f%%", lastPstiScore));
                 }
 
-                // Получаем историю сессий профиля для построения гистограммы PSTI (сортируем от старых к новым)
                 List<SessionEntity> profileSessions = db.sessionDao().getSessionsByProfileSync(activeProfileId);
                 List<Double> pstiHistory = new ArrayList<>();
                 for (int i = profileSessions.size() - 1; i >= 0; i--) {
@@ -194,7 +193,7 @@ public class SessionExportManager {
                         entityList,
                         sessionRrList,
                         points,
-                        customPath, // Передаем путь к папке профиля для сохранения PDF
+                        customPath,
                         lastPstiScore,
                         lastPstiRmssdRatio,
                         pstiHistory,
@@ -229,7 +228,7 @@ public class SessionExportManager {
     }
 
     /**
-     * Экспорт (создание бэкапа): чистая упаковка базы данных и папок профилей в o2test_backup.zip
+     * Экспорт (создание бэкапа): чистая упаковка базы данных и папок профилей в o2test_backup.zip (без удаления файлов сессий)
      */
     public static void exportDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
         dbExecutor.execute(() -> {
