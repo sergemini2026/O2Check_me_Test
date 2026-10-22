@@ -5,17 +5,18 @@ import java.util.List;
 public class MayerWaveAnalyzer {
 
     /**
-     * Анализирует массив RR-интервалов и вычисляет начальную фазу волн Майера на основе частоты MasterClock.
+     * Анализирует массив RR-интервалов и вычисляет начальную фазу волн Майера на основе переданного динамического периода.
      * @param rrList список RR-интервалов в миллисекундах
+     * @param modulationPeriodMs текущий период модуляции в миллисекундах
      * @return нормализованная фаза в диапазоне [0.0, 1.0), где 0.0 - начало вдоха, 0.5 - начало выдоха
      */
-    public static float calculateInitialPhase(List<Integer> rrList) {
+    public static float calculateInitialPhase(List<Integer> rrList, long modulationPeriodMs) {
         if (rrList == null || rrList.size() < 30) {
             return 0.0f;
         }
 
-        // Динамический расчет целевой частоты на основе единого периода из MasterClock (7.83 с)
-        double targetFrequency = 1000.0 / MasterClock.BASE_DURATION_MS;
+        // Динамический расчет целевой частоты на основе переданного периода модуляции
+        double targetFrequency = 1000.0 / modulationPeriodMs;
         double sumCos = 0.0;
         double sumSin = 0.0;
 
