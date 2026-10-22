@@ -165,15 +165,16 @@ public class BreatheAnimationView extends View {
         float radius = (Math.min(width, height) / 2f) - padding - radiusReduction;
 
         // 1. Отрисовка разметочной шкалы циферблата (от 6 до 14 с половинными делениями)
-        int totalTicks = 16; 
+        // Всего 16 шагов по 0.5 (диапазон от 6 до 14 = 8 единиц), шаг угла = 18.75 градусов (300 градусов общая дуга)
+        int totalSteps = 16; 
         float scaleRadius = radius + 8f; 
         float textRadius = radius + 26f;
 
-        for (int i = 0; i <= totalTicks; i++) {
-            float val = 6f + (i * 8f / totalTicks);
+        for (int i = 0; i <= totalSteps; i++) {
+            float val = 6f + (i * 0.5f);
             
-            // Распределение по окружности, начиная сверху
-            double angle = -Math.PI / 2 + (i * 2.0 * Math.PI / totalTicks);
+            // Центр шкалы (значение 10, i = 8) находится строго вверху (-Math.PI / 2)
+            double angle = -Math.PI / 2 + (i - 8) * Math.toRadians(18.75);
 
             float cosA = (float) Math.cos(angle);
             float sinA = (float) Math.sin(angle);
