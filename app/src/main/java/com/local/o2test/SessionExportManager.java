@@ -185,7 +185,12 @@ public class SessionExportManager {
                 List<HrvSnapshotEntity> entityList = new ArrayList<>();
                 if (!capturedSnapshots.isEmpty()) {
                     for (SessionSnapshot snapshot : capturedSnapshots) {
-                        HrvSnapshotEntity entity = new HrvSnapshotEntity(snapshot.getTimestamp(), snapshot.getMetrics());
+                        // Передаем реальное значение модуляции из снимка сессии
+                        HrvSnapshotEntity entity = new HrvSnapshotEntity(
+                                snapshot.getTimestamp(), 
+                                snapshot.getMetrics(), 
+                                snapshot.getModulationSec()
+                        );
                         if (entity.getBaevskySi() > 0 && entity.getBaevskySi() <= 300) {
                             entityList.add(entity);
                         }
