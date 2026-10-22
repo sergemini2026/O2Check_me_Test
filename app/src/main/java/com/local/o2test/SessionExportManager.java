@@ -57,7 +57,7 @@ public class SessionExportManager {
                 File[] children = o2TestDir.listFiles();
                 if (children != null) {
                     for (File child : children) {
-                        // Удаляем исключительно старые папки профилей, оставляя o2test_backup.zipтронутым
+                        // Удаляем исключительно старые папки профилей, оставляя o2test_backup.zip нетронутым
                         if (child.isDirectory()) {
                             deleteDirRecursive(child);
                         }
@@ -261,7 +261,7 @@ public class SessionExportManager {
     }
 
     /**
-     * 3) При экспорте (создании бэкапа) перезаписывается только сам бэкап, никакие другие файлы и папки не удаляются.
+     * 3) При экспорте (создании бэкапа) сохраняется база, WAL, SHM и вся структура папки.
      */
     public static void exportDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
         dbExecutor.execute(() -> {
@@ -291,6 +291,11 @@ public class SessionExportManager {
                         addFileToZip(walFile, "o2test_backup.db-wal", zos);
                     }
 
+                    File shmFile = new File(dbFile.getParentFile(), "synergy_database-shm");
+                    if (shmFile.exists()) {
+                        addFileToZip(shmFile, "o2test_backup.db-shm", zos);
+                    }
+
                     File[] children = exportDir.listFiles();
                     if (children != null) {
                         for (File child : children) {
@@ -314,6 +319,8 @@ public class SessionExportManager {
                 if (oldDb.exists()) oldDb.delete();
                 File oldWal = new File(exportDir, "o2test_backup.db-wal");
                 if (oldWal.exists()) oldWal.delete();
+                File oldShm = new File(exportDir, "o2test_backup.db-shm");
+                if (oldShm.exists()) oldShm.delete();
 
                 android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
                 mainHandler.post(() -> {
@@ -331,7 +338,7 @@ public class SessionExportManager {
     }
 
     /**
-     * 2) После импорта и восстановления базы через бэкап, никакие проверки и удаления не производятся.
+     * 2) Импорт и восстановление базы через бэкап со сбросом синглтона Room и переносом WAL/SHM файлов.
      */
     public static void importDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
         new AlertDialog.Builder(context)
@@ -354,14 +361,30 @@ public class SessionExportManager {
                             return;
                         }
 
-                        AppDatabase.getInstance(context.getApplicationContext()).close();
+                        // 1. Закрываем текущую БД и сбрасываем инстанс Room в памяти
+                        try {
+                            AppDatabase.getInstance(context.getApplicationContext()).close();
+                        } catch (Exception ignored) {}
 
+                        try {
+                            java.lang.reflect.Field instanceField = AppDatabase.class.getDeclaredField("INSTANCE");
+                            instanceField.setAccessible(true);
+                            instanceField.set(null, null);
+                        } catch (Exception ignored) {
+                            try {
+                                java.lang.reflect.Method resetMethod = AppDatabase.class.getMethod("resetInstance");
+                                resetMethod.invoke(null);
+                            } catch (Exception ignored2) {}
+                        }
+
+                        // 2. Восстанавливаем основной файл БД
                         File dbFile = context.getDatabasePath("synergy_database");
                         try (FileChannel src = new FileInputStream(extractedDb).getChannel();
                              FileChannel dst = new FileOutputStream(dbFile).getChannel()) {
                             dst.transferFrom(src, 0, src.size());
                         }
 
+                        // 3. Восстанавливаем / очищаем файлы WAL и SHM
                         File extractedWal = new File(exportDir, "o2test_backup.db-wal");
                         File walFile = new File(dbFile.getParentFile(), "synergy_database-wal");
                         if (extractedWal.exists()) {
@@ -374,6 +397,18 @@ public class SessionExportManager {
                             walFile.delete();
                         }
 
+                        File extractedShm = new File(exportDir, "o2test_backup.db-shm");
+                        File shmFile = new File(dbFile.getParentFile(), "synergy_database-shm");
+                        if (extractedShm.exists()) {
+                            try (FileChannel src = new FileInputStream(extractedShm).getChannel();
+                                 FileChannel dst = new FileOutputStream(shmFile).getChannel()) {
+                                dst.transferFrom(src, 0, src.size());
+                            }
+                            extractedShm.delete();
+                        } else if (shmFile.exists()) {
+                            shmFile.delete();
+                        }
+
                         extractedDb.delete();
 
                         android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
@@ -381,7 +416,7 @@ public class SessionExportManager {
                             if (callback != null) {
                                 callback.onLog("[БЭКАП] База данных и отчеты сессий успешно восстановлены из архива.");
                             }
-                            Toast.makeText(context, "Импорт выполнен. Перезапустите приложение.", Toast.LENGTH_LONG).show();
+                            Toast.makeText(context, "Импорт выполнен успешно!", Toast.LENGTH_LONG).show();
                         });
                     } catch (IOException e) {
                         e.printStackTrace();
