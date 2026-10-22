@@ -30,6 +30,16 @@ public class BreatheAnimationView extends View {
     
     private float pointerValue = 10.0f; // Текущее значение указателя [6.0 ... 14.0], шаг 0.5
     
+    private OnPointerChangeListener pointerChangeListener;
+
+    public interface OnPointerChangeListener {
+        void onPointerValueChanged(float value);
+    }
+
+    public void setOnPointerChangeListener(OnPointerChangeListener listener) {
+        this.pointerChangeListener = listener;
+    }
+    
     private ValueAnimator breathAnimator;
     private ValueAnimator shrinkAnimator;
 
@@ -58,7 +68,7 @@ public class BreatheAnimationView extends View {
         textPaint.setTextAlign(Paint.Align.CENTER);
         textPaint.setAntiAlias(true);
 
-        // Настройка линий указателя (увеличина толщина в 2 раза до 5.0f)
+        // Настройка линий указателя (увеличенная толщина до 5.0f)
         pointerOrangePaint.setColor(0xFFFF6D00);
         pointerOrangePaint.setStyle(Paint.Style.STROKE);
         pointerOrangePaint.setStrokeWidth(5.0f);
@@ -213,6 +223,9 @@ public class BreatheAnimationView extends View {
                 if (pointerValue != newVal) {
                     pointerValue = newVal;
                     invalidate();
+                    if (pointerChangeListener != null) {
+                        pointerChangeListener.onPointerValueChanged(pointerValue);
+                    }
                 }
                 return true;
 
