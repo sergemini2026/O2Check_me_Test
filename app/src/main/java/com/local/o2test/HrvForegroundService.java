@@ -324,7 +324,8 @@ public class HrvForegroundService extends Service {
     private void evaluateCyclePhaseCorrection(List<Integer> cycleRrList) {
         if (cycleRrList == null || cycleRrList.size() < 5) return;
         try {
-            float measuredPhase = MayerWaveAnalyzer.calculateInitialPhase(cycleRrList);
+            // Передаем актуальный динамический период модуляции в миллисекундах
+            float measuredPhase = MayerWaveAnalyzer.calculateInitialPhase(cycleRrList, currentModulationPeriodMs);
             if (callback != null) {
                 callback.onPhaseCorrectionCalculated(measuredPhase);
             }
