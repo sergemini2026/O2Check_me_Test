@@ -209,15 +209,13 @@ public class UiBuilder {
         rightParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
         v.rightPanel.setLayoutParams(rightParams);
 
-        // Создаем BreatheAnimationView с центрированием и выравниванием по правому краю графиков
+        // Создаем BreatheAnimationView с идеальным центрированием по горизонтали и вертикали
         v.pacerView = new BreatheAnimationView(context);
         FrameLayout.LayoutParams pacerParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT
         );
-        int rightMarginPx = (int) (33 * context.getResources().getDisplayMetrics().density);
-        pacerParams.rightMargin = rightMarginPx;
-        pacerParams.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
+        pacerParams.gravity = Gravity.CENTER;
         v.pacerView.setLayoutParams(pacerParams);
         v.rightPanel.addView(v.pacerView);
 
