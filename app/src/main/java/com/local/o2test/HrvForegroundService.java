@@ -51,6 +51,7 @@ public class HrvForegroundService extends Service {
     private AudioPacerEngine serviceAudioEngine;
     private MasterClock serviceMasterClock;
     private int currentAudioResId = R.raw.o2test_01;
+    private long currentModulationPeriodMs = 10000; // Текущий период модуляции по умолчанию (10 с)
 
     public interface ServiceCallback {
         void onRrDataReceived(int rrMs, int hr);
@@ -170,6 +171,17 @@ public class HrvForegroundService extends Service {
         this.currentAudioResId = resId;
     }
 
+    public void setModulationPeriod(long durationMs) {
+        this.currentModulationPeriodMs = Math.max(6000, Math.min(14000, durationMs));
+        if (serviceMasterClock != null) {
+            serviceMasterClock.setBaseDurationMs(this.currentModulationPeriodMs);
+        }
+    }
+
+    public long getModulationPeriodMs() {
+        return currentModulationPeriodMs;
+    }
+
     public void startAudioAndClock(Context context, float initialPhase, MasterClock.MasterClockListener tickListener) {
         stopAudioAndClock();
         
@@ -188,6 +200,9 @@ public class HrvForegroundService extends Service {
                 tickListener.onTick(phase);
             }
         });
+        
+        // Устанавливаем текущую длительность перед стартом
+        serviceMasterClock.setBaseDurationMs(currentModulationPeriodMs);
         serviceMasterClock.start(initialPhase);
     }
 
@@ -322,7 +337,8 @@ public class HrvForegroundService extends Service {
         try {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(windowData);
             if (metrics != null && metrics.isValid) {
-                SessionSnapshot snapshot = new SessionSnapshot(System.currentTimeMillis(), metrics);
+                float currentModulationSec = currentModulationPeriodMs / 1000.0f;
+                SessionSnapshot snapshot = new SessionSnapshot(System.currentTimeMillis(), metrics, currentModulationSec);
                 synchronized (snapshotBuffer) {
                     snapshotBuffer.add(snapshot);
                 }
