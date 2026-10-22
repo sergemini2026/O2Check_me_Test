@@ -771,7 +771,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                 });
                             } else {
                                 isCalibrationCompleted = true;
-                                final float initialPhase = MayerWaveAnalyzer.calculateInitialPhase(phaseBuffer);
+                               long currentModPeriod = (isBound && hrvService != null) ? hrvService.getModulationPeriodMs() : modulationManager.getModulationPeriodMs();
+                               final float initialPhase = MayerWaveAnalyzer.calculateInitialPhase(phaseBuffer, currentModPeriod);
+
                                 
                                 onLog(String.format(Locale.US, "[Калибровка завершена] Вычисленная фаза Майера: %.2f", initialPhase));
 
