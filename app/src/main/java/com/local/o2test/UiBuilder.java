@@ -34,7 +34,6 @@ import com.local.o2test.db.entity.SessionEntity;
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -250,24 +249,21 @@ public class UiBuilder {
             emptyText.setPadding(10, 20, 10, 20);
             layout.addView(emptyText);
         } else {
-            // Сортируем сессии в хронологическом порядке (от старых к новым) для определения точных порядковых номеров (#1, #2 и т.д.)
+            // Сортируем сессии в хронологическом порядке (от старых к новым)
             List<SessionEntity> sortedSessions = new ArrayList<>(sessions);
             sortedSessions.sort((s1, s2) -> Long.compare(s1.getStartTime(), s2.getStartTime()));
-
-            // Создаем список для отображения: от новых к старым (новые сверху)
-            List<SessionEntity> displaySessions = new ArrayList<>(sortedSessions);
-            Collections.reverse(displaySessions);
 
             ListView listView = new ListView(context);
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US);
 
             List<String> sessionStrings = new ArrayList<>();
-            for (int i = 0; i < displaySessions.size(); i++) {
-                SessionEntity s = displaySessions.get(i);
-                // Находим хронологический номер сессии (первая созданная сессия всегда имеет номер 1)
-                int chronologicalIndex = sortedSessions.indexOf(s) + 1;
+            // Отображаем от новых к старым (новые сверху, старые внизу)
+            for (int position = 0; position < sortedSessions.size(); position++) {
+                int dataIndex = sortedSessions.size() - 1 - position;
+                SessionEntity s = sortedSessions.get(dataIndex);
+                int sessionNumber = dataIndex + 1; // Самая первая сессия всегда имеет номер #1
                 
-                sessionStrings.add("Сессия #" + chronologicalIndex + " | " + sdf.format(new Date(s.getStartTime())) + 
+                sessionStrings.add("Сессия #" + sessionNumber + " | " + sdf.format(new Date(s.getStartTime())) + 
                                   " | " + s.getWorkoutMode() + " | SpO2: " + s.getAvgSpo2() + "%");
             }
 
@@ -275,7 +271,8 @@ public class UiBuilder {
             listView.setAdapter(adapter);
 
             listView.setOnItemClickListener((parent, view, position, id) -> {
-                SessionEntity session = displaySessions.get(position);
+                int dataIndex = sortedSessions.size() - 1 - position;
+                SessionEntity session = sortedSessions.get(dataIndex);
                 if (!TextUtils.isEmpty(session.getPdfPath())) {
                     File file = new File(session.getPdfPath());
                     if (file.exists()) {
