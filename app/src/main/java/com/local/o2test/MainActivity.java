@@ -42,6 +42,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private PolarH10Manager polarManager;
     private UiBuilder.Views ui;
     private OxygenSensorManager oxygenSensorManager;
+    private SessionModulationManager modulationManager; // Менеджер управления периодом модуляции
 
     private HrvForegroundService hrvService;
     private boolean isBound = false;
@@ -162,6 +163,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         bleManager = new O2BleManager(this, this);
         polarManager = new PolarH10Manager(this, polarCallback);
+        modulationManager = new SessionModulationManager(this);
 
         ui = UiBuilder.buildUi(this);
         oxygenSensorManager = new OxygenSensorManager(ui);
@@ -171,7 +173,16 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateMetricsDisplay("--", "--", "--", "--");
         updateRightPanelStatus();
 
-        // 1. При старте запрашиваем права на хранилище/файлы и сразу очищаем мусор, если доступ уже есть
+        // Интерактивная связь шкалы BreatheAnimationView с SessionModulationManager
+        if (ui.pacerView != null) {
+            ui.pacerView.setOnPointerChangeListener(value -> {
+                long newDurationMs = (long) (value * 1000.0);
+                modulationManager.setModulationPeriodMs(newDurationMs);
+                modulationManager.applyModulation(hrvService, isBound);
+                onLog(String.format(Locale.US, "[МОДУЛЯЦИЯ] Период изменен пользователем: %.1f сек", value));
+            });
+        }
+
         if (PermissionHelper.checkAndRequestStoragePermissions(this)) {
             SessionExportManager.cleanLegacyO2TestDirectory(this);
         }
@@ -197,7 +208,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 return;
             }
             
-            // Проверка включенной геолокации перед подключением датчиков
             if (!isLocationEnabled(this)) {
                 Toast.makeText(this, "Для работы Bluetooth необходимо включить геолокацию!", Toast.LENGTH_LONG).show();
                 try {
@@ -346,15 +356,19 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private void updateRightPanelStatusWithCountdown(int seconds) {
         if (ui.tvStatusValue == null) return;
         boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
+        
+        // Интеграция вывода PSTI в строку статуса
+        String pstiSuffix = (lastPstiScore > 0.0) ? String.format(Locale.US, " PSTI [%.1f%%]", lastPstiScore) : "";
+
         if (!isRecording) {
-            ui.tvStatusValue.setText("Статус: Ожидание");
+            ui.tvStatusValue.setText("Статус: Ожидание" + pstiSuffix);
         } else {
             if (isPostiActive) {
-                ui.tvStatusValue.setText(String.format(Locale.US, "Статус: Замер следа (PSTI) - %d сек", seconds));
+                ui.tvStatusValue.setText(String.format(Locale.US, "Статус: Замер следа (PSTI) - %d сек%s", seconds, pstiSuffix));
             } else if (isTrainingModeActive) {
-                ui.tvStatusValue.setText("Статус: " + currentWorkoutMode);
+                ui.tvStatusValue.setText("Статус: " + currentWorkoutMode + pstiSuffix);
             } else {
-                ui.tvStatusValue.setText("Статус: Пранаяма");
+                ui.tvStatusValue.setText("Статус: Пранаяма" + pstiSuffix);
             }
         }
     }
@@ -485,6 +499,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (isBound && hrvService != null) {
             hrvService.stopPostiRecording();
             hrvService.startSessionRecording();
+            
+            // Передаем текущий период модуляции из менеджера в фоновый сервис
+            modulationManager.applyModulation(hrvService, isBound);
             
             hrvService.setCallback(new HrvForegroundService.ServiceCallback() {
                 @Override
