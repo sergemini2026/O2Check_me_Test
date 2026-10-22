@@ -34,6 +34,7 @@ import com.local.o2test.db.entity.SessionEntity;
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -249,14 +250,24 @@ public class UiBuilder {
             emptyText.setPadding(10, 20, 10, 20);
             layout.addView(emptyText);
         } else {
+            // Сортируем сессии в хронологическом порядке (от старых к новым) для определения точных порядковых номеров (#1, #2 и т.д.)
+            List<SessionEntity> sortedSessions = new ArrayList<>(sessions);
+            sortedSessions.sort((s1, s2) -> Long.compare(s1.getStartTime(), s2.getStartTime()));
+
+            // Создаем список для отображения: от новых к старым (новые сверху)
+            List<SessionEntity> displaySessions = new ArrayList<>(sortedSessions);
+            Collections.reverse(displaySessions);
+
             ListView listView = new ListView(context);
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US);
 
             List<String> sessionStrings = new ArrayList<>();
-            for (int i = 0; i < sessions.size(); i++) {
-                SessionEntity s = sessions.get(i);
-                int sessionNumber = sessions.size() - i;
-                sessionStrings.add("Сессия #" + sessionNumber + " | " + sdf.format(new Date(s.getStartTime())) + 
+            for (int i = 0; i < displaySessions.size(); i++) {
+                SessionEntity s = displaySessions.get(i);
+                // Находим хронологический номер сессии (первая созданная сессия всегда имеет номер 1)
+                int chronologicalIndex = sortedSessions.indexOf(s) + 1;
+                
+                sessionStrings.add("Сессия #" + chronologicalIndex + " | " + sdf.format(new Date(s.getStartTime())) + 
                                   " | " + s.getWorkoutMode() + " | SpO2: " + s.getAvgSpo2() + "%");
             }
 
@@ -264,7 +275,7 @@ public class UiBuilder {
             listView.setAdapter(adapter);
 
             listView.setOnItemClickListener((parent, view, position, id) -> {
-                SessionEntity session = sessions.get(position);
+                SessionEntity session = displaySessions.get(position);
                 if (!TextUtils.isEmpty(session.getPdfPath())) {
                     File file = new File(session.getPdfPath());
                     if (file.exists()) {
