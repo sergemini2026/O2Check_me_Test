@@ -25,6 +25,7 @@ import com.local.o2test.db.entity.SessionEntity;
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
@@ -42,7 +43,9 @@ public class SessionDialogHelper {
 
         dbExecutor.execute(() -> {
             AppDatabase db = AppDatabase.getInstance(context);
-            List<SessionEntity> sessions = db.sessionDao().getSessionsByProfileSync(profileId);
+            // Получаем сессии и разворачиваем список, чтобы самые новые оказывались вверху
+            List<SessionEntity> sessions = new ArrayList<>(db.sessionDao().getSessionsByProfileSync(profileId));
+            Collections.reverse(sessions);
 
             ((android.app.Activity) context).runOnUiThread(() -> {
                 showDialog(context, dbExecutor, profileId, profileName, sessions);
@@ -109,6 +112,7 @@ public class SessionDialogHelper {
         List<String> sessionStrings = new ArrayList<>();
         for (int i = 0; i < sessions.size(); i++) {
             SessionEntity s = sessions.get(i);
+            // При развернутом списке (новые сверху): верхняя сессия получает максимальный номер
             int sessionNumber = sessions.size() - i;
             sessionStrings.add(String.format(Locale.US, "#%d | %s | %s | SpO2: %d%%",
                     sessionNumber, sdf.format(new Date(s.getStartTime())), s.getWorkoutMode(), s.getAvgSpo2()));
@@ -223,7 +227,9 @@ public class SessionDialogHelper {
                                 }
                             }
 
-                            List<SessionEntity> updatedSessions = db.sessionDao().getSessionsByProfileSync(profileId);
+                            List<SessionEntity> updatedSessions = new ArrayList<>(db.sessionDao().getSessionsByProfileSync(profileId));
+                            Collections.reverse(updatedSessions);
+
                             ((android.app.Activity) context).runOnUiThread(() -> {
                                 dialog.dismiss();
                                 Toast.makeText(context, "Сессии и файлы успешно удалены", Toast.LENGTH_SHORT).show();
