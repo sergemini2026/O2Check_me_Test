@@ -123,7 +123,7 @@ public class UiBuilder {
         v.tvStatusValue = new TextView(context);
         v.tvStatusValue.setText("");
         v.tvStatusValue.setTextSize(13);
-        v.tvStatusValue.setTextColor(Color.CYAN);
+        v.tvStatusValue.setTextColor(0xFFFF6D00);
         v.tvStatusValue.setGravity(Gravity.CENTER);
 
         LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
