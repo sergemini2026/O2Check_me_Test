@@ -8,12 +8,17 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RadialGradient;
 import android.graphics.Shader;
+import android.util.TypedValue;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
+
+import java.util.Locale;
 
 public class BreatheAnimationView extends View {
     private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint petalPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint scalePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path clipPath = new Path();
 
     private boolean isMonitoringActive = false;
@@ -35,6 +40,18 @@ public class BreatheAnimationView extends View {
     private void init() {
         bgPaint.setColor(0xFF1E222A);
         bgPaint.setStyle(Paint.Style.FILL);
+
+        // Настройка оранжевого цвета шкалы и делений
+        scalePaint.setColor(0xFFFF6D00);
+        scalePaint.setStrokeWidth(2f);
+        scalePaint.setStyle(Paint.Style.STROKE);
+
+        // Настройка оранжевого цвета для цифр шкалы
+        textPaint.setColor(0xFFFF6D00);
+        textPaint.setTextSize(24f);
+        textPaint.setTextAlign(Paint.Align.CENTER);
+        textPaint.setAntiAlias(true);
+
         setLayerType(View.LAYER_TYPE_HARDWARE, null);
         isMonitoringActive = false;
     }
@@ -74,9 +91,6 @@ public class BreatheAnimationView extends View {
         invalidate();
     }
 
-    /**
-     * Плавная остановка пейсера с мягким сжатием в исходную точку (без рывков)
-     */
     public void stopMonitoring() {
         if (!isMonitoringActive && shrinkAnimator == null) return;
 
@@ -90,7 +104,7 @@ public class BreatheAnimationView extends View {
         }
 
         shrinkAnimator = ValueAnimator.ofFloat(animationProgress, 0.0f);
-        shrinkAnimator.setDuration(600); // Плавное сжатие за 600 мс
+        shrinkAnimator.setDuration(600);
         shrinkAnimator.setInterpolator(new DecelerateInterpolator());
         shrinkAnimator.addUpdateListener(animation -> {
             animationProgress = (float) animation.getAnimatedValue();
@@ -139,24 +153,61 @@ public class BreatheAnimationView extends View {
         float height = getHeight();
         if (width <= 0 || height <= 0) return;
 
-        // Создаем круглый контур для обрезки (клиппинга) холста
         float centerX = width / 2f;
         float centerY = height / 2f;
-        float radius = Math.min(width, height) / 2f;
+        
+        // Уменьшение физического диаметра канваса на 1 см (уменьшение радиуса на 5 мм)
+        float radiusReduction = TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_MM, 5f, getResources().getDisplayMetrics()
+        );
+        
+        float padding = 35f * (width / 300f);
+        float radius = (Math.min(width, height) / 2f) - padding - radiusReduction;
 
+        // 1. Отрисовка разметочной шкалы циферблата (от 6 до 14 с половинными делениями)
+        int totalTicks = 16; 
+        float scaleRadius = radius + 8f; 
+        float textRadius = radius + 26f;
+
+        for (int i = 0; i <= totalTicks; i++) {
+            float val = 6f + (i * 8f / totalTicks);
+            
+            // Распределение по окружности, начиная сверху
+            double angle = -Math.PI / 2 + (i * 2.0 * Math.PI / totalTicks);
+
+            float cosA = (float) Math.cos(angle);
+            float sinA = (float) Math.sin(angle);
+
+            boolean isInteger = (val % 1.0f == 0);
+            float tickLen = isInteger ? 10f : 5f;
+            
+            scalePaint.setStrokeWidth(isInteger ? 2.5f : 1.5f);
+            float startX = centerX + scaleRadius * cosA;
+            float startY = centerY + scaleRadius * sinA;
+            float endX = centerX + (scaleRadius + tickLen) * cosA;
+            float endY = centerY + (scaleRadius + tickLen) * sinA;
+            canvas.drawLine(startX, startY, endX, endY, scalePaint);
+
+            if (isInteger) {
+                float txtX = centerX + (textRadius + 4f) * cosA;
+                float txtY = centerY + (textRadius + 4f) * sinA + 8f; 
+                canvas.drawText(String.format(Locale.US, "%d", (int) val), txtX, txtY, textPaint);
+            }
+        }
+
+        // 2. Обрезка внутреннего холста пейсера строго по кругу внутри шкалы
         clipPath.reset();
         clipPath.addCircle(centerX, centerY, radius, Path.Direction.CW);
 
-        // Обрезаем весь последующий вывод по кругу
         canvas.save();
         canvas.clipPath(clipPath);
 
-        // Рисуем круглую фоновую заливку пейсера
+        // Рисуем фоновую заливку пейсера
         canvas.drawCircle(centerX, centerY, radius, bgPaint);
 
-        float scale = Math.min(width, height) / 200f;
-        float dx = (width - 200f * scale) / 2f;
-        float dy = (height - 200f * scale) / 2f;
+        float scale = radius / 100f;
+        float dx = centerX - 100f * scale;
+        float dy = centerY - 100f * scale;
 
         canvas.save();
         canvas.translate(dx, dy);
@@ -166,6 +217,7 @@ public class BreatheAnimationView extends View {
             petalPaint.setShader(new RadialGradient(100, 100, 24f,
                     new int[]{0xFFFF2D55, 0xDDFF2D55}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
             canvas.drawCircle(100, 100, 24f, petalPaint);
+            canvas.restore();
             canvas.restore();
             canvas.restore();
             return;
@@ -208,7 +260,7 @@ public class BreatheAnimationView extends View {
 
         canvas.restore();
         canvas.restore();
-        canvas.restore(); // Восстанавливаем состояние холста после clipPath
+        canvas.restore();
     }
 
     private int interpolateColor(int colorA, int colorB, float fraction) {
