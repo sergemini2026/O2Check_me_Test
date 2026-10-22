@@ -133,7 +133,6 @@ public class PdfExporter {
             textPaint.setFakeBoldText(true);
             canvas1.drawText("1. Сводные вегетативные показатели и индекс следа (PSTI)", MARGIN, 82, textPaint);
 
-            // Сводные строки
             drawMetricRow(canvas1, 95, "RMSSD (мск):", String.format(Locale.US, "%.1f", avgRmssd), "Норма: 20-100 (Вагусный тонус)");
             drawMetricRow(canvas1, 108, "SDNN (мск):", String.format(Locale.US, "%.1f", avgSdnn), "Общая вариабельность ритма");
             drawMetricRow(canvas1, 121, "Индекс Баевского (SI):", String.format(Locale.US, "%.1f у.е.", avgSi), "Индекс напряжения регуляторных систем");
@@ -196,10 +195,7 @@ public class PdfExporter {
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
             canvas1.restore();
 
-            // 3. Гистограмма динамики PSTI по сессиям
             drawPstiHistoryHistogram(canvas1, pstiHistory, MARGIN, 262, PAGE_WIDTH - 2 * MARGIN, 55, "Динамика индекса PSTI по сессиям (динамика: рост=зеленый, равно=синий, спад=красный)");
-
-            // Гистограмма RR-интервалов
             drawHistogram(canvas1, rawRrList, MARGIN, 325, PAGE_WIDTH - 2 * MARGIN, 60, Color.parseColor("#DC2626"), "Гистограмма RR-интервалов (мс) — распределение ритма");
             
             TextPaint histExpPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -223,7 +219,6 @@ public class PdfExporter {
                 histTextY += layout.getHeight() + 3;
             }
 
-            // Графики SpO2 и ЧСС
             drawOxygenationChart(canvas1, dataPoints, MARGIN, 420, PAGE_WIDTH - 2 * MARGIN, 50, Color.parseColor("#0284C7"), "Динамика оксигенации SpO2 (%)");
             drawHeartRateChart(canvas1, dataPoints, MARGIN, 478, PAGE_WIDTH - 2 * MARGIN, 50, Color.parseColor("#10B981"), "Динамика ЧСС (HR, уд/мин)");
 
@@ -277,7 +272,7 @@ public class PdfExporter {
             document.finishPage(page2);
 
             // ==========================================
-            // СТРАНИЦЫ 3+: Хронологический лог снимков
+            // СТРАНИЦЫ 3+: Хронологический лог снимков (Столбец Артефакты заменен на Модуляция)
             // ==========================================
             SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
             int rowsPerPage = 22;
@@ -308,7 +303,7 @@ public class PdfExporter {
                 canvasN.drawText("TP", MARGIN + 250, startY, textPaint);
                 canvasN.drawText("SampEn", MARGIN + 310, startY, textPaint);
                 canvasN.drawText("DFA α1", MARGIN + 370, startY, textPaint);
-                canvasN.drawText("Артефакты", MARGIN + 435, startY, textPaint);
+                canvasN.drawText("Модуляция", MARGIN + 435, startY, textPaint); // Заменено с "Артефакты"
 
                 strokePaint.setColor(Color.parseColor("#CBD5E1"));
                 strokePaint.setStrokeWidth(1f);
@@ -337,7 +332,10 @@ public class PdfExporter {
                     canvasN.drawText(String.format(Locale.US, "%.0f", s.getTotalPower()), MARGIN + 250, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getSampleEntropy()), MARGIN + 310, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getDfaAlpha1()), MARGIN + 370, currentY, textPaint);
-                    canvasN.drawText(s.getArtifactsDetected() + " (" + String.format(Locale.US, "%.1f%%", s.getArtifactPct()) + ")", MARGIN + 435, currentY, textPaint);
+                    
+                    // Вывод значения модуляции в секундах
+                    float modSec = s.getModulationSec() > 0 ? s.getModulationSec() : 10.0f;
+                    canvasN.drawText(String.format(Locale.US, "%.1f с", modSec), MARGIN + 435, currentY, textPaint);
 
                     currentY += 22;
                 }
@@ -363,7 +361,6 @@ public class PdfExporter {
             }
             document.close();
 
-            // Копирование в внутреннее хранилище для надежности доступа
             File internalDir = context.getExternalFilesDir(null);
             if (internalDir != null && !internalDir.exists()) internalDir.mkdirs();
             File internalFile = new File(internalDir, fileName);
