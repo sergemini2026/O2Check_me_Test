@@ -25,7 +25,6 @@ import com.local.o2test.db.entity.SessionEntity;
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
@@ -43,9 +42,9 @@ public class SessionDialogHelper {
 
         dbExecutor.execute(() -> {
             AppDatabase db = AppDatabase.getInstance(context);
-            // Получаем сессии и разворачиваем список, чтобы самые новые оказывались вверху
+            // Получаем сессии и сортируем в хронологическом порядке (от старых к новым)
             List<SessionEntity> sessions = new ArrayList<>(db.sessionDao().getSessionsByProfileSync(profileId));
-            Collections.reverse(sessions);
+            sessions.sort((s1, s2) -> Long.compare(s1.getStartTime(), s2.getStartTime()));
 
             ((android.app.Activity) context).runOnUiThread(() -> {
                 showDialog(context, dbExecutor, profileId, profileName, sessions);
@@ -109,11 +108,13 @@ public class SessionDialogHelper {
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US);
         Set<Integer> selectedPositions = new HashSet<>();
 
+        // Формируем список для отображения: новые сверху (position = 0 -> самый новый), старые внизу
         List<String> sessionStrings = new ArrayList<>();
-        for (int i = 0; i < sessions.size(); i++) {
-            SessionEntity s = sessions.get(i);
-            // При развернутом списке (новые сверху): верхняя сессия получает максимальный номер
-            int sessionNumber = sessions.size() - i;
+        for (int position = 0; position < sessions.size(); position++) {
+            int dataIndex = sessions.size() - 1 - position;
+            SessionEntity s = sessions.get(dataIndex);
+            int sessionNumber = dataIndex + 1; // Самая первая созданная сессия всегда имеет номер #1
+            
             sessionStrings.add(String.format(Locale.US, "#%d | %s | %s | SpO2: %d%%",
                     sessionNumber, sdf.format(new Date(s.getStartTime())), s.getWorkoutMode(), s.getAvgSpo2()));
         }
@@ -148,7 +149,8 @@ public class SessionDialogHelper {
         });
 
         listView.setOnItemClickListener((parent, view, position, id) -> {
-            SessionEntity session = sessions.get(position);
+            int dataIndex = sessions.size() - 1 - position;
+            SessionEntity session = sessions.get(dataIndex);
             File targetFile = null;
 
             if (!TextUtils.isEmpty(session.getPdfPath())) {
@@ -190,15 +192,15 @@ public class SessionDialogHelper {
                             AppDatabase db = AppDatabase.getInstance(context);
                             List<SessionEntity> toDelete = new ArrayList<>();
                             for (int pos : selectedPositions) {
-                                if (pos >= 0 && pos < sessions.size()) {
-                                    toDelete.add(sessions.get(pos));
+                                int dataIndex = sessions.size() - 1 - pos;
+                                if (dataIndex >= 0 && dataIndex < sessions.size()) {
+                                    toDelete.add(sessions.get(dataIndex));
                                 }
                             }
 
                             for (SessionEntity session : toDelete) {
                                 db.sessionDao().deleteSessionSync(session.getId());
 
-                                // Удаление PDF файла
                                 if (!TextUtils.isEmpty(session.getPdfPath())) {
                                     try {
                                         File f = new File(session.getPdfPath());
@@ -212,7 +214,6 @@ public class SessionDialogHelper {
                                     } catch (Exception ignored) {}
                                 }
 
-                                // Удаление CSV файла
                                 if (!TextUtils.isEmpty(session.getCsvPath())) {
                                     try {
                                         File f = new File(session.getCsvPath());
@@ -228,7 +229,7 @@ public class SessionDialogHelper {
                             }
 
                             List<SessionEntity> updatedSessions = new ArrayList<>(db.sessionDao().getSessionsByProfileSync(profileId));
-                            Collections.reverse(updatedSessions);
+                            updatedSessions.sort((s1, s2) -> Long.compare(s1.getStartTime(), s2.getStartTime()));
 
                             ((android.app.Activity) context).runOnUiThread(() -> {
                                 dialog.dismiss();
