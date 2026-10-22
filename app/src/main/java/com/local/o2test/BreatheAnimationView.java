@@ -5,16 +5,16 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.RadialGradient;
 import android.graphics.Shader;
-import android.graphics.RectF;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 
 public class BreatheAnimationView extends View {
     private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint petalPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final RectF bgRect = new RectF();
+    private final Path clipPath = new Path();
 
     private boolean isMonitoringActive = false;
     private float animationProgress = 0f; // [0.0 ... 1.0]
@@ -139,6 +139,21 @@ public class BreatheAnimationView extends View {
         float height = getHeight();
         if (width <= 0 || height <= 0) return;
 
+        // Создаем круглый контур для обрезки (клиппинга) холста
+        float centerX = width / 2f;
+        float centerY = height / 2f;
+        float radius = Math.min(width, height) / 2f;
+
+        clipPath.reset();
+        clipPath.addCircle(centerX, centerY, radius, Path.Direction.CW);
+
+        // Обрезаем весь последующий вывод по кругу
+        canvas.save();
+        canvas.clipPath(clipPath);
+
+        // Рисуем круглую фоновую заливку пейсера
+        canvas.drawCircle(centerX, centerY, radius, bgPaint);
+
         float scale = Math.min(width, height) / 200f;
         float dx = (width - 200f * scale) / 2f;
         float dy = (height - 200f * scale) / 2f;
@@ -147,13 +162,11 @@ public class BreatheAnimationView extends View {
         canvas.translate(dx, dy);
         canvas.scale(scale, scale);
 
-        bgRect.set(0, 0, 200, 200);
-        canvas.drawRoundRect(bgRect, 16, 16, bgPaint);
-
         if (!isMonitoringActive && shrinkAnimator == null) {
             petalPaint.setShader(new RadialGradient(100, 100, 24f,
                     new int[]{0xFFFF2D55, 0xDDFF2D55}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
             canvas.drawCircle(100, 100, 24f, petalPaint);
+            canvas.restore();
             canvas.restore();
             return;
         }
@@ -195,6 +208,7 @@ public class BreatheAnimationView extends View {
 
         canvas.restore();
         canvas.restore();
+        canvas.restore(); // Восстанавливаем состояние холста после clipPath
     }
 
     private int interpolateColor(int colorA, int colorB, float fraction) {
