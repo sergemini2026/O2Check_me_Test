@@ -7,8 +7,10 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RadialGradient;
+import android.graphics.RectF;
 import android.graphics.Shader;
 import android.util.TypedValue;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 
@@ -19,10 +21,14 @@ public class BreatheAnimationView extends View {
     private final Paint petalPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint scalePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint pointerOrangePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint pointerWhitePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path clipPath = new Path();
 
     private boolean isMonitoringActive = false;
     private float animationProgress = 0f; // [0.0 ... 1.0]
+    
+    private float pointerValue = 10.0f; // Текущее значение указателя [6.0 ... 14.0], шаг 0.5
     
     private ValueAnimator breathAnimator;
     private ValueAnimator shrinkAnimator;
@@ -52,8 +58,28 @@ public class BreatheAnimationView extends View {
         textPaint.setTextAlign(Paint.Align.CENTER);
         textPaint.setAntiAlias(true);
 
+        // Настройка линий указателя
+        pointerOrangePaint.setColor(0xFFFF6D00);
+        pointerOrangePaint.setStyle(Paint.Style.STROKE);
+        pointerOrangePaint.setStrokeWidth(2.5f);
+        pointerOrangePaint.setAntiAlias(true);
+
+        pointerWhitePaint.setColor(0xFFFFFFFF);
+        pointerWhitePaint.setStyle(Paint.Style.STROKE);
+        pointerWhitePaint.setStrokeWidth(2.5f);
+        pointerWhitePaint.setAntiAlias(true);
+
         setLayerType(View.LAYER_TYPE_HARDWARE, null);
         isMonitoringActive = false;
+    }
+
+    public float getPointerValue() {
+        return pointerValue;
+    }
+
+    public void setPointerValue(float value) {
+        this.pointerValue = Math.max(6.0f, Math.min(14.0f, value));
+        invalidate();
     }
 
     public void setRunning(boolean running) {
@@ -146,6 +172,60 @@ public class BreatheAnimationView extends View {
     }
 
     @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        float width = getWidth();
+        float height = getHeight();
+        if (width <= 0 || height <= 0) return super.onTouchEvent(event);
+
+        float centerX = width / 2f;
+        float centerY = height / 2f;
+
+        float x = event.getX();
+        float y = event.getY();
+
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+            case MotionEvent.ACTION_MOVE:
+                int totalSteps = 16;
+                float radiusReduction = TypedValue.applyDimension(
+                        TypedValue.COMPLEX_UNIT_MM, 5f, getResources().getDisplayMetrics()
+                );
+                float padding = 35f * (width / 300f);
+                float radius = (Math.min(width, height) / 2f) - padding - radiusReduction;
+                float scaleRadius = radius + 8f;
+
+                int bestIndex = 0;
+                float minSqDist = Float.MAX_VALUE;
+
+                // Находим ближайшее деление шкалы (с шагом 0.5) по координатам касания
+                for (int i = 0; i <= totalSteps; i++) {
+                    double angle = -Math.PI / 2 + (i - 8) * Math.toRadians(18.75);
+                    float tx = centerX + scaleRadius * (float) Math.cos(angle);
+                    float ty = centerY + scaleRadius * (float) Math.sin(angle);
+
+                    float sqDist = (x - tx) * (x - tx) + (y - ty) * (y - ty);
+                    if (sqDist < minSqDist) {
+                        minSqDist = sqDist;
+                        bestIndex = i;
+                    }
+                }
+
+                float newVal = 6f + (bestIndex * 0.5f);
+                if (pointerValue != newVal) {
+                    pointerValue = newVal;
+                    invalidate();
+                }
+                return true;
+
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                return true;
+        }
+
+        return super.onTouchEvent(event);
+    }
+
+    @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
 
@@ -165,7 +245,6 @@ public class BreatheAnimationView extends View {
         float radius = (Math.min(width, height) / 2f) - padding - radiusReduction;
 
         // 1. Отрисовка разметочной шкалы циферблата (от 6 до 14 с половинными делениями)
-        // Всего 16 шагов по 0.5 (диапазон от 6 до 14 = 8 единиц), шаг угла = 18.75 градусов (300 градусов общая дуга)
         int totalSteps = 16; 
         float scaleRadius = radius + 8f; 
         float textRadius = radius + 26f;
@@ -173,7 +252,6 @@ public class BreatheAnimationView extends View {
         for (int i = 0; i <= totalSteps; i++) {
             float val = 6f + (i * 0.5f);
             
-            // Центр шкалы (значение 10, i = 8) находится строго вверху (-Math.PI / 2)
             double angle = -Math.PI / 2 + (i - 8) * Math.toRadians(18.75);
 
             float cosA = (float) Math.cos(angle);
@@ -195,6 +273,35 @@ public class BreatheAnimationView extends View {
                 canvas.drawText(String.format(Locale.US, "%d", (int) val), txtX, txtY, textPaint);
             }
         }
+
+        // Вычисление угла для текущего значения указателя
+        float stepIndex = (pointerValue - 6.0f) / 0.5f;
+        double pointerAngle = -Math.PI / 2 + (stepIndex - 8) * Math.toRadians(18.75);
+        float cosP = (float) Math.cos(pointerAngle);
+        float sinP = (float) Math.sin(pointerAngle);
+
+        // Две параллельные оранжевые дуги изнутри границы круга
+        float arcRadius1 = radius - 5f;
+        float arcRadius2 = radius - 11f;
+        float angleDeg = (float) Math.toDegrees(pointerAngle);
+        float sweepDeg = 10f;
+        float startDeg = angleDeg - sweepDeg / 2f;
+
+        RectF rect1 = new RectF(centerX - arcRadius1, centerY - arcRadius1, centerX + arcRadius1, centerY + arcRadius1);
+        RectF rect2 = new RectF(centerX - arcRadius2, centerY - arcRadius2, centerX + arcRadius2, centerY + arcRadius2);
+
+        canvas.drawArc(rect1, startDeg, sweepDeg, false, pointerOrangePaint);
+        canvas.drawArc(rect2, startDeg, sweepDeg, false, pointerOrangePaint);
+
+        // Перпендикулярная белая линия-стрелка, парящая независимо на внешней стороне границы
+        float whiteStartRadius = radius + 3f;
+        float whiteEndRadius = radius + 12f;
+        float pStartX = centerX + whiteStartRadius * cosP;
+        float pStartY = centerY + whiteStartRadius * sinP;
+        float pEndX = centerX + whiteEndRadius * cosP;
+        float pEndY = centerY + whiteEndRadius * sinP;
+
+        canvas.drawLine(pStartX, pStartY, pEndX, pEndY, pointerWhitePaint);
 
         // 2. Обрезка внутреннего холста пейсера строго по кругу внутри шкалы (Save 1)
         clipPath.reset();
