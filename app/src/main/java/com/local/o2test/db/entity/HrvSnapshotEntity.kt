@@ -21,11 +21,12 @@ data class HrvSnapshotEntity(
     val sd1sd2Ratio: Double,
     val baevskySi: Double,
     val sampleEntropy: Double = 0.0,
-    val dfaAlpha1: Double = 1.0, // Новое поле: DFA alpha1
+    val dfaAlpha1: Double = 1.0,
+    val modulationSec: Float = 10.0f, // Сохранение периода модуляции в секундах
     val artifactsDetected: Int,
     val artifactPct: Double
 ) {
-    constructor(timestamp: Long, m: HrvCalculator.Metrics) : this(
+    constructor(timestamp: Long, m: HrvCalculator.Metrics, modulationSec: Float) : this(
         timestamp = timestamp,
         rmssd = m.rmssd,
         sdnn = m.sdnn,
@@ -40,7 +41,10 @@ data class HrvSnapshotEntity(
         baevskySi = m.baevskySi,
         sampleEntropy = m.sampleEntropy,
         dfaAlpha1 = m.dfaAlpha1,
+        modulationSec = modulationSec,
         artifactsDetected = m.artifactsDetected,
         artifactPct = m.artifactPct
     )
+
+    constructor(timestamp: Long, m: HrvCalculator.Metrics) : this(timestamp, m, 10.0f)
 }
