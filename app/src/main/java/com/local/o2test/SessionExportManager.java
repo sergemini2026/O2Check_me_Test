@@ -202,12 +202,15 @@ public class SessionExportManager {
                     }
                 }
 
+                // Получаем актуальный список сессий из БД для вычисления расчетного номера
+                List<SessionEntity> profileSessions = db.sessionDao().getSessionsByProfileSync(activeProfileId);
+                int calculatedSessionNumber = profileSessions.size();
+
                 if (callback != null) {
-                    callback.onLog("Сессия #" + sessionId + " зарегистрирована в БД. Индекс PSTI: " + 
+                    callback.onLog("Сессия #" + calculatedSessionNumber + " зарегистрирована в БД. Индекс PSTI: " + 
                             String.format(Locale.US, "%.1f%%", lastPstiScore));
                 }
 
-                List<SessionEntity> profileSessions = db.sessionDao().getSessionsByProfileSync(activeProfileId);
                 List<Double> pstiHistory = new ArrayList<>();
                 for (int i = profileSessions.size() - 1; i >= 0; i--) {
                     pstiHistory.add(profileSessions.get(i).getPstiScore());
