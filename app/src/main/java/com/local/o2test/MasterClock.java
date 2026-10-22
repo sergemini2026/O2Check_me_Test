@@ -9,8 +9,9 @@ public class MasterClock {
     private MasterClockListener listener;
     private float currentPhaseValue = 0f;
     
-    // Базовая длительность цикла: гармоника частоты Шумана (7.83 секунды = 7830 мс)
-    public static final long BASE_DURATION_MS = 10000;
+    // Базовая длительность цикла в мс (динамическая, от 6000 до 14000 мс)
+    private long baseDurationMs = 10000;
+    private long targetDurationMs = 10000;
 
     public interface MasterClockListener {
         void onTick(float phase);
@@ -18,6 +19,18 @@ public class MasterClock {
 
     public MasterClock(MasterClockListener listener) {
         this.listener = listener;
+    }
+
+    public void setBaseDurationMs(long durationMs) {
+        this.targetDurationMs = Math.max(6000, Math.min(14000, durationMs));
+        // Если часы не запущены, сразу применяем длительность
+        if (!isRunning || clockAnimator == null || !clockAnimator.isRunning()) {
+            this.baseDurationMs = this.targetDurationMs;
+        }
+    }
+
+    public long getBaseDurationMs() {
+        return baseDurationMs;
     }
 
     public void start(float initialPhase) {
@@ -28,7 +41,8 @@ public class MasterClock {
         if (normalizedPhase < 0) normalizedPhase += 1.0f;
         currentPhaseValue = normalizedPhase;
 
-        createAndStartAnimator(normalizedPhase, BASE_DURATION_MS);
+        baseDurationMs = targetDurationMs;
+        createAndStartAnimator(normalizedPhase, baseDurationMs);
     }
 
     private void createAndStartAnimator(float startPhase, long durationMs) {
@@ -44,6 +58,15 @@ public class MasterClock {
             if (!isRunning) return;
             float val = (float) animation.getAnimatedValue();
             currentPhaseValue = val % 1.0f;
+            
+            // Плавное приближение baseDurationMs к targetDurationMs на границах циклов
+            if (baseDurationMs != targetDurationMs) {
+                if (currentPhaseValue < 0.05f || currentPhaseValue > 0.95f) {
+                    long diff = targetDurationMs - baseDurationMs;
+                    baseDurationMs += Math.signum(diff) * Math.min(Math.abs(diff), 150);
+                }
+            }
+
             if (listener != null) {
                 listener.onTick(currentPhaseValue);
             }
@@ -66,15 +89,14 @@ public class MasterClock {
 
         if (Math.abs(diff) < 0.02f) return;
 
-        long adjustedDuration = (long) (BASE_DURATION_MS * (1.0f - (diff * 0.2f)));
+        long adjustedDuration = (long) (baseDurationMs * (1.0f - (diff * 0.2f)));
         
-        // Лимиты безопасности для периода 7.83с (от 6500 до 9200 мс)
-        if (adjustedDuration < 6500) adjustedDuration = 6500;
-        if (adjustedDuration > 9200) adjustedDuration = 9200;
+        long minLimit = (long) (baseDurationMs * 0.85f);
+        long maxLimit = (long) (baseDurationMs * 1.15f);
+        if (adjustedDuration < minLimit) adjustedDuration = minLimit;
+        if (adjustedDuration > maxLimit) adjustedDuration = maxLimit;
 
-        long currentPlayTime = clockAnimator.getCurrentPlayTime() % clockAnimator.getDuration();
         float currentAnimatedValue = (float) clockAnimator.getAnimatedValue();
-        
         createAndStartAnimator(currentAnimatedValue, adjustedDuration);
     }
 
