@@ -58,15 +58,15 @@ public class BreatheAnimationView extends View {
         textPaint.setTextAlign(Paint.Align.CENTER);
         textPaint.setAntiAlias(true);
 
-        // Настройка линий указателя
+        // Настройка линий указателя (увеличина толщина в 2 раза до 5.0f)
         pointerOrangePaint.setColor(0xFFFF6D00);
         pointerOrangePaint.setStyle(Paint.Style.STROKE);
-        pointerOrangePaint.setStrokeWidth(2.5f);
+        pointerOrangePaint.setStrokeWidth(5.0f);
         pointerOrangePaint.setAntiAlias(true);
 
         pointerWhitePaint.setColor(0xFFFFFFFF);
         pointerWhitePaint.setStyle(Paint.Style.STROKE);
-        pointerWhitePaint.setStrokeWidth(2.5f);
+        pointerWhitePaint.setStrokeWidth(5.0f);
         pointerWhitePaint.setAntiAlias(true);
 
         setLayerType(View.LAYER_TYPE_HARDWARE, null);
@@ -197,7 +197,6 @@ public class BreatheAnimationView extends View {
                 int bestIndex = 0;
                 float minSqDist = Float.MAX_VALUE;
 
-                // Находим ближайшее деление шкалы (с шагом 0.5) по координатам касания
                 for (int i = 0; i <= totalSteps; i++) {
                     double angle = -Math.PI / 2 + (i - 8) * Math.toRadians(18.75);
                     float tx = centerX + scaleRadius * (float) Math.cos(angle);
@@ -236,7 +235,6 @@ public class BreatheAnimationView extends View {
         float centerX = width / 2f;
         float centerY = height / 2f;
         
-        // Уменьшение физического диаметра канваса на 1 см (уменьшение радиуса на 5 мм)
         float radiusReduction = TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_MM, 5f, getResources().getDisplayMetrics()
         );
@@ -244,7 +242,71 @@ public class BreatheAnimationView extends View {
         float padding = 35f * (width / 300f);
         float radius = (Math.min(width, height) / 2f) - padding - radiusReduction;
 
-        // 1. Отрисовка разметочной шкалы циферблата (от 6 до 14 с половинными делениями)
+        // 1. Сначала рисуем анимированный фрактальный пейсер внутри круга
+        clipPath.reset();
+        clipPath.addCircle(centerX, centerY, radius, Path.Direction.CW);
+
+        canvas.save();
+        canvas.clipPath(clipPath);
+
+        canvas.drawCircle(centerX, centerY, radius, bgPaint);
+
+        float scale = radius / 100f;
+        float dx = centerX - 100f * scale;
+        float dy = centerY - 100f * scale;
+
+        canvas.save();
+        canvas.translate(dx, dy);
+        canvas.scale(scale, scale);
+
+        if (!isMonitoringActive && shrinkAnimator == null) {
+            petalPaint.setShader(new RadialGradient(100, 100, 24f,
+                    new int[]{0xFFFF2D55, 0xDDFF2D55}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
+            canvas.drawCircle(100, 100, 24f, petalPaint);
+            canvas.restore(); 
+            canvas.restore(); 
+        } else {
+            float breathPhase;
+            if (animationProgress <= 0.5f) {
+                float t = animationProgress * 2.0f;
+                breathPhase = (float)(1.0 - Math.cos(t * Math.PI)) / 2f;
+            } else {
+                float t = (animationProgress - 0.5f) * 2.0f;
+                breathPhase = (float)(1.0 + Math.cos(t * Math.PI)) / 2f;
+            }
+
+            float activeRotation = (float) (Math.sin(animationProgress * 2.0 * Math.PI) * 45.0f);
+
+            canvas.save();
+            canvas.rotate(activeRotation, 100f, 100f);
+
+            int innerColor = interpolateColor(0xFFFF2D55, 0xCCFF4081, breathPhase);
+            int outerColor = interpolateColor(0xC8FF2D55, 0x40FF4081, breathPhase);
+
+            int petalCount = 6;
+            float orbitDistance = 28f * breathPhase; 
+            float petalRadius = 26f;
+
+            for (int i = 0; i < petalCount; i++) {
+                double angle = i * (2.0 * Math.PI / petalCount);
+                float cx = 100f + (float)(orbitDistance * Math.cos(angle));
+                float cy = 100f + (float)(orbitDistance * Math.sin(angle));
+
+                petalPaint.setShader(new RadialGradient(cx, cy, petalRadius,
+                        new int[]{innerColor, outerColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
+                canvas.drawCircle(cx, cy, petalRadius, petalPaint);
+            }
+
+            petalPaint.setShader(new RadialGradient(100, 100, petalRadius,
+                    new int[]{innerColor, outerColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
+            canvas.drawCircle(100, 100, petalRadius, petalPaint);
+
+            canvas.restore(); 
+            canvas.restore(); 
+            canvas.restore(); 
+        }
+
+        // 2. Поверх пейсера отрисовываем шкалу, деления, цифры и указатель
         int totalSteps = 16; 
         float scaleRadius = radius + 8f; 
         float textRadius = radius + 26f;
@@ -274,13 +336,12 @@ public class BreatheAnimationView extends View {
             }
         }
 
-        // Вычисление угла для текущего значения указателя
+        // Отрисовка указателя поверх шкалы
         float stepIndex = (pointerValue - 6.0f) / 0.5f;
         double pointerAngle = -Math.PI / 2 + (stepIndex - 8) * Math.toRadians(18.75);
         float cosP = (float) Math.cos(pointerAngle);
         float sinP = (float) Math.sin(pointerAngle);
 
-        // Две параллельные оранжевые дуги изнутри границы круга
         float arcRadius1 = radius - 5f;
         float arcRadius2 = radius - 11f;
         float angleDeg = (float) Math.toDegrees(pointerAngle);
@@ -293,7 +354,6 @@ public class BreatheAnimationView extends View {
         canvas.drawArc(rect1, startDeg, sweepDeg, false, pointerOrangePaint);
         canvas.drawArc(rect2, startDeg, sweepDeg, false, pointerOrangePaint);
 
-        // Перпендикулярная белая линия-стрелка, парящая независимо на внешней стороне границы
         float whiteStartRadius = radius + 3f;
         float whiteEndRadius = radius + 12f;
         float pStartX = centerX + whiteStartRadius * cosP;
@@ -302,74 +362,6 @@ public class BreatheAnimationView extends View {
         float pEndY = centerY + whiteEndRadius * sinP;
 
         canvas.drawLine(pStartX, pStartY, pEndX, pEndY, pointerWhitePaint);
-
-        // 2. Обрезка внутреннего холста пейсера строго по кругу внутри шкалы (Save 1)
-        clipPath.reset();
-        clipPath.addCircle(centerX, centerY, radius, Path.Direction.CW);
-
-        canvas.save();
-        canvas.clipPath(clipPath);
-
-        // Рисуем фоновую заливку пейсера
-        canvas.drawCircle(centerX, centerY, radius, bgPaint);
-
-        float scale = radius / 100f;
-        float dx = centerX - 100f * scale;
-        float dy = centerY - 100f * scale;
-
-        // Сохранение для масштабирования/трансляции (Save 2)
-        canvas.save();
-        canvas.translate(dx, dy);
-        canvas.scale(scale, scale);
-
-        if (!isMonitoringActive && shrinkAnimator == null) {
-            petalPaint.setShader(new RadialGradient(100, 100, 24f,
-                    new int[]{0xFFFF2D55, 0xDDFF2D55}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
-            canvas.drawCircle(100, 100, 24f, petalPaint);
-            canvas.restore(); // Восстановление Save 2
-            canvas.restore(); // Восстановление Save 1
-            return;
-        }
-
-        float breathPhase;
-        if (animationProgress <= 0.5f) {
-            float t = animationProgress * 2.0f;
-            breathPhase = (float)(1.0 - Math.cos(t * Math.PI)) / 2f;
-        } else {
-            float t = (animationProgress - 0.5f) * 2.0f;
-            breathPhase = (float)(1.0 + Math.cos(t * Math.PI)) / 2f;
-        }
-
-        float activeRotation = (float) (Math.sin(animationProgress * 2.0 * Math.PI) * 45.0f);
-
-        // Сохранение для анимации вращения (Save 3)
-        canvas.save();
-        canvas.rotate(activeRotation, 100f, 100f);
-
-        int innerColor = interpolateColor(0xFFFF2D55, 0xCCFF4081, breathPhase);
-        int outerColor = interpolateColor(0xC8FF2D55, 0x40FF4081, breathPhase);
-
-        int petalCount = 6;
-        float orbitDistance = 28f * breathPhase; 
-        float petalRadius = 26f;
-
-        for (int i = 0; i < petalCount; i++) {
-            double angle = i * (2.0 * Math.PI / petalCount);
-            float cx = 100f + (float)(orbitDistance * Math.cos(angle));
-            float cy = 100f + (float)(orbitDistance * Math.sin(angle));
-
-            petalPaint.setShader(new RadialGradient(cx, cy, petalRadius,
-                    new int[]{innerColor, outerColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
-            canvas.drawCircle(cx, cy, petalRadius, petalPaint);
-        }
-
-        petalPaint.setShader(new RadialGradient(100, 100, petalRadius,
-                new int[]{innerColor, outerColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
-        canvas.drawCircle(100, 100, petalRadius, petalPaint);
-
-        canvas.restore(); // Восстановление Save 3 (вращение)
-        canvas.restore(); // Восстановление Save 2 (трансляция/масштаб)
-        canvas.restore(); // Восстановление Save 1 (clipPath)
     }
 
     private int interpolateColor(int colorA, int colorB, float fraction) {
