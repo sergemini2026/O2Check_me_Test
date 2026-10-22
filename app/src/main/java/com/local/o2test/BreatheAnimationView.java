@@ -195,7 +195,7 @@ public class BreatheAnimationView extends View {
             }
         }
 
-        // 2. Обрезка внутреннего холста пейсера строго по кругу внутри шкалы
+        // 2. Обрезка внутреннего холста пейсера строго по кругу внутри шкалы (Save 1)
         clipPath.reset();
         clipPath.addCircle(centerX, centerY, radius, Path.Direction.CW);
 
@@ -209,6 +209,7 @@ public class BreatheAnimationView extends View {
         float dx = centerX - 100f * scale;
         float dy = centerY - 100f * scale;
 
+        // Сохранение для масштабирования/трансляции (Save 2)
         canvas.save();
         canvas.translate(dx, dy);
         canvas.scale(scale, scale);
@@ -217,9 +218,8 @@ public class BreatheAnimationView extends View {
             petalPaint.setShader(new RadialGradient(100, 100, 24f,
                     new int[]{0xFFFF2D55, 0xDDFF2D55}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
             canvas.drawCircle(100, 100, 24f, petalPaint);
-            canvas.restore();
-            canvas.restore();
-            canvas.restore();
+            canvas.restore(); // Восстановление Save 2
+            canvas.restore(); // Восстановление Save 1
             return;
         }
 
@@ -234,6 +234,7 @@ public class BreatheAnimationView extends View {
 
         float activeRotation = (float) (Math.sin(animationProgress * 2.0 * Math.PI) * 45.0f);
 
+        // Сохранение для анимации вращения (Save 3)
         canvas.save();
         canvas.rotate(activeRotation, 100f, 100f);
 
@@ -258,9 +259,9 @@ public class BreatheAnimationView extends View {
                 new int[]{innerColor, outerColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
         canvas.drawCircle(100, 100, petalRadius, petalPaint);
 
-        canvas.restore();
-        canvas.restore();
-        canvas.restore();
+        canvas.restore(); // Восстановление Save 3 (вращение)
+        canvas.restore(); // Восстановление Save 2 (трансляция/масштаб)
+        canvas.restore(); // Восстановление Save 1 (clipPath)
     }
 
     private int interpolateColor(int colorA, int colorB, float fraction) {
