@@ -33,36 +33,14 @@ public class SessionExportManager {
     }
 
     /**
-     * 1) Проверка наличия папки O2Test (при отсутствии — создание),
-     * очистка только старых папок профилей (директорий),
-     * с сохранением файла бэкапа (o2test_backup.zip) для возможности импорта.
+     * Безопасная инициализация папки O2Test без удаления пользовательских данных и профилей.
      */
     public static void cleanLegacyO2TestDirectory(Context context) {
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                if (!Environment.isExternalStorageManager()) {
-                    return; // Нет системного разрешения "Все файлы"
-                }
-            }
-
             File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
             File o2TestDir = new File(baseDir, "O2Test");
-            
             if (!o2TestDir.exists()) {
                 o2TestDir.mkdirs();
-                return;
-            }
-
-            if (o2TestDir.isDirectory()) {
-                File[] children = o2TestDir.listFiles();
-                if (children != null) {
-                    for (File child : children) {
-                        // Удаляем исключительно старые папки профилей, оставляя o2test_backup.zip нетронутым
-                        if (child.isDirectory()) {
-                            deleteDirRecursive(child);
-                        }
-                    }
-                }
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -185,7 +163,6 @@ public class SessionExportManager {
                 List<HrvSnapshotEntity> entityList = new ArrayList<>();
                 if (!capturedSnapshots.isEmpty()) {
                     for (SessionSnapshot snapshot : capturedSnapshots) {
-                        // Передаем реальное значение модуляции из снимка сессии
                         HrvSnapshotEntity entity = new HrvSnapshotEntity(
                                 snapshot.getTimestamp(), 
                                 snapshot.getMetrics(), 
@@ -207,7 +184,6 @@ public class SessionExportManager {
                     }
                 }
 
-                // Получаем актуальный список сессий из БД для вычисления расчетного номера
                 List<SessionEntity> profileSessions = db.sessionDao().getSessionsByProfileSync(activeProfileId);
                 int calculatedSessionNumber = profileSessions.size();
 
@@ -269,84 +245,98 @@ public class SessionExportManager {
     }
 
     /**
-     * 3) При экспорте (создании бэкапа) сохраняется база, WAL, SHM и вся структура папки.
+     * Экспорт базы данных (создание бэкапа) с предварительной проверкой существующего файла и предупреждением.
      */
     public static void exportDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
-        dbExecutor.execute(() -> {
-            try {
-                File dbFile = context.getDatabasePath("synergy_database");
-                if (!dbFile.exists()) {
-                    android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
-                    mainHandler.post(() -> Toast.makeText(context, "Файл базы данных не найден!", Toast.LENGTH_SHORT).show());
-                    return;
-                }
-
-                File exportDir = backupFile.getParentFile();
-                if (exportDir != null && !exportDir.exists()) {
-                    exportDir.mkdirs();
-                }
-
-                File tempZip = new File(exportDir, "temp_backup.zip");
-                if (tempZip.exists()) tempZip.delete();
-
-                try (FileOutputStream fos = new FileOutputStream(tempZip);
-                     ZipOutputStream zos = new ZipOutputStream(fos)) {
-
-                    addFileToZip(dbFile, "o2test_backup.db", zos);
-
-                    File walFile = new File(dbFile.getParentFile(), "synergy_database-wal");
-                    if (walFile.exists()) {
-                        addFileToZip(walFile, "o2test_backup.db-wal", zos);
+        Runnable exportRunnable = () -> {
+            dbExecutor.execute(() -> {
+                try {
+                    File dbFile = context.getDatabasePath("synergy_database");
+                    if (!dbFile.exists()) {
+                        android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
+                        mainHandler.post(() -> Toast.makeText(context, "Файл базы данных не найден!", Toast.LENGTH_SHORT).show());
+                        return;
                     }
 
-                    File shmFile = new File(dbFile.getParentFile(), "synergy_database-shm");
-                    if (shmFile.exists()) {
-                        addFileToZip(shmFile, "o2test_backup.db-shm", zos);
+                    File exportDir = backupFile.getParentFile();
+                    if (exportDir != null && !exportDir.exists()) {
+                        exportDir.mkdirs();
                     }
 
-                    File[] children = exportDir.listFiles();
-                    if (children != null) {
-                        for (File child : children) {
-                            if (child.equals(backupFile) || child.equals(tempZip)) {
-                                continue;
+                    File tempZip = new File(exportDir, "temp_backup.zip");
+                    if (tempZip.exists()) tempZip.delete();
+
+                    try (FileOutputStream fos = new FileOutputStream(tempZip);
+                         ZipOutputStream zos = new ZipOutputStream(fos)) {
+
+                        addFileToZip(dbFile, "o2test_backup.db", zos);
+
+                        File walFile = new File(dbFile.getParentFile(), "synergy_database-wal");
+                        if (walFile.exists()) {
+                            addFileToZip(walFile, "o2test_backup.db-wal", zos);
+                        }
+
+                        File shmFile = new File(dbFile.getParentFile(), "synergy_database-shm");
+                        if (shmFile.exists()) {
+                            addFileToZip(shmFile, "o2test_backup.db-shm", zos);
+                        }
+
+                        File[] children = exportDir.listFiles();
+                        if (children != null) {
+                            for (File child : children) {
+                                if (child.equals(backupFile) || child.equals(tempZip)) {
+                                    continue;
+                                }
+                                addRecursiveToZip(exportDir, child, zos);
                             }
-                            addRecursiveToZip(exportDir, child, zos);
                         }
                     }
-                }
 
-                if (backupFile.exists()) {
-                    backupFile.delete();
-                }
-                if (!tempZip.renameTo(backupFile)) {
-                    copyFile(tempZip, backupFile);
-                    tempZip.delete();
-                }
-
-                File oldDb = new File(exportDir, "o2test_backup.db");
-                if (oldDb.exists()) oldDb.delete();
-                File oldWal = new File(exportDir, "o2test_backup.db-wal");
-                if (oldWal.exists()) oldWal.delete();
-                File oldShm = new File(exportDir, "o2test_backup.db-shm");
-                if (oldShm.exists()) oldShm.delete();
-
-                android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
-                mainHandler.post(() -> {
-                    if (callback != null) {
-                        callback.onLog("[БЭКАП] Полный архив успешно создан: " + backupFile.getAbsolutePath());
+                    if (backupFile.exists()) {
+                        backupFile.delete();
                     }
-                    Toast.makeText(context, "Экспорт бэкапа выполнен успешно", Toast.LENGTH_LONG).show();
-                });
-            } catch (Exception e) {
-                e.printStackTrace();
-                android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
-                mainHandler.post(() -> Toast.makeText(context, "Ошибка экспорта: " + e.getMessage(), Toast.LENGTH_LONG).show());
-            }
-        });
+                    if (!tempZip.renameTo(backupFile)) {
+                        copyFile(tempZip, backupFile);
+                        tempZip.delete();
+                    }
+
+                    File oldDb = new File(exportDir, "o2test_backup.db");
+                    if (oldDb.exists()) oldDb.delete();
+                    File oldWal = new File(exportDir, "o2test_backup.db-wal");
+                    if (oldWal.exists()) oldWal.delete();
+                    File oldShm = new File(exportDir, "o2test_backup.db-shm");
+                    if (oldShm.exists()) oldShm.delete();
+
+                    android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
+                    mainHandler.post(() -> {
+                        if (callback != null) {
+                            callback.onLog("[БЭКАП] Полный архив успешно создан: " + backupFile.getAbsolutePath());
+                        }
+                        Toast.makeText(context, "Экспорт бэкапа выполнен успешно", Toast.LENGTH_LONG).show();
+                    });
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
+                    mainHandler.post(() -> Toast.makeText(context, "Ошибка экспорта: " + e.getMessage(), Toast.LENGTH_LONG).show());
+                }
+            });
+        };
+
+        // Если бэкап уже существует, выводим диалог подтверждения перезаписи
+        if (backupFile.exists()) {
+            new AlertDialog.Builder(context)
+                .setTitle("Внимание!")
+                .setMessage("Файл бэкапа уже существует. Перезаписать ранее созданную версию?")
+                .setPositiveButton("Да", (d, w) -> exportRunnable.run())
+                .setNegativeButton("Отмена", null)
+                .show();
+        } else {
+            exportRunnable.run();
+        }
     }
 
     /**
-     * 2) Импорт и восстановление базы через бэкап со сбросом синглтона Room и переносом WAL/SHM файлов.
+     * Импорт и восстановление базы через бэкап со сбросом синглтона Room и переносом WAL/SHM файлов.
      */
     public static void importDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
         new AlertDialog.Builder(context)
@@ -369,7 +359,6 @@ public class SessionExportManager {
                             return;
                         }
 
-                        // 1. Закрываем текущую БД и сбрасываем инстанс Room в памяти
                         try {
                             AppDatabase.getInstance(context.getApplicationContext()).close();
                         } catch (Exception ignored) {}
@@ -385,14 +374,12 @@ public class SessionExportManager {
                             } catch (Exception ignored2) {}
                         }
 
-                        // 2. Восстанавливаем основной файл БД
                         File dbFile = context.getDatabasePath("synergy_database");
                         try (FileChannel src = new FileInputStream(extractedDb).getChannel();
                              FileChannel dst = new FileOutputStream(dbFile).getChannel()) {
                             dst.transferFrom(src, 0, src.size());
                         }
 
-                        // 3. Восстанавливаем / очищаем файлы WAL и SHM
                         File extractedWal = new File(exportDir, "o2test_backup.db-wal");
                         File walFile = new File(dbFile.getParentFile(), "synergy_database-wal");
                         if (extractedWal.exists()) {
@@ -501,17 +488,5 @@ public class SessionExportManager {
             }
             zis.closeEntry();
         }
-    }
-
-    private static boolean deleteDirRecursive(File dir) {
-        if (dir != null && dir.isDirectory()) {
-            File[] children = dir.listFiles();
-            if (children != null) {
-                for (File child : children) {
-                    deleteDirRecursive(child);
-                }
-            }
-        }
-        return dir != null && dir.delete();
     }
 }
