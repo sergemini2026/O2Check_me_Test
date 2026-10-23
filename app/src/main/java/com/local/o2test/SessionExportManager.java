@@ -50,20 +50,20 @@ public class SessionExportManager {
     /**
      * Автоматическое сохранение сессии: последовательный раздельный экспорт CSV -> запись в БД -> генерация PDF
      */
-    public static void saveSessionAutomatically(Context context, 
-                                                SharedPreferences prefs,
-                                                List<DataPoint> sessionData,
-                                                long activeProfileId,
-                                                String activeProfileName,
-                                                long sessionStartTime,
-                                                int currentPolarHr,
-                                                int currentSpo2,
-                                                double lastPstiScore,
-                                                double lastPstiRmssdRatio,
-                                                ExecutorService dbExecutor,
-                                                HrvForegroundService hrvService,
-                                                boolean isBound,
-                                                ExportCallback callback) {
+    public static void saveSessionAutomatically(final Context context, 
+                                                final SharedPreferences prefs,
+                                                final List<DataPoint> sessionData,
+                                                final long activeProfileId,
+                                                final String activeProfileName,
+                                                final long sessionStartTime,
+                                                final int currentPolarHr,
+                                                final int currentSpo2,
+                                                final double lastPstiScore,
+                                                final double lastPstiRmssdRatio,
+                                                final ExecutorService dbExecutor,
+                                                final HrvForegroundService hrvService,
+                                                final boolean isBound,
+                                                final ExportCallback callback) {
         if (callback != null) {
             callback.onLog("Сохранение сессии в папку профиля " + activeProfileName + "...");
         }
@@ -80,24 +80,47 @@ public class SessionExportManager {
         if (trainingPoints == null) trainingPoints = new ArrayList<>();
         if (testPoints == null) testPoints = new ArrayList<>();
 
+        final List<DataPoint> finalTrainingPoints = trainingPoints;
+        final List<DataPoint> finalTestPoints = testPoints;
+
         File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
         File o2TestDir = new File(baseDir, "O2Test");
         File profileDir = new File(o2TestDir, activeProfileName);
         if (!profileDir.exists()) {
             profileDir.mkdirs();
         }
-        String customPath = profileDir.getAbsolutePath();
+        final String customPath = profileDir.getAbsolutePath();
 
-        // 1. Сохранение тренировочного CSV, затем внутри onSuccess сохраняем тестовый CSV
-        CsvExporter.saveSessionToCsv(context, trainingPoints, customPath, "_training", new CsvExporter.ExportCallback() {
+        // 1. Сохранение тренировочного CSV
+        CsvExporter.saveSessionToCsv(context, finalTrainingPoints, customPath, "_training", new CsvExporter.ExportCallback() {
             @Override
-            public void onSuccess(String trainingFilePath, String trainingFileName) {
+            public void onSuccess(final String trainingFilePath, String trainingFileName) {
                 if (callback != null) {
                     callback.onLog("Тренировочный CSV успешно сохранен: " + trainingFileName);
                 }
-                saveTestCsvAndProceed(context, prefs, trainingPoints, testPoints, customPath, trainingFilePath,
-                        activeProfileId, activeProfileName, sessionStartTime, currentPolarHr, currentSpo2,
-                        lastPstiScore, lastPstiRmssdRatio, dbExecutor, hrvService, isBound, callback);
+                
+                // 2. Сохранение тестового CSV
+                CsvExporter.saveSessionToCsv(context, finalTestPoints, customPath, "_test", new CsvExporter.ExportCallback() {
+                    @Override
+                    public void onSuccess(String testFilePath, String testFileName) {
+                        if (callback != null) {
+                            callback.onLog("Тестовый CSV (PSTI) успешно сохранен: " + testFileName);
+                        }
+                        proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, trainingFilePath, testFilePath, 
+                                activeProfileId, activeProfileName, sessionStartTime, currentPolarHr, currentSpo2, 
+                                lastPstiScore, lastPstiRmssdRatio, dbExecutor, hrvService, isBound, callback);
+                    }
+
+                    @Override
+                    public void onError(String errorMessage) {
+                        if (callback != null) {
+                            callback.onLog("Ошибка сохранения тестового CSV: " + errorMessage);
+                        }
+                        proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, trainingFilePath, "", 
+                                activeProfileId, activeProfileName, sessionStartTime, currentPolarHr, currentSpo2, 
+                                lastPstiScore, lastPstiRmssdRatio, dbExecutor, hrvService, isBound, callback);
+                    }
+                });
             }
 
             @Override
@@ -105,69 +128,29 @@ public class SessionExportManager {
                 if (callback != null) {
                     callback.onLog("Ошибка сохранения тренировочного CSV: " + errorMessage);
                 }
-                saveTestCsvAndProceed(context, prefs, trainingPoints, testPoints, customPath, "",
-                        activeProfileId, activeProfileName, sessionStartTime, currentPolarHr, currentSpo2,
+                proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, "", "", 
+                        activeProfileId, activeProfileName, sessionStartTime, currentPolarHr, currentSpo2, 
                         lastPstiScore, lastPstiRmssdRatio, dbExecutor, hrvService, isBound, callback);
             }
         });
     }
 
-    private static void saveTestCsvAndProceed(Context context,
-                                              SharedPreferences prefs,
-                                              List<DataPoint> trainingPoints,
-                                              List<DataPoint> testPoints,
-                                              String customPath,
-                                              String trainingFilePath,
-                                              long activeProfileId,
-                                              String activeProfileName,
-                                              long sessionStartTime,
-                                              int currentPolarHr,
-                                              int currentSpo2,
-                                              double lastPstiScore,
-                                              double lastPstiRmssdRatio,
-                                              ExecutorService dbExecutor,
-                                              HrvForegroundService hrvService,
-                                              boolean isBound,
-                                              ExportCallback callback) {
-        CsvExporter.saveSessionToCsv(context, testPoints, customPath, "_test", new CsvExporter.ExportCallback() {
-            @Override
-            public void onSuccess(String testFilePath, String testFileName) {
-                if (callback != null) {
-                    callback.onLog("Тестовый CSV (PSTI) успешно сохранен: " + testFileName);
-                }
-                proceedWithDatabaseAndPdf(context, prefs, trainingPoints, trainingFilePath, testFilePath,
-                        activeProfileId, activeProfileName, sessionStartTime, currentPolarHr, currentSpo2,
-                        lastPstiScore, lastPstiRmssdRatio, dbExecutor, hrvService, isBound, callback);
-            }
-
-            @Override
-            public void onError(String errorMessage) {
-                if (callback != null) {
-                    callback.onLog("Ошибка сохранения тестового CSV: " + errorMessage);
-                }
-                proceedWithDatabaseAndPdf(context, prefs, trainingPoints, trainingFilePath, "",
-                        activeProfileId, activeProfileName, sessionStartTime, currentPolarHr, currentSpo2,
-                        lastPstiScore, lastPstiRmssdRatio, dbExecutor, hrvService, isBound, callback);
-            }
-        });
-    }
-
-    private static void proceedWithDatabaseAndPdf(Context context,
-                                                  SharedPreferences prefs,
-                                                  List<DataPoint> points,
-                                                  String trainingCsvPath,
-                                                  String testCsvPath,
-                                                  long activeProfileId,
-                                                  String activeProfileName,
-                                                  long sessionStartTime,
-                                                  int currentPolarHr,
-                                                  int currentSpo2,
-                                                  double lastPstiScore,
-                                                  double lastPstiRmssdRatio,
-                                                  ExecutorService dbExecutor,
-                                                  HrvForegroundService hrvService,
-                                                  boolean isBound,
-                                                  ExportCallback callback) {
+    private static void proceedWithDatabaseAndPdf(final Context context,
+                                                  final SharedPreferences prefs,
+                                                  final List<DataPoint> points,
+                                                  final String trainingCsvPath,
+                                                  final String testCsvPath,
+                                                  final long activeProfileId,
+                                                  final String activeProfileName,
+                                                  final long sessionStartTime,
+                                                  final int currentPolarHr,
+                                                  final int currentSpo2,
+                                                  final double lastPstiScore,
+                                                  final double lastPstiRmssdRatio,
+                                                  final ExecutorService dbExecutor,
+                                                  final HrvForegroundService hrvService,
+                                                  final boolean isBound,
+                                                  final ExportCallback callback) {
         if (activeProfileId == -1L) return;
 
         final List<SessionSnapshot> capturedSnapshots;
@@ -183,7 +166,7 @@ public class SessionExportManager {
         if (!profileDir.exists()) {
             profileDir.mkdirs();
         }
-        String customPath = profileDir.getAbsolutePath();
+        final String customPath = profileDir.getAbsolutePath();
 
         dbExecutor.execute(() -> {
             try {
