@@ -224,6 +224,22 @@ public class SessionDialogHelper {
                                             new String[]{fileName}
                                         );
                                         if (f.exists()) f.delete();
+
+                                        // Автоматическое удаление парного тестового CSV (PSTI) по аналогии с именем
+                                        String trainingPath = f.getAbsolutePath();
+                                        if (trainingPath.contains("_training.csv")) {
+                                            String testPath = trainingPath.replace("_training.csv", "_test.csv");
+                                            File testFile = new File(testPath);
+                                            if (testFile.exists()) {
+                                                String testFileName = testFile.getName();
+                                                context.getContentResolver().delete(
+                                                    MediaStore.Files.getContentUri("external"),
+                                                    MediaStore.MediaColumns.DISPLAY_NAME + "=?",
+                                                    new String[]{testFileName}
+                                                );
+                                                testFile.delete();
+                                            }
+                                        }
                                     } catch (Exception ignored) {}
                                 }
                             }
