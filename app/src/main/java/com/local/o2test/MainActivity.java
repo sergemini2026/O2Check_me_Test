@@ -37,6 +37,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private static final int CALIBRATION_TARGET = 100;
     private static final int POSTI_WINDOW_SEC = 300;
     private static final int POSTI_INTERVAL_DUMPS = 3;
+    private static final int DUMPS_PER_TRAINING_PHASE = 3; // 3 дампа тренировки (оранжевый прогресс-бар)
+    private static final int TARGET_RR_PER_DUMP = 300;     // 300 RR-интервалов на 1 дамп
 
     private O2BleManager bleManager;
     private PolarH10Manager polarManager;
@@ -482,6 +484,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         lastPstiScore = 0.0;
         lastPstiRmssdRatio = 0.0;
 
+        if (ui.pacerView != null) {
+            ui.pacerView.setSessionProgress(false, 1.0f); // Старт сессии: полная оранжевая линия (фаза тренировки)
+        }
+
         if (isBound && hrvService != null) {
             hrvService.stopPostiRecording();
             hrvService.startSessionRecording();
@@ -519,10 +525,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         consecutiveArtifactsCount = 0;
         if (ui.chartView != null) ui.chartView.clearData();
         
-        if (ui.pacerView != null) {
-            ui.pacerView.stopMonitoring();
-        }
-
         updateMetricsDisplay("--", "--", "--", "--");
         updateRightPanelStatus();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
@@ -535,7 +537,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         
         stopAudioAndClockInService();
         if (ui != null && ui.pacerView != null) {
-            ui.pacerView.stopMonitoring();
+            ui.pacerView.setSessionProgress(true, 1.0f); // Переход на тест PSTI: полная белая линия
         }
 
         if (isBound && hrvService != null) {
@@ -549,6 +551,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 if (isBound && hrvService != null && hrvService.isPostiTraceActive()) {
                     if (pstiRemainingSec > 0) {
                         pstiRemainingSec--;
+                        // Обновление прогресса белой линии PSTI (от 1.0 до 0.0 за 300 секунд)
+                        float pstiProgress = (float) pstiRemainingSec / (float) POSTI_WINDOW_SEC;
+                        if (ui != null && ui.pacerView != null) {
+                            ui.pacerView.setSessionProgress(true, pstiProgress);
+                        }
                         updateRightPanelStatusWithCountdown(pstiRemainingSec);
                         pstiHandler.postDelayed(this, 1000);
                     }
@@ -597,6 +604,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateRightPanelStatus();
 
         onLog("[PSTI] Завершено. Возобновление дыхательного контура и аудио...");
+        if (ui != null && ui.pacerView != null) {
+            ui.pacerView.setSessionProgress(false, 1.0f); // Возврат к фазе тренировки (оранжевая полная линия)
+        }
+
         runOnUiThread(() -> {
             if (isRecording && isBound && hrvService != null) {
                 hrvService.startAudioAndClock(MainActivity.this, 0.0f, phase -> {
@@ -628,8 +639,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         piWindow.clear();
         
-        if (ui.pacerView != null) {
+        if (ui != null && ui.pacerView != null) {
             ui.pacerView.stopMonitoring();
+            ui.pacerView.setSessionProgress(false, 1.0f); // Сброс прогресс-бара в дефолтное оранжевое состояние
         }
 
         updateRightPanelStatus();
@@ -759,8 +771,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                 });
                             } else {
                                 isCalibrationCompleted = true;
-                               long currentModPeriod = (isBound && hrvService != null) ? hrvService.getModulationPeriodMs() : modulationManager.getModulationPeriodMs();
-                               final float initialPhase = MayerWaveAnalyzer.calculateInitialPhase(phaseBuffer, currentModPeriod);
+                                long currentModPeriod = (isBound && hrvService != null) ? hrvService.getModulationPeriodMs() : modulationManager.getModulationPeriodMs();
+                                final float initialPhase = MayerWaveAnalyzer.calculateInitialPhase(phaseBuffer, currentModPeriod);
 
                                 onLog(String.format(Locale.US, "[Калибровка завершена] Вычисленная фаза Майера: %.2f", initialPhase));
 
@@ -808,7 +820,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         @Override
         public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
-            int totalTarget = 300;
+            int totalTarget = TARGET_RR_PER_DUMP; // 300
             float percent = Math.min(100.0f, (rrCount / (float) totalTarget) * 100.0f);
             int remainingBeats = Math.max(0, totalTarget - rrCount);
 
@@ -825,6 +837,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
                         percent, rrCount, totalTarget, remMin, remSec, hr, rmssdStr);
                 onLog(logMsg);
+
+                // Вычисление общего прогресса оранжевой линии (фаза тренировки: 3 дампа = 900 RR)
+                // Общее количество RR в фазе тренировки = 3 * 300 = 900
+                int totalTrainingRr = sessionDumpCount * TARGET_RR_PER_DUMP + rrCount;
+                float trainingProgress = 1.0f - ((float) totalTrainingRr / (float) (DUMPS_PER_TRAINING_PHASE * TARGET_RR_PER_DUMP));
+                if (ui != null && ui.pacerView != null && !(isBound && hrvService != null && hrvService.isPostiTraceActive())) {
+                    ui.pacerView.setSessionProgress(false, Math.max(0.0f, trainingProgress));
+                }
 
                 if (isBound && hrvService != null) {
                     hrvService.updateNotificationText("HR: " + hr + " bpm | RMSSD: " + rmssdStr);
