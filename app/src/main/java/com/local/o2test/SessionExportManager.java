@@ -68,7 +68,7 @@ public class SessionExportManager {
             callback.onLog("Сохранение сессии в папку профиля " + activeProfileName + "...");
         }
 
-        // Шаг 1 & 4: Получение раздельных буферов (TrainingBuffer и TestBuffer) из сервиса
+        // Получение раздельных буферов (TrainingBuffer и TestBuffer) из сервиса
         List<DataPoint> trainingPoints;
         List<DataPoint> testPoints;
         if (isBound && hrvService != null) {
@@ -97,6 +97,8 @@ public class SessionExportManager {
                     callback.onLog("Тренировочный CSV успешно сохранен: " + trainingFileName);
                 }
                 
+                final String finalTrainingPath = trainingFilePath;
+
                 // 2. Сохранение тестового CSV (_test.csv)
                 CsvExporter.saveSessionToCsv(context, testPoints, customPath, "_test", new CsvExporter.ExportCallback() {
                     @Override
@@ -104,7 +106,7 @@ public class SessionExportManager {
                         if (callback != null) {
                             callback.onLog("Тестовый CSV (PSTI) успешно сохранен: " + testFileName);
                         }
-                        saveSessionToDatabase(context, prefs, trainingPoints, trainingFilePath, testFilePath, activeProfileId, 
+                        saveSessionToDatabase(context, prefs, trainingPoints, finalTrainingPath, testFilePath, activeProfileId, 
                                 activeProfileName, sessionStartTime, currentPolarHr, currentSpo2, 
                                 lastPstiScore, lastPstiRmssdRatio, dbExecutor, hrvService, isBound, callback);
                     }
@@ -114,7 +116,7 @@ public class SessionExportManager {
                         if (callback != null) {
                             callback.onLog("Ошибка сохранения тестового CSV: " + errorMessage);
                         }
-                        saveSessionToDatabase(context, prefs, trainingPoints, trainingFilePath, "", activeProfileId, 
+                        saveSessionToDatabase(context, prefs, trainingPoints, finalTrainingPath, "", activeProfileId, 
                                 activeProfileName, sessionStartTime, currentPolarHr, currentSpo2, 
                                 lastPstiScore, lastPstiRmssdRatio, dbExecutor, hrvService, isBound, callback);
                     }
@@ -267,7 +269,7 @@ public class SessionExportManager {
                 ));
 
             } catch (Exception e) {
-                                if (callback != null) {
+                if (callback != null) {
                     callback.onLog("Ошибка записи сессии в БД: " + e.getMessage());
                 }
             }
