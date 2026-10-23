@@ -20,6 +20,7 @@ public class BreatheAnimationView extends View {
     private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint petalPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint scalePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint ringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint pointerOrangePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint pointerWhitePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -62,13 +63,19 @@ public class BreatheAnimationView extends View {
         scalePaint.setStrokeWidth(2f);
         scalePaint.setStyle(Paint.Style.STROKE);
 
+        // Настройка оранжевой окружности вокруг шкалы (толщина 5.0f как у указателя)
+        ringPaint.setColor(0xFFFF6D00);
+        ringPaint.setStyle(Paint.Style.STROKE);
+        ringPaint.setStrokeWidth(5.0f);
+        ringPaint.setAntiAlias(true);
+
         // Настройка оранжевого цвета для цифр шкалы
         textPaint.setColor(0xFFFF6D00);
         textPaint.setTextSize(24f);
         textPaint.setTextAlign(Paint.Align.CENTER);
         textPaint.setAntiAlias(true);
 
-        // Настройка линий указателя (увеличенная толщина до 5.0f)
+        // Настройка линий указателя (толщина 5.0f)
         pointerOrangePaint.setColor(0xFFFF6D00);
         pointerOrangePaint.setStyle(Paint.Style.STROKE);
         pointerOrangePaint.setStrokeWidth(5.0f);
@@ -323,6 +330,10 @@ public class BreatheAnimationView extends View {
         int totalSteps = 16; 
         float scaleRadius = radius + 8f; 
         float textRadius = radius + 26f;
+
+        // Отрисовка ровной оранжевой окружности вокруг шкалы (аккуратный радиус за цифрами)
+        float ringRadius = textRadius + 16f;
+        canvas.drawCircle(centerX, centerY, ringRadius, ringPaint);
 
         for (int i = 0; i <= totalSteps; i++) {
             float val = 6f + (i * 0.5f);
