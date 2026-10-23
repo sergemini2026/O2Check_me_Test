@@ -201,6 +201,7 @@ public class ProfileDialogHelper {
                                     
                                     List<SessionEntity> sessions = db.sessionDao().getSessionsByProfileSync(profile.getId());
                                     for (SessionEntity session : sessions) {
+                                        // 1. Удаление PDF-отчета
                                         if (!TextUtils.isEmpty(session.getPdfPath())) {
                                             File file = new File(session.getPdfPath());
                                             if (file.exists()) {
@@ -208,8 +209,17 @@ public class ProfileDialogHelper {
                                             }
                                             deleteFileWithMediaStore(context, file);
                                         }
+                                        // 2. Удаление тренировочного CSV
                                         if (!TextUtils.isEmpty(session.getCsvPath())) {
                                             File file = new File(session.getCsvPath());
+                                            if (file.exists()) {
+                                                file.delete();
+                                            }
+                                            deleteFileWithMediaStore(context, file);
+                                        }
+                                        // 3. Удаление тестового CSV (PSTI)
+                                        if (!TextUtils.isEmpty(session.getTestCsvPath())) {
+                                            File file = new File(session.getTestCsvPath());
                                             if (file.exists()) {
                                                 file.delete();
                                             }
@@ -384,7 +394,6 @@ public class ProfileDialogHelper {
 
         builder.setView(layout);
         
-        // Кнопка сохранения остается
         builder.setPositiveButton(isEditMode ? "Сохранить" : "Создать", (dialog, which) -> {
             String firstName = inputFirstName.getText().toString().trim();
             String lastName = inputLastName.getText().toString().trim();
@@ -430,11 +439,10 @@ public class ProfileDialogHelper {
             });
         });
 
-        // Возвращаем негативную кнопку как "ПРОПУСТИТЬ" / закрыть, чтобы окно не зависало мертво
         builder.setNegativeButton("ПРОПУСТИТЬ", (dialog, which) -> dialog.dismiss());
         
         AlertDialog dialog = builder.create();
-        dialog.setCancelable(true); // Разрешаем закрывать тапом снаружи и кнопкой "Назад"
+        dialog.setCancelable(true);
         dialog.show();
     }
 
