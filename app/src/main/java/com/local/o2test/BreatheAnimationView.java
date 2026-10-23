@@ -20,7 +20,8 @@ public class BreatheAnimationView extends View {
     private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint petalPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint scalePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint ringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint whiteRingPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint orangeRingPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint pointerOrangePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint pointerWhitePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -31,6 +32,10 @@ public class BreatheAnimationView extends View {
     
     private float pointerValue = 10.0f; // Текущее значение указателя [6.0 ... 14.0], шаг 0.5
     
+    // Прогресс-бар фаз сессии
+    private boolean isPstiPhase = false;       // false = фаза тренировки (оранжевая, 3 дампа), true = тест PSTI (белая, 1 дамп)
+    private float phaseProgress = 1.0f;        // [0.0 ... 1.0], где 1.0 = полная линия, 0.0 = пустая линия
+
     private OnPointerChangeListener pointerChangeListener;
 
     public interface OnPointerChangeListener {
@@ -63,11 +68,17 @@ public class BreatheAnimationView extends View {
         scalePaint.setStrokeWidth(2f);
         scalePaint.setStyle(Paint.Style.STROKE);
 
-        // Настройка оранжевой окружности вокруг шкалы (толщина 5.0f как у указателя)
-        ringPaint.setColor(0xFFFF6D00);
-        ringPaint.setStyle(Paint.Style.STROKE);
-        ringPaint.setStrokeWidth(5.0f);
-        ringPaint.setAntiAlias(true);
+        // Настройка фоновой белой окружности прогресс-бара (толщина 5.0f)
+        whiteRingPaint.setColor(0xFFFFFFFF);
+        whiteRingPaint.setStyle(Paint.Style.STROKE);
+        whiteRingPaint.setStrokeWidth(5.0f);
+        whiteRingPaint.setAntiAlias(true);
+
+        // Настройка верхней оранжевой окружности прогресс-бара (толщина 5.0f)
+        orangeRingPaint.setColor(0xFFFF6D00);
+        orangeRingPaint.setStyle(Paint.Style.STROKE);
+        orangeRingPaint.setStrokeWidth(5.0f);
+        orangeRingPaint.setAntiAlias(true);
 
         // Настройка оранжевого цвета для цифр шкалы
         textPaint.setColor(0xFFFF6D00);
@@ -99,6 +110,17 @@ public class BreatheAnimationView extends View {
         invalidate();
     }
 
+    /**
+     * Установка прогресса текущей фазы сессии и типа фазы
+     * @boolean pstiPhase false = тренировка (оранжевая, 3 дампа), true = тест PSTI (белая, 1 дамп)
+     * @float progress [0.0 ... 1.0], где 1.0 - полная линия, 0.0 - пустая
+     */
+    public void setSessionProgress(boolean pstiPhase, float progress) {
+        this.isPstiPhase = pstiPhase;
+        this.phaseProgress = Math.max(0.0f, Math.min(1.0f, progress));
+        invalidate();
+    }
+
     public void setRunning(boolean running) {
         if (running) {
             startMonitoring();
@@ -117,6 +139,8 @@ public class BreatheAnimationView extends View {
             shrinkAnimator = null;
         }
         isMonitoringActive = true;
+        isPstiPhase = false;
+        phaseProgress = 1.0f;
         float phase = initialPhase % 1.0f;
         if (phase < 0) phase += 1.0f;
 
@@ -145,6 +169,9 @@ public class BreatheAnimationView extends View {
         if (shrinkAnimator != null) {
             shrinkAnimator.cancel();
         }
+
+        isPstiPhase = false;
+        phaseProgress = 1.0f;
 
         shrinkAnimator = ValueAnimator.ofFloat(animationProgress, 0.0f);
         shrinkAnimator.setDuration(600);
@@ -326,14 +353,37 @@ public class BreatheAnimationView extends View {
             canvas.restore(); 
         }
 
-        // 2. Поверх пейсера отрисовываем шкалу, деления, цифры и указатель
+        // 2. Поверх пейсера отрисовываем шкалу, деления, цифры, указатель и прогресс-бар
         int totalSteps = 16; 
         float scaleRadius = radius + 8f; 
         float textRadius = radius + 26f;
 
-        // Отрисовка ровной оранжевой окружности вокруг шкалы (аккуратный радиус за цифрами)
-        float ringRadius = textRadius + 16f;
-        canvas.drawCircle(centerX, centerY, ringRadius, ringPaint);
+        // Радиус прогресс-бара смещен наружу на безопасное расстояние от цифр шкалы (textRadius + 22f)
+        float ringRadius = textRadius + 22f;
+        RectF ringRect = new RectF(centerX - ringRadius, centerY - ringRadius, centerX + ringRadius, centerY + ringRadius);
+
+        // Всегда сначала рисуем белую фоновую окружность
+        canvas.drawCircle(centerX, centerY, ringRadius, whiteRingPaint);
+
+        // Отрисовка прогресс-бара против часовой стрелки (начиная сверху -90°, уменьшение sweep угла отрицательное)
+        float sweepAngle = -360.0f * phaseProgress;
+
+        if (!isMonitoringActive) {
+            // В неактивном состоянии выводим полную оранжевую окружность по умолчанию
+            canvas.drawCircle(centerX, centerY, ringRadius, orangeRingPaint);
+        } else {
+            if (!isPstiPhase) {
+                // Фаза тренировки (3 дампа): оранжевая линия сокращается поверх белой против часовой стрелки
+                if (phaseProgress > 0.0f) {
+                    canvas.drawArc(ringRect, -90f, sweepAngle, false, orangeRingPaint);
+                }
+            } else {
+                // Фаза теста PSTI (1 дамп): оранжевая полностью исчезла, белая линия сокращается поверх оранжевой против часовой
+                if (phaseProgress > 0.0f) {
+                    canvas.drawArc(ringRect, -90f, sweepAngle, false, whiteRingPaint);
+                }
+            }
+        }
 
         for (int i = 0; i <= totalSteps; i++) {
             float val = 6f + (i * 0.5f);
