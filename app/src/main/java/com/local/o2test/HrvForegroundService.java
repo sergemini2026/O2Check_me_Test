@@ -29,9 +29,11 @@ public class HrvForegroundService extends Service {
     private final IBinder binder = new LocalBinder();
     private PowerManager.WakeLock wakeLock;
 
-    private final List<Integer> rrSessionList = Collections.synchronizedList(new ArrayList<>());
+    // Шаг 1: Архитектурное разделение буферов данных на базе HrvSessionManager
+    private final HrvSessionManager trainingSessionManager = new HrvSessionManager();
+    private final HrvSessionManager testSessionManager = new HrvSessionManager();
+
     private final List<Integer> slidingWindowList = Collections.synchronizedList(new ArrayList<>());
-    private final List<Integer> postiRrBuffer = Collections.synchronizedList(new ArrayList<>());
     private boolean isPostiTraceActive = false;
 
     private final List<Integer> rsaCycleBuffer = Collections.synchronizedList(new ArrayList<>());
@@ -201,7 +203,6 @@ public class HrvForegroundService extends Service {
             }
         });
         
-        // Устанавливаем текущую длительность перед стартом
         serviceMasterClock.setBaseDurationMs(currentModulationPeriodMs);
         serviceMasterClock.start(initialPhase);
     }
@@ -224,10 +225,10 @@ public class HrvForegroundService extends Service {
     }
 
     public void startSessionRecording() {
-        synchronized (rrSessionList) { rrSessionList.clear(); }
+        trainingSessionManager.resetSession();
+        testSessionManager.resetSession();
         synchronized (slidingWindowList) { slidingWindowList.clear(); }
         synchronized (snapshotBuffer) { snapshotBuffer.clear(); }
-        synchronized (postiRrBuffer) { postiRrBuffer.clear(); }
         synchronized (rsaCycleBuffer) { rsaCycleBuffer.clear(); }
         rsaCycleAccumulatedMs = 0;
         isPostiTraceActive = false;
@@ -255,9 +256,7 @@ public class HrvForegroundService extends Service {
     }
 
     public void startPostiRecording() {
-        synchronized (postiRrBuffer) {
-            postiRrBuffer.clear();
-        }
+        testSessionManager.resetSession();
         isPostiTraceActive = true;
         stopAudioAndClock();
         updateNotificationText("Замер следовой когерентности (PSTI)...");
@@ -273,25 +272,20 @@ public class HrvForegroundService extends Service {
     }
 
     public List<Integer> getPostiRrData() {
-        synchronized (postiRrBuffer) {
-            return new ArrayList<>(postiRrBuffer);
-        }
+        return testSessionManager.getRawSessionData();
     }
 
     public void addRrInterval(int rrMs) {
-        if (rrMs > 300 && rrMs < 2000) {
-            if (isPostiTraceActive) {
-                synchronized (postiRrBuffer) {
-                    postiRrBuffer.add(rrMs);
-                }
-                return;
-            }
+        // Разделение входящего потока данных по изолированным буферам
+        if (isPostiTraceActive) {
+            testSessionManager.addRrInterval(rrMs);
+            return;
+        }
 
-            if (isRecording) {
-                synchronized (rrSessionList) {
-                    rrSessionList.add(rrMs);
-                }
-                
+        if (isRecording) {
+            trainingSessionManager.addRrInterval(rrMs);
+            
+            if (rrMs > 300 && rrMs < 2000) {
                 synchronized (slidingWindowList) {
                     slidingWindowList.add(rrMs);
                     while (slidingWindowList.size() > WINDOW_SIZE) {
@@ -324,7 +318,6 @@ public class HrvForegroundService extends Service {
     private void evaluateCyclePhaseCorrection(List<Integer> cycleRrList) {
         if (cycleRrList == null || cycleRrList.size() < 5) return;
         try {
-            // Передаем актуальный динамический период модуляции в миллисекундах
             float measuredPhase = MayerWaveAnalyzer.calculateInitialPhase(cycleRrList, currentModulationPeriodMs);
             if (callback != null) {
                 callback.onPhaseCorrectionCalculated(measuredPhase);
@@ -350,9 +343,7 @@ public class HrvForegroundService extends Service {
     }
 
     public List<Integer> getSessionRrData() {
-        synchronized (rrSessionList) {
-            return new ArrayList<>(rrSessionList);
-        }
+        return trainingSessionManager.getRawSessionData();
     }
 
     public boolean isRecording() {
