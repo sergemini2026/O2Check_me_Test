@@ -183,10 +183,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             });
         }
 
-        if (PermissionHelper.checkAndRequestStoragePermissions(this)) {
-            SessionExportManager.cleanLegacyO2TestDirectory(this);
-        }
-
         ui.btnHeart.setOnClickListener(v -> {
             if (!isProfileAuthorized) {
                 Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
@@ -319,14 +315,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             } else {
                 onLog("Ошибка: необходимые разрешения BLE не предоставлены!");
             }
-        } else if (requestCode == PermissionHelper.PERMISSION_REQUEST_CODE) {
-            boolean allGranted = true;
-            for (int result : grantResults) {
-                if (result != PackageManager.PERMISSION_GRANTED) { allGranted = false; break; }
-            }
-            if (allGranted) {
-                SessionExportManager.cleanLegacyO2TestDirectory(this);
-            }
         }
     }
 
@@ -357,7 +345,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (ui.tvStatusValue == null) return;
         boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
         
-        // Интеграция вывода PSTI в строку статуса
         String pstiSuffix = (lastPstiScore > 0.0) ? String.format(Locale.US, " PSTI [%.1f%%]", lastPstiScore) : "";
 
         if (!isRecording) {
@@ -500,7 +487,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             hrvService.stopPostiRecording();
             hrvService.startSessionRecording();
             
-            // Передаем текущий период модуляции из менеджера в фоновый сервис
             modulationManager.applyModulation(hrvService, isBound);
             
             hrvService.setCallback(new HrvForegroundService.ServiceCallback() {
@@ -764,7 +750,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
                             if (count < CALIBRATION_TARGET) {
                                 String statusText = String.format(Locale.US, "Идет сбор данных для фазовой автоподстройки: %.0f%%", percent);
-                                runOnUiThread(() -> {
+                                jsonOnUiThread(() -> {
                                     if (ui.tvStatusValue != null) {
                                         ui.tvStatusValue.setText(statusText);
                                     }
@@ -774,7 +760,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                long currentModPeriod = (isBound && hrvService != null) ? hrvService.getModulationPeriodMs() : modulationManager.getModulationPeriodMs();
                                final float initialPhase = MayerWaveAnalyzer.calculateInitialPhase(phaseBuffer, currentModPeriod);
 
-                                
                                 onLog(String.format(Locale.US, "[Калибровка завершена] Вычисленная фаза Майера: %.2f", initialPhase));
 
                                 runOnUiThread(() -> {
