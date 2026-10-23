@@ -2,17 +2,13 @@ package com.local.o2test;
 
 import android.app.AlertDialog;
 import android.content.Context;
-import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.StateListDrawable;
-import android.net.Uri;
-import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.Settings;
 import android.text.Layout;
 import android.text.SpannableString;
 import android.text.style.AlignmentSpan;
@@ -184,6 +180,8 @@ public class SettingsDialogManager {
     /**
      * Подменю Б: Режимы видео с запоминанием выбора
      */
+    package com.local.o2test;
+    // (метод showVideoSettingsDialog сохранен без изменений)
     private static void showVideoSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
         CharSequence[] videoModes = {
             "Одиночный",
@@ -220,7 +218,7 @@ public class SettingsDialogManager {
     }
 
     /**
-     * Подменю В: Резервное копирование с проверкой папки Documents/O2Test и прав доступа (Android 11+)
+     * Подменю В: Резервное копирование с проверкой папки Documents/O2Test
      */
     private static void showBackupSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
         File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
@@ -258,23 +256,6 @@ public class SettingsDialogManager {
                 dialog.dismiss();
 
                 if (position == 0) {
-                    // Проверка наличия полного доступа к хранилищу для Android 11+ перед экспортом
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        if (!Environment.isExternalStorageManager()) {
-                            try {
-                                Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
-                                context.startActivity(intent);
-                                Toast.makeText(context, "Пожалуйста, разрешите доступ к управлению файлами для бэкапов", Toast.LENGTH_LONG).show();
-                                return;
-                            } catch (Exception e) {
-                                Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                                        Uri.parse("package:" + context.getPackageName()));
-                                context.startActivity(intent);
-                                return;
-                            }
-                        }
-                    }
-
                     if (callback != null) {
                         callback.onExportBackupRequested(backupFile);
                     }
