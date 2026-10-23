@@ -358,8 +358,8 @@ public class BreatheAnimationView extends View {
         float scaleRadius = radius + 8f; 
         float textRadius = radius + 26f;
 
-        // Радиус прогресс-бара смещен наружу на безопасное расстояние от цифр шкалы (textRadius + 22f)
-        float ringRadius = textRadius + 22f;
+        // Радиус прогресс-бара смещен наружу на безопасное расстояние от цифр шкалы (textRadius + 32f)
+        float ringRadius = textRadius + 32f;
         RectF ringRect = new RectF(centerX - ringRadius, centerY - ringRadius, centerX + ringRadius, centerY + ringRadius);
 
         // Всегда сначала рисуем белую фоновую окружность
