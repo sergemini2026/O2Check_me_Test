@@ -2,7 +2,12 @@ package com.local.o2test;
 
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Environment;
+import android.provider.Settings;
 import android.text.InputType;
 import android.text.Layout;
 import android.text.SpannableString;
@@ -31,6 +36,23 @@ public class PasswordAuthManager {
      * Проверяет наличие сохраненного мастер-пароля и запускает соответствующий диалог
      */
     public static void checkMasterPasswordOnStart(Context context, SharedPreferences prefs, AuthCallback callback) {
+        // Проверка и запрос разрешений на управление всеми файлами (Android 11+) при старте
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                try {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                    context.startActivity(intent);
+                    Toast.makeText(context, "Пожалуйста, разрешите доступ к управлению файлами для работы системы", Toast.LENGTH_LONG).show();
+                } catch (Exception e) {
+                    try {
+                        Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                Uri.parse("package:" + context.getPackageName()));
+                        context.startActivity(intent);
+                    } catch (Exception ignored) {}
+                }
+            }
+        }
+
         String savedPass = prefs.getString(KEY_MASTER_PASS, null);
 
         if (savedPass == null) {
