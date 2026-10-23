@@ -173,7 +173,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateMetricsDisplay("--", "--", "--", "--");
         updateRightPanelStatus();
 
-        // Интерактивная связь шкалы BreatheAnimationView с SessionModulationManager
         if (ui.pacerView != null) {
             ui.pacerView.setOnPointerChangeListener(value -> {
                 long newDurationMs = (long) (value * 1000.0);
@@ -690,6 +689,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, res.hr, currentPi, 0);
 
             synchronized (sessionData) { sessionData.add(dp); }
+            if (isBound && hrvService != null) {
+                hrvService.addDataPoint(dp);
+            }
             runOnUiThread(() -> ui.chartView.addDataPoint(dp));
         }
     }
@@ -790,6 +792,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     DataPoint dp = new DataPoint(timestamp, (int) elapsedSec, currentSpo2, currentPolarHr, currentPi, rrMs);
 
                     synchronized (sessionData) { sessionData.add(dp); }
+                    if (isBound && hrvService != null) {
+                        hrvService.addDataPoint(dp);
+                    }
                     int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
 
                     runOnUiThread(() -> {
