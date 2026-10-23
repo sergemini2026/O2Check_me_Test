@@ -18,14 +18,14 @@ public class CsvExporter {
         void onError(String errorMessage);
     }
 
-    public static void saveSessionToCsv(Context context, List<DataPoint> sessionData, String customDirPath, ExportCallback callback) {
-        if (sessionData == null || sessionData.isEmpty()) {
-            callback.onError("Ошибка: Нет данных для сохранения.");
-            return;
+    public static void saveSessionToCsv(Context context, List<DataPoint> sessionData, String customDirPath, String suffix, ExportCallback callback) {
+        if (sessionData == null) {
+            sessionData = new java.util.ArrayList<>();
         }
 
         String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(new Date());
-        String fileName = "O2_Session_" + timeStamp + ".csv";
+        String fileSuffix = (suffix != null) ? suffix : "";
+        String fileName = "O2_Session_" + timeStamp + fileSuffix + ".csv";
 
         File docDir;
         if (customDirPath != null && !customDirPath.isEmpty()) {
@@ -40,11 +40,9 @@ public class CsvExporter {
         File file = new File(docDir, fileName);
 
         try (FileWriter writer = new FileWriter(file)) {
-            // Добавлена колонка RR_ms в заголовок[span_0](start_span)[span_0](end_span)
             writer.append("Timestamp,Elapsed_Sec,SpO2,HR,PI,RR_ms\n");
             
             for (DataPoint dp : sessionData) {
-                // Добавлен вывод %d для dp.rrMs[span_1](start_span)[span_1](end_span)
                 writer.append(String.format(Locale.US, "%s,%d,%d,%d,%.2f,%d\n",
                         dp.timestamp, dp.elapsedSec, dp.spo2, dp.hr, dp.pi, dp.rrMs));
             }
