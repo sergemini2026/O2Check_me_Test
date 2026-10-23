@@ -33,6 +33,10 @@ public class HrvForegroundService extends Service {
     private final HrvSessionManager trainingSessionManager = new HrvSessionManager();
     private final HrvSessionManager testSessionManager = new HrvSessionManager();
 
+    // Раздельные списки точек данных для экспорта в CSV (_training и _test)
+    private final List<DataPoint> trainingDataPoints = Collections.synchronizedList(new ArrayList<>());
+    private final List<DataPoint> testDataPoints = Collections.synchronizedList(new ArrayList<>());
+
     private final List<Integer> slidingWindowList = Collections.synchronizedList(new ArrayList<>());
     private boolean isPostiTraceActive = false;
 
@@ -227,6 +231,8 @@ public class HrvForegroundService extends Service {
     public void startSessionRecording() {
         trainingSessionManager.resetSession();
         testSessionManager.resetSession();
+        synchronized (trainingDataPoints) { trainingDataPoints.clear(); }
+        synchronized (testDataPoints) { testDataPoints.clear(); }
         synchronized (slidingWindowList) { slidingWindowList.clear(); }
         synchronized (snapshotBuffer) { snapshotBuffer.clear(); }
         synchronized (rsaCycleBuffer) { rsaCycleBuffer.clear(); }
@@ -257,6 +263,7 @@ public class HrvForegroundService extends Service {
 
     public void startPostiRecording() {
         testSessionManager.resetSession();
+        synchronized (testDataPoints) { testDataPoints.clear(); }
         isPostiTraceActive = true;
         stopAudioAndClock();
         updateNotificationText("Замер следовой когерентности (PSTI)...");
@@ -273,6 +280,31 @@ public class HrvForegroundService extends Service {
 
     public List<Integer> getPostiRrData() {
         return testSessionManager.getRawSessionData();
+    }
+
+    public void addDataPoint(DataPoint dp) {
+        if (!isRecording) return;
+        if (isPostiTraceActive) {
+            synchronized (testDataPoints) {
+                testDataPoints.add(dp);
+            }
+        } else {
+            synchronized (trainingDataPoints) {
+                trainingDataPoints.add(dp);
+            }
+        }
+    }
+
+    public List<DataPoint> getTrainingDataPoints() {
+        synchronized (trainingDataPoints) {
+            return new ArrayList<>(trainingDataPoints);
+        }
+    }
+
+    public List<DataPoint> getTestDataPoints() {
+        synchronized (testDataPoints) {
+            return new ArrayList<>(testDataPoints);
+        }
     }
 
     public void addRrInterval(int rrMs) {
