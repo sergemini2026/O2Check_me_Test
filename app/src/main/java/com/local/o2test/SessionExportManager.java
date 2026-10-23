@@ -187,6 +187,7 @@ public class SessionExportManager {
                         35.0,
                         "",
                         trainingCsvPath,
+                        testCsvPath,
                         lastPstiScore,
                         lastPstiRmssdRatio
                 );
@@ -250,7 +251,7 @@ public class SessionExportManager {
                             @Override
                             public void onSuccess(String pdfFilePath, String fileNamePdf) {
                                 dbExecutor.execute(() -> {
-                                    db.sessionDao().updatePathsSync(sessionId, pdfFilePath, trainingCsvPath);
+                                    db.sessionDao().updatePathsSync(sessionId, pdfFilePath, trainingCsvPath, testCsvPath);
                                 });
 
                                 if (callback != null) {
