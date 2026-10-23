@@ -750,7 +750,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
                             if (count < CALIBRATION_TARGET) {
                                 String statusText = String.format(Locale.US, "Идет сбор данных для фазовой автоподстройки: %.0f%%", percent);
-                                jsonOnUiThread(() -> {
+                                runOnUiThread(() -> {
                                     if (ui.tvStatusValue != null) {
                                         ui.tvStatusValue.setText(statusText);
                                     }
