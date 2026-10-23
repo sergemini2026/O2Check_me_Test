@@ -96,6 +96,8 @@ public class SessionExportManager {
                     callback.onLog("Тренировочный CSV успешно сохранен: " + trainingFileName);
                 }
                 
+                final String finalTrainingPath = trainingFilePath;
+
                 // 2. Сохранение тестового CSV (_test.csv) с последующим переходом к БД
                 CsvExporter.saveSessionToCsv(context, testPoints, customPath, "_test", new CsvExporter.ExportCallback() {
                     @Override
@@ -103,7 +105,7 @@ public class SessionExportManager {
                         if (callback != null) {
                             callback.onLog("Тестовый CSV (PSTI) успешно сохранен: " + testFileName);
                         }
-                        proceedWithDatabaseAndPdf(context, prefs, trainingPoints, trainingFilePath, testFilePath, 
+                        proceedWithDatabaseAndPdf(context, prefs, trainingPoints, finalTrainingPath, testFilePath, 
                                 activeProfileId, activeProfileName, sessionStartTime, currentPolarHr, currentSpo2, 
                                 lastPstiScore, lastPstiRmssdRatio, dbExecutor, hrvService, isBound, callback);
                     }
@@ -113,7 +115,7 @@ public class SessionExportManager {
                         if (callback != null) {
                             callback.onLog("Ошибка сохранения тестового CSV: " + errorMessage);
                         }
-                        proceedWithDatabaseAndPdf(context, prefs, trainingPoints, trainingFilePath, "", 
+                        proceedWithDatabaseAndPdf(context, prefs, trainingPoints, finalTrainingPath, "", 
                                 activeProfileId, activeProfileName, sessionStartTime, currentPolarHr, currentSpo2, 
                                 lastPstiScore, lastPstiRmssdRatio, dbExecutor, hrvService, isBound, callback);
                     }
