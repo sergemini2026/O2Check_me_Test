@@ -106,7 +106,8 @@ public class SessionExportManager {
                         if (callback != null) {
                             callback.onLog("Тестовый CSV (PSTI) успешно сохранен: " + testFileName);
                         }
-                        saveSessionToDatabase(context, prefs, trainingPoints, finalTrainingPath, testFilePath, activeProfileId, 
+                        final String finalTestPath = testFilePath;
+                        saveSessionToDatabase(context, prefs, trainingPoints, finalTrainingPath, finalTestPath, activeProfileId, 
                                 activeProfileName, sessionStartTime, currentPolarHr, currentSpo2, 
                                 lastPstiScore, lastPstiRmssdRatio, dbExecutor, hrvService, isBound, callback);
                     }
