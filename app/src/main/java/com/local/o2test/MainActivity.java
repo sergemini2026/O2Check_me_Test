@@ -35,7 +35,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private static final String PREF_NAME = "O2AppPrefs";
     private static final int PI_SMOOTHING_WINDOW = 5;
     private static final int CALIBRATION_TARGET = 100;
-    private static final int POSTI_WINDOW_SEC = 120;
+    private static final int POSTI_WINDOW_SEC = 300;
     private static final int POSTI_INTERVAL_DUMPS = 3;
 
     private O2BleManager bleManager;
