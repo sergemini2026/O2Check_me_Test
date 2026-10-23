@@ -32,6 +32,7 @@ data class SessionEntity @JvmOverloads constructor(
     val stressIndex: Double,
     val pdfPath: String = "",
     val csvPath: String = "",
+    val testCsvPath: String = "",        // Путь к тестовому CSV-файлу (PSTI)
     val pstiScore: Double = 0.0,         // Интегральный балл следовой когерентности (0-100%)
     val pstiRmssdRatio: Double = 0.0     // Коэффициент удержания RMSSD в свободном окне
 )
