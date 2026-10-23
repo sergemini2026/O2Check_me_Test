@@ -180,8 +180,6 @@ public class SettingsDialogManager {
     /**
      * Подменю Б: Режимы видео с запоминанием выбора
      */
-    package com.local.o2test;
-    // (метод showVideoSettingsDialog сохранен без изменений)
     private static void showVideoSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
         CharSequence[] videoModes = {
             "Одиночный",
