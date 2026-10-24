@@ -1,6 +1,5 @@
 package com.local.o2test;
 
-import android.animation.ValueAnimator;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -12,17 +11,13 @@ import android.graphics.Shader;
 import android.util.TypedValue;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.animation.DecelerateInterpolator;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 
 public class BreatheAnimationView extends View {
     private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint petalPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint scalePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint whiteRingPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint orangeRingPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint pointerOrangePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -30,21 +25,10 @@ public class BreatheAnimationView extends View {
     private final Path clipPath = new Path();
 
     private boolean isMonitoringActive = false;
-    private float animationProgress = 0f; // [0.0 ... 1.0]
+    private float animationProgress = 0f; // [0.0 ... 1.0] для лепестков пейсера
+    private float progress = 1.0f;         // [0.0 ... 1.0] для внешнего кольца прогресса
     
-    private float pointerValue = 10.0f; // Текущее значение указателя [6.0 ... 14.0], шаг 0.5
-    
-    // Структура для многофазного стека прогресс-бара (o-w-o-w...)
-    public static class PhaseSegment {
-        public boolean isWhite; // false = оранжевый, true = белый
-        public float progress;  // [0.0 ... 1.0]
-        public PhaseSegment(boolean isWhite, float progress) {
-            this.isWhite = isWhite;
-            this.progress = Math.max(0.0f, Math.min(1.0f, progress));
-        }
-    }
-
-    private final List<PhaseSegment> phaseStack = new ArrayList<>();
+    private float pointerValue = 10.0f;    // Текущее значение указателя [6.0 ... 14.0], шаг 0.5
 
     private OnPointerChangeListener pointerChangeListener;
 
@@ -55,8 +39,6 @@ public class BreatheAnimationView extends View {
     public void setOnPointerChangeListener(OnPointerChangeListener listener) {
         this.pointerChangeListener = listener;
     }
-    
-    private ValueAnimator shrinkAnimator;
 
     public BreatheAnimationView(Context context) {
         super(context);
@@ -75,11 +57,6 @@ public class BreatheAnimationView extends View {
         scalePaint.setColor(0xFFFF6D00);
         scalePaint.setStrokeWidth(2f);
         scalePaint.setStyle(Paint.Style.STROKE);
-
-        whiteRingPaint.setColor(0xFFFFFFFF);
-        whiteRingPaint.setStyle(Paint.Style.STROKE);
-        whiteRingPaint.setStrokeWidth(5.0f);
-        whiteRingPaint.setAntiAlias(true);
 
         orangeRingPaint.setColor(0xFFFF6D00);
         orangeRingPaint.setStyle(Paint.Style.STROKE);
@@ -103,10 +80,7 @@ public class BreatheAnimationView extends View {
 
         setLayerType(View.LAYER_TYPE_HARDWARE, null);
         isMonitoringActive = false;
-        
-        // Дефолтное состояние стека (полный оранжевый круг)
-        phaseStack.clear();
-        phaseStack.add(new PhaseSegment(false, 1.0f));
+        progress = 1.0f;
     }
 
     public float getPointerValue() {
@@ -119,51 +93,28 @@ public class BreatheAnimationView extends View {
     }
 
     /**
-     * Потокобезопасная установка многофазного стека прогресс-бара с немедленной перерисовкой
+     * Чистая установка прогресса внешнего кольца (управляется BreatheProgressManager)
      */
-    public void setPhaseStack(List<PhaseSegment> segments) {
-        synchronized (phaseStack) {
-            phaseStack.clear();
-            if (segments != null && !segments.isEmpty()) {
-                phaseStack.addAll(segments);
-            } else {
-                phaseStack.add(new PhaseSegment(false, 1.0f));
-            }
-        }
-        postInvalidate();
-    }
-
-    public void setRunning(boolean running) {
-        if (running) {
-            startMonitoring();
-        } else {
-            stopMonitoring();
-        }
-    }
-
-    public void startMonitoring() {
-        startMonitoringWithPhase(0.0f);
-    }
-
-    public void startMonitoringWithPhase(float initialPhase) {
-        if (shrinkAnimator != null) {
-            shrinkAnimator.cancel();
-            shrinkAnimator = null;
-        }
-        isMonitoringActive = true;
-        
-        synchronized (phaseStack) {
-            phaseStack.clear();
-            phaseStack.add(new PhaseSegment(false, 1.0f));
-        }
-
-        float phase = initialPhase % 1.0f;
-        if (phase < 0) phase += 1.0f;
-
-        animationProgress = phase;
+    public void setProgress(float progress) {
+        this.progress = Math.max(0.0f, Math.min(1.0f, progress));
         invalidate();
     }
 
+    public void startMonitoring() {
+        isMonitoringActive = true;
+        invalidate();
+    }
+
+    public void stopMonitoring() {
+        isMonitoringActive = false;
+        animationProgress = 0f;
+        progress = 1.0f;
+        invalidate();
+    }
+
+    /**
+     * Обновление фазы исключительно для анимации внутренних лепестков пейсера
+     */
     public void updatePhaseExternal(float phase) {
         if (!isMonitoringActive) {
             isMonitoringActive = true;
@@ -171,46 +122,7 @@ public class BreatheAnimationView extends View {
         float normalized = phase % 1.0f;
         if (normalized < 0) normalized += 1.0f;
         this.animationProgress = normalized;
-
-        // Жесткая синхронизация сокращения дуги прогресс-бара с фазой дыхательного цикла MasterClock
-        synchronized (phaseStack) {
-            if (!phaseStack.isEmpty()) {
-                phaseStack.get(phaseStack.size() - 1).progress = 1.0f - normalized;
-            }
-        }
-
-        postInvalidate();
-    }
-
-    public void stopMonitoring() {
-        if (!isMonitoringActive && shrinkAnimator == null) return;
-
-        if (shrinkAnimator != null) {
-            shrinkAnimator.cancel();
-        }
-
-        synchronized (phaseStack) {
-            phaseStack.clear();
-            phaseStack.add(new PhaseSegment(false, 1.0f));
-        }
-
-        shrinkAnimator = ValueAnimator.ofFloat(animationProgress, 0.0f);
-        shrinkAnimator.setDuration(600);
-        shrinkAnimator.setInterpolator(new DecelerateInterpolator());
-        shrinkAnimator.addUpdateListener(animation -> {
-            animationProgress = (float) animation.getAnimatedValue();
-            invalidate();
-        });
-        shrinkAnimator.addListener(new android.animation.AnimatorListenerAdapter() {
-            @Override
-            public void onAnimationEnd(android.animation.Animator animation) {
-                isMonitoringActive = false;
-                animationProgress = 0f;
-                shrinkAnimator = null;
-                invalidate();
-            }
-        });
-        shrinkAnimator.start();
+        invalidate();
     }
 
     @Override
@@ -327,7 +239,7 @@ public class BreatheAnimationView extends View {
         canvas.translate(dx, dy);
         canvas.scale(scale, scale);
 
-        if (!isMonitoringActive && shrinkAnimator == null) {
+        if (!isMonitoringActive) {
             petalPaint.setShader(new RadialGradient(100, 100, 24f,
                     new int[]{0xFFFF2D55, 0xDDFF2D55}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
             canvas.drawCircle(100, 100, 24f, petalPaint);
@@ -374,7 +286,7 @@ public class BreatheAnimationView extends View {
             canvas.restore(); 
         }
 
-        // 2. Отрисовка шкалы, делений, цифр, указателя и многофазного стека прогресс-бара
+        // 2. Отрисовка шкалы, делений, цифр и внешнего кольца прогресса
         int totalSteps = 16; 
         float scaleRadius = radius + 8f; 
         float textRadius = radius + 26f;
@@ -382,22 +294,12 @@ public class BreatheAnimationView extends View {
         float ringRadius = textRadius + 32f;
         RectF ringRect = new RectF(centerX - ringRadius, centerY - ringRadius, centerX + ringRadius, centerY + ringRadius);
 
-        // Рендеринг стека фаз от самых нижних к верхним (o-w-o-w...)
-        if (!isMonitoringActive && shrinkAnimator == null) {
+        // Рендеринг внешнего кольца прогресса
+        if (progress >= 1.0f) {
             canvas.drawCircle(centerX, centerY, ringRadius, orangeRingPaint);
-        } else {
-            synchronized (phaseStack) {
-                for (int i = phaseStack.size() - 1; i >= 0; i--) {
-                    PhaseSegment seg = phaseStack.get(i);
-                    Paint p = seg.isWhite ? whiteRingPaint : orangeRingPaint;
-                    if (seg.progress >= 1.0f) {
-                        canvas.drawCircle(centerX, centerY, ringRadius, p);
-                    } else if (seg.progress > 0.0f) {
-                        float sweepAngle = -360.0f * seg.progress;
-                        canvas.drawArc(ringRect, -90f, sweepAngle, false, p);
-                    }
-                }
-            }
+        } else if (progress > 0.0f) {
+            float sweepAngle = -360.0f * progress;
+            canvas.drawArc(ringRect, -90f, sweepAngle, false, orangeRingPaint);
         }
 
         for (int i = 0; i <= totalSteps; i++) {
