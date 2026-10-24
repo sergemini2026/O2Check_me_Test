@@ -39,6 +39,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private static final int TRAINING_PHASE_CYCLES = 90; // 90 циклов (3 блока по 30) для тренировки
     private static final int TARGET_RR_PER_DUMP = 300;     // 300 RR-интервалов на 1 дамп
     private static final int TARGET_CYCLES_PER_DUMP = 30;  // 30 дыхательных циклов на 1 дамп
+    private static final int POSTI_WINDOW_SEC = 300;       // Длительность замера PSTI в секундах
+    private static final int POSTI_INTERVAL_DUMPS = 3;     // Интервал замеров (каждые 3 дампа)
+
 
     private O2BleManager bleManager;
     private PolarH10Manager polarManager;
