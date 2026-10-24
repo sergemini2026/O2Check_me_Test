@@ -29,7 +29,7 @@ public class BreatheProgressManager {
     }
 
     public void setModulationPeriod(float periodSec) {
-        // Период ползунка не влияет на скорость прогресс-бара согласно спецификации
+        // Период ползунка не влияет на длительность прогресс-бара
     }
 
     public void reset() {
@@ -38,7 +38,6 @@ public class BreatheProgressManager {
         currentDegrees = 360.0f;
         isTestPhase = false;
         persistentPhaseStack.clear();
-        // По умолчанию базовый стек
         persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f));
         if (pacerView != null) {
             pacerView.setPhaseStack(new ArrayList<>(persistentPhaseStack));
@@ -55,10 +54,13 @@ public class BreatheProgressManager {
         lastFrameTime = System.currentTimeMillis();
         
         persistentPhaseStack.clear();
-        // Инициализация стека из 3 объектов: оранжевый подложка, белый, оранжевый активный
-        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f)); // 1. Оранжевый
-        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(true, 1.0f));  // 2. Белый
-        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f)); // 3. Оранжевый (активный)
+        // Всегда ровно 3 объекта в стеке:
+        // 1. Оранжевая подложка (полная, progress = 1.0)
+        // 2. Белая прослойка (полная, progress = 1.0)
+        // 3. Оранжевый активный слой (начинает убывать от 1.0)
+        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f));
+        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(true, 1.0f));
+        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f));
 
         if (pacerView != null) {
             pacerView.setPhaseStack(new ArrayList<>(persistentPhaseStack));
@@ -82,11 +84,11 @@ public class BreatheProgressManager {
         lastFrameTime = System.currentTimeMillis();
         
         synchronized (persistentPhaseStack) {
-            // Поддержание структуры стека, смена активного верхнего слоя на белый
             persistentPhaseStack.clear();
-            persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(true, 1.0f));  // Подложка
-            persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f)); // Средний
-            persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(true, 1.0f));  // Верхний активный (белый)
+            // Для теста: подложки заполнены, верхний активный слой — белый
+            persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(true, 1.0f));
+            persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f));
+            persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(true, 1.0f));
         }
 
         if (pacerView != null) {
@@ -104,9 +106,9 @@ public class BreatheProgressManager {
         
         synchronized (persistentPhaseStack) {
             persistentPhaseStack.clear();
-            persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f)); // Подложка
-            persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(true, 1.0f));  // Средний
-            persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f)); // Верхний активный (оранжевый)
+            persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f));
+            persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(true, 1.0f));
+            persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f));
         }
 
         if (pacerView != null) {
@@ -127,7 +129,7 @@ public class BreatheProgressManager {
 
                 if (dt > 0.2f) dt = 0.05f;
 
-                // Скорость сокращения дуги: 15 минут для тренировки, 5 минут для теста
+                // Скорость: 15 минут (900 сек) для тренировки (~0.4°/сек), 5 минут (300 сек) для теста (1.2°/сек)
                 float totalDurationSec = isTestPhase ? DURATION_TEST_SEC : DURATION_TRAIN_SEC;
                 float speedDegPerSec = 360.0f / totalDurationSec;
 
@@ -135,11 +137,11 @@ public class BreatheProgressManager {
 
                 if (currentDegrees <= 0.0f) {
                     currentDegrees = 360.0f;
-                    isTestPhase = !isTestPhase; // Автоматическое переключение фазы
+                    isTestPhase = !isTestPhase; // Смена фазы
 
                     synchronized (persistentPhaseStack) {
                         persistentPhaseStack.clear();
-                        // Ротация стека до 3 объектов с чередованием приоритетов видимости
+                        // Сдвиг стека и поддержание ровно 3 объектов с нужными цветами
                         boolean nextColor = isTestPhase;
                         persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(!nextColor, 1.0f));
                         persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(nextColor, 1.0f));
@@ -149,6 +151,7 @@ public class BreatheProgressManager {
                     float progress = currentDegrees / 360.0f;
                     synchronized (persistentPhaseStack) {
                         if (!persistentPhaseStack.isEmpty()) {
+                            // Уменьшаем прогресс только у самого верхнего активного элемента
                             persistentPhaseStack.get(persistentPhaseStack.size() - 1).progress = progress;
                         }
                     }
