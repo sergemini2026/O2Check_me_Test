@@ -854,17 +854,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         percent, rrCount, totalTarget, remMin, remSec, hr, rmssdStr);
                 onLog(logMsg);
 
-                // Динамический расчет прогресса тренировочной фазы с учетом выбранного периода модуляции (T)
-                int totalTrainingRr = sessionDumpCount * TARGET_RR_PER_DUMP + rrCount;
-                float trainingProgress = 1.0f - ((float) totalTrainingRr / (float) (DUMPS_PER_TRAINING_PHASE * TARGET_RR_PER_DUMP));
-                
-                if (ui != null && ui.pacerView != null && !(isBound && hrvService != null && hrvService.isPostiTraceActive())) {
-                    List<BreatheAnimationView.PhaseSegment> stack = new ArrayList<>();
-                    stack.add(new BreatheAnimationView.PhaseSegment(true, 1.0f)); // белая подложка
-                    stack.add(new BreatheAnimationView.PhaseSegment(false, Math.max(0.0f, trainingProgress))); // активная оранжевая
-                    ui.pacerView.setPhaseStack(stack);
-                }
-
                 if (isBound && hrvService != null) {
                     hrvService.updateNotificationText("HR: " + hr + " bpm | RMSSD: " + rmssdStr);
                 }
