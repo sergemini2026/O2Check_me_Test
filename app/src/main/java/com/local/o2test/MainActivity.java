@@ -35,10 +35,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private static final String PREF_NAME = "O2AppPrefs";
     private static final int PI_SMOOTHING_WINDOW = 5;
     private static final int CALIBRATION_TARGET = 100;
-    private static final int POSTI_WINDOW_CYCLES = 30; // 30 циклов дыхания для теста PSTI
-    private static final int TRAINING_PHASE_CYCLES = 90; // 90 циклов (3 блока по 30) для тренировки
     private static final int TARGET_RR_PER_DUMP = 300;     // 300 RR-интервалов на 1 дамп
-    private static final int TARGET_CYCLES_PER_DUMP = 30;  // 30 дыхательных циклов на 1 дамп
     private static final int POSTI_WINDOW_SEC = 300;       // 300 секунд для теста PSTI
     private static final int POSTI_INTERVAL_DUMPS = 3;     // Замер каждые 3 дампа
 
@@ -47,6 +44,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private UiBuilder.Views ui;
     private OxygenSensorManager oxygenSensorManager;
     private SessionModulationManager modulationManager;
+    private BreatheProgressManager progressManager; // Менеджер прогресс-бара
 
     private HrvForegroundService hrvService;
     private boolean isBound = false;
@@ -58,15 +56,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private long sessionStartTime = 0;
     private long postiStartTime = 0;
 
-    // Параметры фиксации периода модуляции T и циклов дыхания
     private long fixedModulationPeriodMs = 10000L;
     private int completedCyclesInCurrentDump = 0;
-    private int totalCyclesInCurrentPhase = 0; // Накопительный счетчик циклов текущей фазы (тренировка / тест)
-    private boolean isCurrentPhaseWhite = false; // false = оранжевый, true = белый
-    private float lastClockPhase = -1f;
-
-    // Персистентный стек слоев прогресс-бара для поддержания последовательности o-w-o-w...
-    private final List<BreatheAnimationView.PhaseSegment> persistentPhaseStack = new ArrayList<>();
 
     private String currentWorkoutMode = "Базовый мониторинг";
     private final List<DataPoint> sessionData = new ArrayList<>();
@@ -182,6 +173,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         ui = UiBuilder.buildUi(this);
         oxygenSensorManager = new OxygenSensorManager(ui);
+        
+        // Инициализация менеджера прогресс-бара
+        progressManager = new BreatheProgressManager(ui.pacerView);
+
         UiBuilder.updateStatusHeader(ui.tvLiveMetrics, 0, 0, 0f, 0, 0);
 
         setInterfaceAuthorizedState(false);
@@ -495,18 +490,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
         completedCyclesInCurrentDump = 0;
-        totalCyclesInCurrentPhase = 0;
-        isCurrentPhaseWhite = false; // Начинаем с оранжевой фазы
-        lastClockPhase = -1f;
         lastPstiScore = 0.0;
         lastPstiRmssdRatio = 0.0;
 
         fixedModulationPeriodMs = (isBound && hrvService != null) ? hrvService.getModulationPeriodMs() : modulationManager.getModulationPeriodMs();
 
-        persistentPhaseStack.clear();
-        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f));
-        if (ui.pacerView != null) {
-            ui.pacerView.setPhaseStack(new ArrayList<>(persistentPhaseStack));
+        // Запуск через менеджер прогресс-бара
+        if (progressManager != null) {
+            progressManager.start();
         }
 
         if (isBound && hrvService != null) {
@@ -556,39 +547,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (!isRecording || !isBound || hrvService == null) return;
 
         hrvService.startAudioAndClock(MainActivity.this, initialPhase, phase -> {
-            if (ui.pacerView != null) {
-                ui.pacerView.updatePhaseExternal(phase);
-            }
-
             if (isRecording && !hrvService.isPostiTraceActive() && isCalibrationCompleted) {
-                if (lastClockPhase > 0.8f && phase < 0.2f) {
-                    totalCyclesInCurrentPhase++;
-                }
-                lastClockPhase = phase;
-
-                int targetPhaseCycles = isCurrentPhaseWhite ? POSTI_WINDOW_CYCLES : TRAINING_PHASE_CYCLES;
-
-                if (totalCyclesInCurrentPhase >= targetPhaseCycles) {
-                    // Смена фазы (o -> w или w -> o) с сохранением стека подложек
-                    totalCyclesInCurrentPhase = 0;
-                    isCurrentPhaseWhite = !isCurrentPhaseWhite;
-
-                    // Фиксируем предыдущий слой как полный (1.0) и добавляем новый активный поверх
-                    persistentPhaseStack.clear();
-                    persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(isCurrentPhaseWhite, 1.0f));
-                }
-
-                float phaseProgress = (totalCyclesInCurrentPhase + phase) / (float) targetPhaseCycles;
-                float currentSegmentProgress = 1.0f - Math.min(1.0f, phaseProgress);
-
-                synchronized (persistentPhaseStack) {
-                    if (!persistentPhaseStack.isEmpty()) {
-                        persistentPhaseStack.get(persistentPhaseStack.size() - 1).progress = currentSegmentProgress;
-                    }
-                }
-
-                if (ui != null && ui.pacerView != null) {
-                    ui.pacerView.setPhaseStack(new ArrayList<>(persistentPhaseStack));
+                // Передаем тик в менеджер прогресс-бара
+                if (progressManager != null) {
+                    progressManager.onClockTick(phase);
                 }
             }
         });
@@ -613,11 +575,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         pstiRemainingSec--;
                         float pstiProgress = (float) pstiRemainingSec / (float) POSTI_WINDOW_SEC;
                         
-                        if (ui != null && ui.pacerView != null) {
-                            List<BreatheAnimationView.PhaseSegment> stack = new ArrayList<>();
-                            stack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f));
-                            stack.add(new BreatheAnimationView.PhaseSegment(true, pstiProgress));
-                            ui.pacerView.setPhaseStack(stack);
+                        // Делегируем отображение стека PSTI менеджеру
+                        if (progressManager != null) {
+                            progressManager.startPostiStack(pstiProgress);
                         }
                         
                         updateRightPanelStatusWithCountdown(pstiRemainingSec);
@@ -669,16 +629,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         onLog("[PSTI] Завершено. Возобновление дыхательного контура и аудио...");
         
-        totalCyclesInCurrentPhase = 0;
-        isCurrentPhaseWhite = false;
-        persistentPhaseStack.clear();
-        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f));
-        if (ui != null && ui.pacerView != null) {
-            ui.pacerView.setPhaseStack(new ArrayList<>(persistentPhaseStack));
+        if (progressManager != null) {
+            progressManager.finishPostiStack();
         }
 
         completedCyclesInCurrentDump = 0;
-        lastClockPhase = -1f;
 
         runOnUiThread(() -> {
             if (isRecording && isBound && hrvService != null) {
@@ -693,8 +648,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
         completedCyclesInCurrentDump = 0;
-        totalCyclesInCurrentPhase = 0;
-        lastClockPhase = -1f;
         pstiHandler.removeCallbacks(pstiCountdownRunnable);
         
         stopAudioAndClockInService();
@@ -710,11 +663,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         piWindow.clear();
         
-        if (ui != null && ui.pacerView != null) {
-            ui.pacerView.stopMonitoring();
-            List<BreatheAnimationView.PhaseSegment> defaultStack = new ArrayList<>();
-            defaultStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f));
-            ui.pacerView.setPhaseStack(defaultStack);
+        if (progressManager != null) {
+            progressManager.reset();
         }
 
         updateRightPanelStatus();
@@ -835,10 +785,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                             int count = phaseBuffer.size();
                             float percent = Math.min(100.0f, (count / (float) CALIBRATION_TARGET) * 100.0f);
 
-                            if (ui != null && ui.pacerView != null) {
-                                List<BreatheAnimationView.PhaseSegment> calibStack = new ArrayList<>();
-                                calibStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f - (percent / 100.0f)));
-                                ui.pacerView.setPhaseStack(calibStack);
+                            // Калибровочный прогресс через менеджер
+                            if (progressManager != null) {
+                                progressManager.setCalibrationProgress(percent);
                             }
 
                             if (count < CALIBRATION_TARGET) {
@@ -851,8 +800,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                             } else {
                                 isCalibrationCompleted = true;
                                 completedCyclesInCurrentDump = 0;
-                                totalCyclesInCurrentPhase = 0;
-                                lastClockPhase = -1f;
 
                                 final float initialPhase = MayerWaveAnalyzer.calculateInitialPhase(phaseBuffer, fixedModulationPeriodMs);
 
@@ -871,7 +818,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                         ui.tvStatusValue.postDelayed(() -> updateRightPanelStatus(), 1000);
                                     }
 
-                                    // Запуск MasterClock и пейсера строго после завершения калибровки
                                     startClockAndPacerAfterCalibration(initialPhase);
                                 });
                             }
@@ -930,7 +876,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
                 sessionDumpCount++;
                 completedCyclesInCurrentDump = 0;
-                lastClockPhase = -1f;
 
                 onLog(String.format(Locale.US, "[Дамп #%d завершен]", sessionDumpCount));
 
