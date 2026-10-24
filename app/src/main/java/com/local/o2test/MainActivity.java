@@ -493,7 +493,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         fixedModulationPeriodMs = (isBound && hrvService != null) ? hrvService.getModulationPeriodMs() : modulationManager.getModulationPeriodMs();
 
-        // ЕДИНСТВЕННЫЙ ЗАПУСК ПРОГРЕСС-БАРА ПО КНОПКЕ МОНИТОР
+        // Запуск прогресс-бара по кнопке Монитор
         if (progressManager != null) {
             progressManager.start();
         }
@@ -563,6 +563,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             hrvService.startPostiRecording();
         }
 
+        // Синхронизируем прогресс-бар при старте замера PSTI
+        if (progressManager != null) {
+            progressManager.restart();
+        }
+
         pstiHandler.removeCallbacks(pstiCountdownRunnable);
         pstiCountdownRunnable = new Runnable() {
             @Override
@@ -617,6 +622,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         updateRightPanelStatus();
         onLog("[PSTI] Завершено. Возобновление дыхательного контура и аудио...");
+
+        // Синхронизируем прогресс-бар при возврате к тренировочному циклу
+        if (progressManager != null) {
+            progressManager.restart();
+        }
 
         completedCyclesInCurrentDump = 0;
 
@@ -859,6 +869,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 completedCyclesInCurrentDump = 0;
 
                 onLog(String.format(Locale.US, "[Дамп #%d завершен]", sessionDumpCount));
+
+                // Синхронизируем прогресс-бар при завершении текущего дампа и переходе к следующему
+                if (progressManager != null) {
+                    progressManager.restart();
+                }
 
                 if (sessionDumpCount % POSTI_INTERVAL_DUMPS == 0) {
                     startPostiTraceWindow();
