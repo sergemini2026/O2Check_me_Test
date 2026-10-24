@@ -53,15 +53,13 @@ public class BreatheProgressManager {
      * Перезапуск/синхронизация цикла при завершении дампа или старте PSTI
      */
     public void restart() {
-        if (!isActive) {
-            start();
-            return;
-        }
+        isActive = true;
         currentDegrees = 360.0f;
         lastFrameTime = System.currentTimeMillis();
         if (pacerView != null) {
             pacerView.setProgress(1.0f);
         }
+        startLoop();
     }
 
     public void stop() {
@@ -99,7 +97,12 @@ public class BreatheProgressManager {
                 currentDegrees -= speedDegPerSec * dt;
 
                 if (currentDegrees <= 0.0f) {
-                    currentDegrees = 360.0f; // Зацикливание 5-минутного периода до конца сессии
+                    currentDegrees = 0.0f;
+                    isActive = false; // Дошли до конца и остановились, ожидая внешнего restart() по завершению дампа
+                    if (pacerView != null) {
+                        pacerView.setProgress(0.0f);
+                    }
+                    return; // Прекращаем дальнейший пост задержек до нового старта
                 }
 
                 float progress = currentDegrees / 360.0f;
