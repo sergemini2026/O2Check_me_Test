@@ -19,6 +19,7 @@ public class BreatheAnimationView extends View {
     private final Paint petalPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint scalePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint orangeRingPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint whiteRingPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint pointerOrangePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint pointerWhitePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -62,6 +63,11 @@ public class BreatheAnimationView extends View {
         orangeRingPaint.setStyle(Paint.Style.STROKE);
         orangeRingPaint.setStrokeWidth(5.0f);
         orangeRingPaint.setAntiAlias(true);
+
+        whiteRingPaint.setColor(0xFFFFFFFF);
+        whiteRingPaint.setStyle(Paint.Style.STROKE);
+        whiteRingPaint.setStrokeWidth(5.0f);
+        whiteRingPaint.setAntiAlias(true);
 
         textPaint.setColor(0xFFFF6D00);
         textPaint.setTextSize(24f);
@@ -286,7 +292,7 @@ public class BreatheAnimationView extends View {
             canvas.restore(); 
         }
 
-        // 2. Отрисовка шкалы, делений, цифр и внешнего кольца прогресса
+        // 2. Отрисовка шкалы, делений, цифр и внешних колец прогресса
         int totalSteps = 16; 
         float scaleRadius = radius + 8f; 
         float textRadius = radius + 26f;
@@ -294,7 +300,10 @@ public class BreatheAnimationView extends View {
         float ringRadius = textRadius + 32f;
         RectF ringRect = new RectF(centerX - ringRadius, centerY - ringRadius, centerX + ringRadius, centerY + ringRadius);
 
-        // Рендеринг внешнего кольца прогресса
+        // Сначала рисуем фоновое белое кольцо (меньший приоритет видимости / подложка)
+        canvas.drawCircle(centerX, centerY, ringRadius, whiteRingPaint);
+
+        // Поверх белого рисуем сокращающееся оранжевое кольцо (больший приоритет видимости)
         if (progress >= 1.0f) {
             canvas.drawCircle(centerX, centerY, ringRadius, orangeRingPaint);
         } else if (progress > 0.0f) {
