@@ -10,8 +10,8 @@ public class BreatheProgressManager {
     private float currentDegrees = 360.0f;
     private long lastFrameTime = 0;
     
-    // Ровно 15 минут в секундах
-    private static final float DURATION_TRAIN_SEC = 15.0f * 60.0f;
+    // Ровно 5 минут в секундах для каждого цикла (дамп или PSTI)
+    private static final float DURATION_CYCLE_SEC = 5.0f * 60.0f;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Runnable animationRunnable;
@@ -49,6 +49,21 @@ public class BreatheProgressManager {
         startLoop();
     }
 
+    /**
+     * Перезапуск/синхронизация цикла при завершении дампа или старте PSTI
+     */
+    public void restart() {
+        if (!isActive) {
+            start();
+            return;
+        }
+        currentDegrees = 360.0f;
+        lastFrameTime = System.currentTimeMillis();
+        if (pacerView != null) {
+            pacerView.setProgress(1.0f);
+        }
+    }
+
     public void stop() {
         isActive = false;
         handler.removeCallbacks(animationRunnable);
@@ -56,11 +71,13 @@ public class BreatheProgressManager {
     }
 
     public void startPostiStack() {
-        // Заглушка, чтобы не ломать вызовы из MainActivity
+        // Синхронизируем прогресс-бар при начале замера PSTI
+        restart();
     }
 
     public void finishPostiStack() {
-        // Заглушка, чтобы не ломать вызовы из MainActivity
+        // Синхронизируем прогресс-бар при возврате к тренировке
+        restart();
     }
 
     private void startLoop() {
@@ -76,14 +93,13 @@ public class BreatheProgressManager {
 
                 if (dt > 0.2f) dt = 0.05f;
 
-                // Угловая скорость для 15 минут (360 градусов / 900 секунд = 0.4 град/сек)
-                float speedDegPerSec = 360.0f / DURATION_TRAIN_SEC;
+                // Угловая скорость для 5 минут (360 градусов / 300 секунд = 1.2 град/сек)
+                float speedDegPerSec = 360.0f / DURATION_CYCLE_SEC;
 
                 currentDegrees -= speedDegPerSec * dt;
 
                 if (currentDegrees <= 0.0f) {
-                    currentDegrees = 0.0f;
-                    isActive = false; // Дошли до 0 и остановились
+                    currentDegrees = 360.0f; // Зацикливание 5-минутного периода до конца сессии
                 }
 
                 float progress = currentDegrees / 360.0f;
