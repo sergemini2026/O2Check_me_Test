@@ -11,12 +11,15 @@ public class BreatheProgressManager {
     private final List<BreatheAnimationView.PhaseSegment> persistentPhaseStack = new ArrayList<>();
     
     private boolean isActive = false;
-    private boolean isTestPhase = false; // false = тренировка, true = тест PSTI
+    private boolean isTestPhase = false; // false = тренировка (15 минут), true = тест (5 минут)
     
-    private float currentPeriodSec = 10.0f;
     private float currentDegrees = 360.0f;
     private long lastFrameTime = 0;
     
+    // Длительности в секундах
+    private static final float DURATION_TRAIN_SEC = 15.0f * 60.0f; // 15 минут
+    private static final float DURATION_TEST_SEC = 5.0f * 60.0f;   // 5 минут
+
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Runnable animationRunnable;
 
@@ -25,17 +28,11 @@ public class BreatheProgressManager {
         reset();
     }
 
-    /**
-     * Вызывается при изменении ползунка MasterClock.
-     * Скорость мгновенно пересчитывается в следующем кадре без сброса накопленного прогресса.
-     */
+    // Метод оставлен для совместимости, но период ползунка здесь больше не влияет на скорость круга
     public void setModulationPeriod(float periodSec) {
-        this.currentPeriodSec = Math.max(6.0f, Math.min(14.0f, periodSec));
+        // Игнорируем, так как длительности жесткие: 15 и 5 минут
     }
 
-    /**
-     * Полный сброс прогресс-бара
-     */
     public void reset() {
         isActive = false;
         handler.removeCallbacks(animationRunnable);
@@ -48,9 +45,6 @@ public class BreatheProgressManager {
         }
     }
 
-    /**
-     * Старт прогресс-бара в момент нажатия кнопки «Монитор» (начало сессии)
-     */
     public void start() {
         isActive = true;
         isTestPhase = false;
@@ -66,42 +60,33 @@ public class BreatheProgressManager {
         startLoop();
     }
 
-    /**
-     * Остановка прогресс-бара при повторном нажатии кнопки «Монитор»
-     */
     public void stop() {
         isActive = false;
         handler.removeCallbacks(animationRunnable);
         reset();
     }
 
-    /**
-     * Переключение на фазу замера PSTI (тест)
-     */
     public void startPostiStack() {
-        isTestPhase = true;
+        isTestPhase = true; // Переход на 5-минутный цикл
         currentDegrees = 360.0f;
         lastFrameTime = System.currentTimeMillis();
         
         persistentPhaseStack.clear();
-        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f)); // оранжевая подложка
-        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(true, 1.0f));  // белый активный слой
+        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f));
+        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(true, 1.0f));
         if (pacerView != null) {
             pacerView.setPhaseStack(new ArrayList<>(persistentPhaseStack));
         }
     }
 
-    /**
-     * Завершение PSTI и возврат к фазе тренировки
-     */
     public void finishPostiStack() {
-        isTestPhase = false;
+        isTestPhase = false; // Возврат на 15-минутный цикл
         currentDegrees = 360.0f;
         lastFrameTime = System.currentTimeMillis();
         
         persistentPhaseStack.clear();
-        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(true, 1.0f));  // белая подложка
-        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f)); // новая оранжевая фаза
+        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(true, 1.0f));
+        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f));
         if (pacerView != null) {
             pacerView.setPhaseStack(new ArrayList<>(persistentPhaseStack));
         }
@@ -118,22 +103,28 @@ public class BreatheProgressManager {
                 float dt = (now - lastFrameTime) / 1000.0f;
                 lastFrameTime = now;
 
-                if (dt > 0.2f) dt = 0.05f; // Защита от фризов UI
+                if (dt > 0.2f) dt = 0.05f;
 
-                // Получаем угловую скорость из ProgressSpeedLookup в зависимости от фазы и периода T[span_2](start_span)[span_2](end_span)
-                float speedDegPerSec = ProgressSpeedLookup.getDegPerSec(currentPeriodSec, isTestPhase);
+                // Вычисляем скорость в градусах в секунду исходя из жесткого времени круга
+                float totalDurationSec = isTestPhase ? DURATION_TEST_SEC : DURATION_TRAIN_SEC;
+                float speedDegPerSec = 360.0f / totalDurationSec;
 
-                // Уменьшаем оставшиеся градусы дуги
                 currentDegrees -= speedDegPerSec * dt;
 
                 if (currentDegrees <= 0.0f) {
-                    currentDegrees = 0.0f;
-                }
+                    currentDegrees = 360.0f;
+                    isTestPhase = !isTestPhase; // Автоматическое чередование
 
-                float progress = currentDegrees / 360.0f;
-                synchronized (persistentPhaseStack) {
-                    if (!persistentPhaseStack.isEmpty()) {
-                        persistentPhaseStack.get(persistentPhaseStack.size() - 1).progress = progress;
+                    synchronized (persistentPhaseStack) {
+                        persistentPhaseStack.clear();
+                        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(isTestPhase, 1.0f));
+                    }
+                } else {
+                    float progress = currentDegrees / 360.0f;
+                    synchronized (persistentPhaseStack) {
+                        if (!persistentPhaseStack.isEmpty()) {
+                            persistentPhaseStack.get(persistentPhaseStack.size() - 1).progress = progress;
+                        }
                     }
                 }
 
@@ -141,7 +132,7 @@ public class BreatheProgressManager {
                     pacerView.setPhaseStack(new ArrayList<>(persistentPhaseStack));
                 }
 
-                handler.postDelayed(this, 30); // ~33 FPS для плавной анимации
+                handler.postDelayed(this, 30);
             }
         };
         handler.post(animationRunnable);
