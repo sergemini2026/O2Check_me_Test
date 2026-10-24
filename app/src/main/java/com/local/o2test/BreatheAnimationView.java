@@ -104,7 +104,7 @@ public class BreatheAnimationView extends View {
         setLayerType(View.LAYER_TYPE_HARDWARE, null);
         isMonitoringActive = false;
         
-        // Инициализация дефолтного состояния стека (полный оранжевый круг)
+        // Дефолтное состояние стека (полный оранжевый круг)
         phaseStack.clear();
         phaseStack.add(new PhaseSegment(false, 1.0f));
     }
@@ -171,6 +171,14 @@ public class BreatheAnimationView extends View {
         float normalized = phase % 1.0f;
         if (normalized < 0) normalized += 1.0f;
         this.animationProgress = normalized;
+
+        // Жесткая синхронизация сокращения дуги прогресс-бара с фазой дыхательного цикла MasterClock
+        synchronized (phaseStack) {
+            if (!phaseStack.isEmpty()) {
+                phaseStack.get(phaseStack.size() - 1).progress = 1.0f - normalized;
+            }
+        }
+
         postInvalidate();
     }
 
