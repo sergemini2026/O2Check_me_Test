@@ -1,5 +1,8 @@
 package com.local.o2test;
 
+import android.os.Handler;
+import android.os.Looper;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -7,13 +10,15 @@ public class BreatheProgressManager {
     private final BreatheAnimationView pacerView;
     private final List<BreatheAnimationView.PhaseSegment> persistentPhaseStack = new ArrayList<>();
     
-    private static final int TRAINING_PHASE_CYCLES = 90; // 90 циклов тренировки
-    private static final int POSTI_WINDOW_CYCLES = 30;   // 30 циклов теста PSTI
-
-    private int totalCyclesInCurrentPhase = 0;
-    private boolean isCurrentPhaseWhite = false; // false = оранжевый, true = белый
-    private float lastClockPhase = -1f;
     private boolean isActive = false;
+    private boolean isTestPhase = false; // false = тренировка (оранжевый), true = тест PSTI (белый)
+    
+    private float currentPeriodSec = 10.0f; // Текущий период T из MasterClock
+    private float currentDegrees = 360.0f;  // Остаток градусов дуги (от 360 до 0)
+    private long lastFrameTime = 0;
+    
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private Runnable animationRunnable;
 
     public BreatheProgressManager(BreatheAnimationView pacerView) {
         this.pacerView = pacerView;
@@ -21,13 +26,21 @@ public class BreatheProgressManager {
     }
 
     /**
-     * Сброс состояния прогресс-бара в дефолт (полный оранжевый круг)
+     * Вызывается при изменении ползунка MasterClock.
+     * Скорость мгновенно пересчитывается в следующем кадре без сброса накопленного прогресса.
+     */
+    public void setModulationPeriod(float periodSec) {
+        this.currentPeriodSec = periodSec;
+    }
+
+    /**
+     * Полный сброс прогресс-бара
      */
     public void reset() {
         isActive = false;
-        totalCyclesInCurrentPhase = 0;
-        isCurrentPhaseWhite = false;
-        lastClockPhase = -1f;
+        handler.removeCallbacks(animationRunnable);
+        currentDegrees = 360.0f;
+        isTestPhase = false;
         persistentPhaseStack.clear();
         persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f));
         if (pacerView != null) {
@@ -36,91 +49,74 @@ public class BreatheProgressManager {
     }
 
     /**
-     * Старт сеанса мониторинга
+     * Старт прогресс-бара в момент нажатия кнопки «Монитор»
      */
     public void start() {
         isActive = true;
-        totalCyclesInCurrentPhase = 0;
-        isCurrentPhaseWhite = false;
-        lastClockPhase = -1f;
+        isTestPhase = false;
+        currentDegrees = 360.0f;
+        lastFrameTime = System.currentTimeMillis();
+        
         persistentPhaseStack.clear();
         persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f));
         if (pacerView != null) {
             pacerView.setPhaseStack(new ArrayList<>(persistentPhaseStack));
         }
+
+        startLoop();
     }
 
     /**
-     * Отображение прогресса калибровки (убывание оранжевой дуги от 100% до 0%)
+     * Остановка прогресс-бара при повторном нажатии кнопки «Монитор»
      */
-    public void setCalibrationProgress(float percent) {
-        if (pacerView != null) {
-            List<BreatheAnimationView.PhaseSegment> calibStack = new ArrayList<>();
-            calibStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f - (percent / 100.0f)));
-            pacerView.setPhaseStack(calibStack);
-        }
+    public void stop() {
+        isActive = false;
+        handler.removeCallbacks(animationRunnable);
+        reset();
     }
 
-    /**
-     * Обработка такта (тика) MasterClock для обновления стека o-w-o-w
-     */
-    public void onClockTick(float phase) {
-        if (!isActive || pacerView == null) return;
+    private void startLoop() {
+        handler.removeCallbacks(animationRunnable);
+        animationRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (!isActive) return;
 
-        pacerView.updatePhaseExternal(phase);
+                long now = System.currentTimeMillis();
+                float dt = (now - lastFrameTime) / 1000.0f;
+                lastFrameTime = now;
 
-        if (lastClockPhase > 0.8f && phase < 0.2f) {
-            totalCyclesInCurrentPhase++;
-        }
-        lastClockPhase = phase;
+                if (dt > 0.2f) dt = 0.05f; // Защита від фризов UI
 
-        int targetPhaseCycles = isCurrentPhaseWhite ? POSTI_WINDOW_CYCLES : TRAINING_PHASE_CYCLES;
+                // Получаем угловую скорость из твоего массива по текущему периоду T и фазе
+                float speedDegPerSec = ProgressSpeedLookup.getDegPerSec(currentPeriodSec, isTestPhase);
 
-        if (totalCyclesInCurrentPhase >= targetPhaseCycles) {
-            // Переключение фазы (o -> w или w -> o) с сохранением стека подложек
-            totalCyclesInCurrentPhase = 0;
-            isCurrentPhaseWhite = !isCurrentPhaseWhite;
+                // Уменьшаем оставшиеся градусы
+                currentDegrees -= speedDegPerSec * dt;
 
-            persistentPhaseStack.clear();
-            persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(isCurrentPhaseWhite, 1.0f));
-        }
+                if (currentDegrees <= 0.0f) {
+                    // Фаза завершена (круг прошел от 360 до 0). Переключаем фазу (o -> w или w -> o)
+                    currentDegrees = 360.0f;
+                    isTestPhase = !isTestPhase;
 
-        float phaseProgress = (totalCyclesInCurrentPhase + phase) / (float) targetPhaseCycles;
-        float currentSegmentProgress = 1.0f - Math.min(1.0f, phaseProgress);
+                    persistentPhaseStack.clear();
+                    persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(isTestPhase, 1.0f));
+                } else {
+                    float progress = currentDegrees / 360.0f;
+                    synchronized (persistentPhaseStack) {
+                        if (!persistentPhaseStack.isEmpty()) {
+                            persistentPhaseStack.get(persistentPhaseStack.size() - 1).progress = progress;
+                        }
+                    }
+                }
 
-        synchronized (persistentPhaseStack) {
-            if (!persistentPhaseStack.isEmpty()) {
-                persistentPhaseStack.get(persistentPhaseStack.size() - 1).progress = currentSegmentProgress;
+                if (pacerView != null) {
+                    pacerView.setPhaseStack(new ArrayList<>(persistentPhaseStack));
+                }
+
+                handler.postDelayed(this, 30); // ~33 FPS для плавной анимации
             }
-        }
-
-        pacerView.setPhaseStack(new ArrayList<>(persistentPhaseStack));
-    }
-
-    /**
-     * Запуск стека для фазы замера PSTI (белая активная линия поверх оранжевой подложки)
-     */
-    public void startPostiStack(float pstiProgress) {
-        if (pacerView != null) {
-            List<BreatheAnimationView.PhaseSegment> stack = new ArrayList<>();
-            stack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f));
-            stack.add(new BreatheAnimationView.PhaseSegment(true, pstiProgress));
-            pacerView.setPhaseStack(stack);
-        }
-    }
-
-    /**
-     * Завершение фазы PSTI и возобновление тренировочного цикла
-     */
-    public void finishPostiStack() {
-        totalCyclesInCurrentPhase = 0;
-        isCurrentPhaseWhite = false;
-        persistentPhaseStack.clear();
-        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(true, 1.0f));  // белая подложка
-        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f)); // новая оранжевая фаза
-        if (pacerView != null) {
-            pacerView.setPhaseStack(new ArrayList<>(persistentPhaseStack));
-        }
-        lastClockPhase = -1f;
+        };
+        handler.post(animationRunnable);
     }
 }
