@@ -34,7 +34,7 @@ public class BreatheAnimationView extends View {
     
     private float pointerValue = 10.0f; // Текущее значение указателя [6.0 ... 14.0], шаг 0.5
     
-    // Структура для многофазного стека прогресс-бара (o-b-o-b-o-b...)
+    // Структура для многофазного стека прогресс-бара (o-w-o-w...)
     public static class PhaseSegment {
         public boolean isWhite; // false = оранжевый, true = белый
         public float progress;  // [0.0 ... 1.0]
@@ -119,16 +119,18 @@ public class BreatheAnimationView extends View {
     }
 
     /**
-     * Установка многофазного стека прогресс-бара
+     * Потокобезопасная установка многофазного стека прогресс-бара с немедленной перерисовкой
      */
     public void setPhaseStack(List<PhaseSegment> segments) {
-        phaseStack.clear();
-        if (segments != null && !segments.isEmpty()) {
-            phaseStack.addAll(segments);
-        } else {
-            phaseStack.add(new PhaseSegment(false, 1.0f));
+        synchronized (phaseStack) {
+            phaseStack.clear();
+            if (segments != null && !segments.isEmpty()) {
+                phaseStack.addAll(segments);
+            } else {
+                phaseStack.add(new PhaseSegment(false, 1.0f));
+            }
         }
-        invalidate();
+        postInvalidate();
     }
 
     public void setRunning(boolean running) {
@@ -150,8 +152,10 @@ public class BreatheAnimationView extends View {
         }
         isMonitoringActive = true;
         
-        phaseStack.clear();
-        phaseStack.add(new PhaseSegment(false, 1.0f));
+        synchronized (phaseStack) {
+            phaseStack.clear();
+            phaseStack.add(new PhaseSegment(false, 1.0f));
+        }
 
         float phase = initialPhase % 1.0f;
         if (phase < 0) phase += 1.0f;
@@ -167,7 +171,7 @@ public class BreatheAnimationView extends View {
         float normalized = phase % 1.0f;
         if (normalized < 0) normalized += 1.0f;
         this.animationProgress = normalized;
-        invalidate();
+        postInvalidate();
     }
 
     public void stopMonitoring() {
@@ -177,8 +181,10 @@ public class BreatheAnimationView extends View {
             shrinkAnimator.cancel();
         }
 
-        phaseStack.clear();
-        phaseStack.add(new PhaseSegment(false, 1.0f));
+        synchronized (phaseStack) {
+            phaseStack.clear();
+            phaseStack.add(new PhaseSegment(false, 1.0f));
+        }
 
         shrinkAnimator = ValueAnimator.ofFloat(animationProgress, 0.0f);
         shrinkAnimator.setDuration(600);
@@ -368,18 +374,20 @@ public class BreatheAnimationView extends View {
         float ringRadius = textRadius + 32f;
         RectF ringRect = new RectF(centerX - ringRadius, centerY - ringRadius, centerX + ringRadius, centerY + ringRadius);
 
-        // Рендеринг стека фаз от самых нижних к верхним
+        // Рендеринг стека фаз от самых нижних к верхним (o-w-o-w...)
         if (!isMonitoringActive && shrinkAnimator == null) {
             canvas.drawCircle(centerX, centerY, ringRadius, orangeRingPaint);
         } else {
-            for (int i = phaseStack.size() - 1; i >= 0; i--) {
-                PhaseSegment seg = phaseStack.get(i);
-                Paint p = seg.isWhite ? whiteRingPaint : orangeRingPaint;
-                if (seg.progress >= 1.0f) {
-                    canvas.drawCircle(centerX, centerY, ringRadius, p);
-                } else if (seg.progress > 0.0f) {
-                    float sweepAngle = -360.0f * seg.progress;
-                    canvas.drawArc(ringRect, -90f, sweepAngle, false, p);
+            synchronized (phaseStack) {
+                for (int i = phaseStack.size() - 1; i >= 0; i--) {
+                    PhaseSegment seg = phaseStack.get(i);
+                    Paint p = seg.isWhite ? whiteRingPaint : orangeRingPaint;
+                    if (seg.progress >= 1.0f) {
+                        canvas.drawCircle(centerX, centerY, ringRadius, p);
+                    } else if (seg.progress > 0.0f) {
+                        float sweepAngle = -360.0f * seg.progress;
+                        canvas.drawArc(ringRect, -90f, sweepAngle, false, p);
+                    }
                 }
             }
         }
