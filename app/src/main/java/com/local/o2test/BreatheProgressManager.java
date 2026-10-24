@@ -3,12 +3,8 @@ package com.local.o2test;
 import android.os.Handler;
 import android.os.Looper;
 
-import java.util.ArrayList;
-import java.util.List;
-
 public class BreatheProgressManager {
     private final BreatheAnimationView pacerView;
-    private final List<BreatheAnimationView.PhaseSegment> persistentPhaseStack = new ArrayList<>();
     
     private boolean isActive = false;
     private float currentDegrees = 360.0f;
@@ -33,10 +29,8 @@ public class BreatheProgressManager {
         isActive = false;
         handler.removeCallbacks(animationRunnable);
         currentDegrees = 360.0f;
-        persistentPhaseStack.clear();
-        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f));
         if (pacerView != null) {
-            pacerView.setPhaseStack(new ArrayList<>(persistentPhaseStack));
+            pacerView.setProgress(1.0f);
         }
     }
 
@@ -48,12 +42,8 @@ public class BreatheProgressManager {
         currentDegrees = 360.0f;
         lastFrameTime = System.currentTimeMillis();
         
-        persistentPhaseStack.clear();
-        // Один единственный оранжевый круг
-        persistentPhaseStack.add(new BreatheAnimationView.PhaseSegment(false, 1.0f));
-
         if (pacerView != null) {
-            pacerView.setPhaseStack(new ArrayList<>(persistentPhaseStack));
+            pacerView.setProgress(1.0f);
         }
 
         startLoop();
@@ -97,14 +87,8 @@ public class BreatheProgressManager {
                 }
 
                 float progress = currentDegrees / 360.0f;
-                synchronized (persistentPhaseStack) {
-                    if (!persistentPhaseStack.isEmpty()) {
-                        persistentPhaseStack.get(0).progress = progress;
-                    }
-                }
-
                 if (pacerView != null) {
-                    pacerView.setPhaseStack(new ArrayList<>(persistentPhaseStack));
+                    pacerView.setProgress(progress);
                 }
 
                 if (isActive) {
