@@ -14,6 +14,8 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.animation.DecelerateInterpolator;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 public class BreatheAnimationView extends View {
@@ -32,9 +34,17 @@ public class BreatheAnimationView extends View {
     
     private float pointerValue = 10.0f; // Текущее значение указателя [6.0 ... 14.0], шаг 0.5
     
-    // Прогресс-бар фаз сессии
-    private boolean isPstiPhase = false;       // false = фаза тренировки (оранжевая, 3 дампа), true = тест PSTI (белая, 1 дамп)
-    private float phaseProgress = 1.0f;        // [0.0 ... 1.0], где 1.0 = полная линия, 0.0 = пустая линия
+    // Структура для многофазного стека прогресс-бара (o-b-o-b-o-b...)
+    public static class PhaseSegment {
+        public boolean isWhite; // false = оранжевый, true = белый
+        public float progress;  // [0.0 ... 1.0]
+        public PhaseSegment(boolean isWhite, float progress) {
+            this.isWhite = isWhite;
+            this.progress = Math.max(0.0f, Math.min(1.0f, progress));
+        }
+    }
+
+    private final List<PhaseSegment> phaseStack = new ArrayList<>();
 
     private OnPointerChangeListener pointerChangeListener;
 
@@ -46,7 +56,6 @@ public class BreatheAnimationView extends View {
         this.pointerChangeListener = listener;
     }
     
-    private ValueAnimator breathAnimator;
     private ValueAnimator shrinkAnimator;
 
     public BreatheAnimationView(Context context) {
@@ -63,30 +72,25 @@ public class BreatheAnimationView extends View {
         bgPaint.setColor(0xFF1E222A);
         bgPaint.setStyle(Paint.Style.FILL);
 
-        // Настройка оранжевого цвета шкалы и делений
         scalePaint.setColor(0xFFFF6D00);
         scalePaint.setStrokeWidth(2f);
         scalePaint.setStyle(Paint.Style.STROKE);
 
-        // Настройка фоновой белой окружности прогресс-бара (толщина 5.0f)
         whiteRingPaint.setColor(0xFFFFFFFF);
         whiteRingPaint.setStyle(Paint.Style.STROKE);
         whiteRingPaint.setStrokeWidth(5.0f);
         whiteRingPaint.setAntiAlias(true);
 
-        // Настройка верхней оранжевой окружности прогресс-бара (толщина 5.0f)
         orangeRingPaint.setColor(0xFFFF6D00);
         orangeRingPaint.setStyle(Paint.Style.STROKE);
         orangeRingPaint.setStrokeWidth(5.0f);
         orangeRingPaint.setAntiAlias(true);
 
-        // Настройка оранжевого цвета для цифр шкалы
         textPaint.setColor(0xFFFF6D00);
         textPaint.setTextSize(24f);
         textPaint.setTextAlign(Paint.Align.CENTER);
         textPaint.setAntiAlias(true);
 
-        // Настройка линий указателя (толщина 5.0f)
         pointerOrangePaint.setColor(0xFFFF6D00);
         pointerOrangePaint.setStyle(Paint.Style.STROKE);
         pointerOrangePaint.setStrokeWidth(5.0f);
@@ -99,6 +103,10 @@ public class BreatheAnimationView extends View {
 
         setLayerType(View.LAYER_TYPE_HARDWARE, null);
         isMonitoringActive = false;
+        
+        // Инициализация дефолтного состояния стека (полный оранжевый круг)
+        phaseStack.clear();
+        phaseStack.add(new PhaseSegment(false, 1.0f));
     }
 
     public float getPointerValue() {
@@ -111,13 +119,15 @@ public class BreatheAnimationView extends View {
     }
 
     /**
-     * Установка прогресса текущей фазы сессии и типа фазы
-     * @boolean pstiPhase false = тренировка (оранжевая, 3 дампа), true = тест PSTI (белая, 1 дамп)
-     * @float progress [0.0 ... 1.0], где 1.0 - полная линия, 0.0 - пустая
+     * Установка многофазного стека прогресс-бара
      */
-    public void setSessionProgress(boolean pstiPhase, float progress) {
-        this.isPstiPhase = pstiPhase;
-        this.phaseProgress = Math.max(0.0f, Math.min(1.0f, progress));
+    public void setPhaseStack(List<PhaseSegment> segments) {
+        phaseStack.clear();
+        if (segments != null && !segments.isEmpty()) {
+            phaseStack.addAll(segments);
+        } else {
+            phaseStack.add(new PhaseSegment(false, 1.0f));
+        }
         invalidate();
     }
 
@@ -139,8 +149,10 @@ public class BreatheAnimationView extends View {
             shrinkAnimator = null;
         }
         isMonitoringActive = true;
-        isPstiPhase = false;
-        phaseProgress = 1.0f;
+        
+        phaseStack.clear();
+        phaseStack.add(new PhaseSegment(false, 1.0f));
+
         float phase = initialPhase % 1.0f;
         if (phase < 0) phase += 1.0f;
 
@@ -161,17 +173,12 @@ public class BreatheAnimationView extends View {
     public void stopMonitoring() {
         if (!isMonitoringActive && shrinkAnimator == null) return;
 
-        if (breathAnimator != null) {
-            breathAnimator.cancel();
-            breathAnimator = null;
-        }
-
         if (shrinkAnimator != null) {
             shrinkAnimator.cancel();
         }
 
-        isPstiPhase = false;
-        phaseProgress = 1.0f;
+        phaseStack.clear();
+        phaseStack.add(new PhaseSegment(false, 1.0f));
 
         shrinkAnimator = ValueAnimator.ofFloat(animationProgress, 0.0f);
         shrinkAnimator.setDuration(600);
@@ -289,7 +296,7 @@ public class BreatheAnimationView extends View {
         float padding = 35f * (width / 300f);
         float radius = (Math.min(width, height) / 2f) - padding - radiusReduction;
 
-        // 1. Сначала рисуем анимированный фрактальный пейсер внутри круга
+        // 1. Анимированный фрактальный пейсер внутри круга
         clipPath.reset();
         clipPath.addCircle(centerX, centerY, radius, Path.Direction.CW);
 
@@ -353,34 +360,26 @@ public class BreatheAnimationView extends View {
             canvas.restore(); 
         }
 
-        // 2. Поверх пейсера отрисовываем шкалу, деления, цифры, указатель и прогресс-бар
+        // 2. Отрисовка шкалы, делений, цифр, указателя и многофазного стека прогресс-бара
         int totalSteps = 16; 
         float scaleRadius = radius + 8f; 
         float textRadius = radius + 26f;
 
-        // Радиус прогресс-бара смещен наружу на безопасное расстояние от цифр шкалы (textRadius + 32f)
         float ringRadius = textRadius + 32f;
         RectF ringRect = new RectF(centerX - ringRadius, centerY - ringRadius, centerX + ringRadius, centerY + ringRadius);
 
-        // Всегда сначала рисуем белую фоновую окружность
-        canvas.drawCircle(centerX, centerY, ringRadius, whiteRingPaint);
-
-        // Отрисовка прогресс-бара против часовой стрелки (начиная сверху -90°, уменьшение sweep угла отрицательное)
-        float sweepAngle = -360.0f * phaseProgress;
-
-        if (!isMonitoringActive) {
-            // В неактивном состоянии выводим полную оранжевую окружность по умолчанию
+        // Рендеринг стека фаз от самых нижних к верхним
+        if (!isMonitoringActive && shrinkAnimator == null) {
             canvas.drawCircle(centerX, centerY, ringRadius, orangeRingPaint);
         } else {
-            if (!isPstiPhase) {
-                // Фаза тренировки (3 дампа): оранжевая линия сокращается поверх белой против часовой стрелки
-                if (phaseProgress > 0.0f) {
-                    canvas.drawArc(ringRect, -90f, sweepAngle, false, orangeRingPaint);
-                }
-            } else {
-                // Фаза теста PSTI (1 дамп): оранжевая полностью исчезла, белая линия сокращается поверх оранжевой против часовой
-                if (phaseProgress > 0.0f) {
-                    canvas.drawArc(ringRect, -90f, sweepAngle, false, whiteRingPaint);
+            for (int i = phaseStack.size() - 1; i >= 0; i--) {
+                PhaseSegment seg = phaseStack.get(i);
+                Paint p = seg.isWhite ? whiteRingPaint : orangeRingPaint;
+                if (seg.progress >= 1.0f) {
+                    canvas.drawCircle(centerX, centerY, ringRadius, p);
+                } else if (seg.progress > 0.0f) {
+                    float sweepAngle = -360.0f * seg.progress;
+                    canvas.drawArc(ringRect, -90f, sweepAngle, false, p);
                 }
             }
         }
@@ -410,7 +409,7 @@ public class BreatheAnimationView extends View {
             }
         }
 
-        // Отрисовка указателя поверх шкалы
+        // Указатель поверх шкалы
         float stepIndex = (pointerValue - 6.0f) / 0.5f;
         double pointerAngle = -Math.PI / 2 + (stepIndex - 8) * Math.toRadians(18.75);
         float cosP = (float) Math.cos(pointerAngle);
