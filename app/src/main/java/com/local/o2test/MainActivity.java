@@ -938,7 +938,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     String rmssdStr = String.format(Locale.US, "%.1f ms", hrv.rmssd);
                     String pnn50Str = String.format(Locale.US, "%.1f%%", hrv.pnn50);
                     String lfHfStr = String.format(Locale.US, "%.2f", hrv.lfHfRatio);
-                    String tpStr = String.format(Locale.0f, "%.0f ms²", hrv.totalPower); // с исправленным форматом
+                    String tpStr = String.format(Locale.US, "%.0f ms²", hrv.totalPower); // исправлено с Locale.0f на Locale.US
 
                     runOnUiThread(() -> updateMetricsDisplay(rmssdStr, pnn50Str, lfHfStr, tpStr));
                 }
