@@ -186,12 +186,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 long newDurationMs = (long) (value * 1000.0);
                 modulationManager.setModulationPeriodMs(newDurationMs);
                 modulationManager.applyModulation(hrvService, isBound);
-                
-                // Мгновенно передаем новый период T в автономный прогресс-менеджер
-                if (progressManager != null) {
-                    progressManager.setModulationPeriod(value);
-                }
-                
                 onLog(String.format(Locale.US, "[МОДУЛЯЦИЯ] Период изменен пользователем: %.1f сек", value));
             });
         }
@@ -499,9 +493,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         fixedModulationPeriodMs = (isBound && hrvService != null) ? hrvService.getModulationPeriodMs() : modulationManager.getModulationPeriodMs();
 
-        // 1. ЗАПУСК АВТОНОМНОГО ПРОГРЕСС-БАРА ПО КНОПКЕ МОНИТОР
+        // ЕДИНСТВЕННЫЙ ЗАПУСК ПРОГРЕСС-БАРА ПО КНОПКЕ МОНИТОР
         if (progressManager != null) {
-            progressManager.setModulationPeriod(fixedModulationPeriodMs / 1000.0f);
             progressManager.start();
         }
 
@@ -548,16 +541,13 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         onLog("Мониторинг активен для профиль: " + activeProfileName + ", период T = " + fixedModulationPeriodMs + " мс");
     }
 
-    /**
-     * Штатный запуск пейсера и аудио ПОСЛЕ завершения калибровки Майера
-     */
     private void startClockAndPacerAfterCalibration(float initialPhase) {
         if (!isRecording || !isBound || hrvService == null) return;
 
         hrvService.startAudioAndClock(MainActivity.this, initialPhase, phase -> {
             if (isRecording && !hrvService.isPostiTraceActive() && isCalibrationCompleted) {
                 if (ui.pacerView != null) {
-                    ui.pacerView.updatePhaseExternal(phase); // Пейсер визуализирует дыхание
+                    ui.pacerView.updatePhaseExternal(phase);
                 }
             }
         });
@@ -571,11 +561,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         if (isBound && hrvService != null) {
             hrvService.startPostiRecording();
-        }
-
-        // Переключение прогресс-бара на фазу теста PSTI
-        if (progressManager != null) {
-            progressManager.startPostiStack();
         }
 
         pstiHandler.removeCallbacks(pstiCountdownRunnable);
@@ -631,13 +616,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         updateRightPanelStatus();
-
         onLog("[PSTI] Завершено. Возобновление дыхательного контура и аудио...");
-        
-        // Возврат прогресс-бара к фазе тренировки
-        if (progressManager != null) {
-            progressManager.finishPostiStack();
-        }
 
         completedCyclesInCurrentDump = 0;
 
@@ -669,7 +648,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         piWindow.clear();
         
-        // Полный сброс и остановка прогресс-бара по повторному нажатию кнопки «Монитор»
+        // Останов прогресс-бара по повторному нажатию кнопки «Монитор»
         if (progressManager != null) {
             progressManager.stop();
         }
@@ -820,7 +799,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                         ui.tvStatusValue.postDelayed(() -> updateRightPanelStatus(), 1000);
                                     }
 
-                                    // ЗАПУСК ПЕЙСЕРА И АУДИО ТОЛЬКО ПОСЛЕ КАЛИБРОВКИ
                                     startClockAndPacerAfterCalibration(initialPhase);
                                 });
                             }
