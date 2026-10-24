@@ -39,6 +39,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private static final int POSTI_INTERVAL_DUMPS = 3;
     private static final int DUMPS_PER_TRAINING_PHASE = 3; // 3 дампа тренировки
     private static final int TARGET_RR_PER_DUMP = 300;     // 300 RR-интервалов на 1 дамп
+    private static final int TARGET_CYCLES_PER_DUMP = 30;  // 30 дыхательных циклов на 1 дамп (строго по MasterClock)
 
     private O2BleManager bleManager;
     private PolarH10Manager polarManager;
@@ -55,6 +56,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private int sessionDumpCount = 0;
     private long sessionStartTime = 0;
     private long postiStartTime = 0;
+
+    // Параметры фиксации периода модуляции T и циклов дыхания
+    private long fixedModulationPeriodMs = 10000L;
+    private int completedCyclesInCurrentDump = 0;
+    private float lastClockPhase = -1f;
+
     private String currentWorkoutMode = "Базовый мониторинг";
     private final List<DataPoint> sessionData = new ArrayList<>();
     private final List<Integer> phaseBuffer = new ArrayList<>();
@@ -481,6 +488,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = true;
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
+        completedCyclesInCurrentDump = 0;
+        lastClockPhase = -1f;
         lastPstiScore = 0.0;
         lastPstiRmssdRatio = 0.0;
 
@@ -615,11 +624,32 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             ui.pacerView.setPhaseStack(stack);
         }
 
+        completedCyclesInCurrentDump = 0;
+        lastClockPhase = -1f;
+        fixedModulationPeriodMs = (isBound && hrvService != null) ? hrvService.getModulationPeriodMs() : modulationManager.getModulationPeriodMs();
+
         runOnUiThread(() -> {
             if (isRecording && isBound && hrvService != null) {
                 hrvService.startAudioAndClock(MainActivity.this, 0.0f, phase -> {
                     if (ui.pacerView != null) {
                         ui.pacerView.updatePhaseExternal(phase);
+                    }
+
+                    if (isRecording && !hrvService.isPostiTraceActive()) {
+                        if (lastClockPhase > 0.8f && phase < 0.2f) {
+                            completedCyclesInCurrentDump++;
+                        }
+                        lastClockPhase = phase;
+
+                        float currentDumpProgress = (completedCyclesInCurrentDump + phase) / (float) TARGET_CYCLES_PER_DUMP;
+                        float trainingProgress = 1.0f - Math.min(1.0f, currentDumpProgress);
+
+                        if (ui != null && ui.pacerView != null) {
+                            List<BreatheAnimationView.PhaseSegment> stack = new ArrayList<>();
+                            stack.add(new BreatheAnimationView.PhaseSegment(true, 1.0f));
+                            stack.add(new BreatheAnimationView.PhaseSegment(false, Math.max(0.0f, trainingProgress)));
+                            ui.pacerView.setPhaseStack(stack);
+                        }
                     }
                 });
             }
@@ -631,6 +661,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isTrainingModeActive = false;
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
+        completedCyclesInCurrentDump = 0;
+        lastClockPhase = -1f;
         pstiHandler.removeCallbacks(pstiCountdownRunnable);
         
         stopAudioAndClockInService();
@@ -787,10 +819,13 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                 });
                             } else {
                                 isCalibrationCompleted = true;
-                                long currentModPeriod = (isBound && hrvService != null) ? hrvService.getModulationPeriodMs() : modulationManager.getModulationPeriodMs();
-                                final float initialPhase = MayerWaveAnalyzer.calculateInitialPhase(phaseBuffer, currentModPeriod);
+                                fixedModulationPeriodMs = (isBound && hrvService != null) ? hrvService.getModulationPeriodMs() : modulationManager.getModulationPeriodMs();
+                                completedCyclesInCurrentDump = 0;
+                                lastClockPhase = -1f;
 
-                                onLog(String.format(Locale.US, "[Калибровка завершена] Вычисленная фаза Майера: %.2f", initialPhase));
+                                final float initialPhase = MayerWaveAnalyzer.calculateInitialPhase(phaseBuffer, fixedModulationPeriodMs);
+
+                                onLog(String.format(Locale.US, "[Калибровка завершена] Вычисленная фаза Майера: %.2f, Фиксированный период T = %d мс", initialPhase, fixedModulationPeriodMs));
 
                                 runOnUiThread(() -> {
                                     if (ui.tvStatusValue != null) {
@@ -801,6 +836,24 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                         hrvService.startAudioAndClock(MainActivity.this, initialPhase, phase -> {
                                             if (ui.pacerView != null) {
                                                 ui.pacerView.updatePhaseExternal(phase);
+                                            }
+
+                                            // Жесткая привязка движения прогресс-бара к дыхательным циклам MasterClock с фиксированным T
+                                            if (isRecording && !hrvService.isPostiTraceActive()) {
+                                                if (lastClockPhase > 0.8f && phase < 0.2f) {
+                                                    completedCyclesInCurrentDump++;
+                                                }
+                                                lastClockPhase = phase;
+
+                                                float currentDumpProgress = (completedCyclesInCurrentDump + phase) / (float) TARGET_CYCLES_PER_DUMP;
+                                                float trainingProgress = 1.0f - Math.min(1.0f, currentDumpProgress);
+
+                                                if (ui != null && ui.pacerView != null) {
+                                                    List<BreatheAnimationView.PhaseSegment> stack = new ArrayList<>();
+                                                    stack.add(new BreatheAnimationView.PhaseSegment(true, 1.0f)); // белая подложка
+                                                    stack.add(new BreatheAnimationView.PhaseSegment(false, Math.max(0.0f, trainingProgress))); // активная оранжевая
+                                                    ui.pacerView.setPhaseStack(stack);
+                                                }
                                             }
                                         });
                                     }
@@ -864,6 +917,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 onLog(logMsg);
 
                 sessionDumpCount++;
+                completedCyclesInCurrentDump = 0; // Сброс для следующего дампа
+                lastClockPhase = -1f;
+
                 onLog(String.format(Locale.US, "[Дамп #%d завершен]", sessionDumpCount));
 
                 if (sessionDumpCount % POSTI_INTERVAL_DUMPS == 0) {
@@ -882,7 +938,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     String rmssdStr = String.format(Locale.US, "%.1f ms", hrv.rmssd);
                     String pnn50Str = String.format(Locale.US, "%.1f%%", hrv.pnn50);
                     String lfHfStr = String.format(Locale.US, "%.2f", hrv.lfHfRatio);
-                    String tpStr = String.format(Locale.US, "%.0f ms²", hrv.totalPower);
+                    String tpStr = String.format(Locale.0f, "%.0f ms²", hrv.totalPower); // с исправленным форматом
 
                     runOnUiThread(() -> updateMetricsDisplay(rmssdStr, pnn50Str, lfHfStr, tpStr));
                 }
