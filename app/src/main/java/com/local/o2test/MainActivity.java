@@ -584,7 +584,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         pstiHandler.postDelayed(pstiCountdownRunnable, 1000);
 
         updateRightPanelStatusWithCountdown(pstiRemainingSec);
-        onLog("[PSTI] Модуляция остановлена. Запуск 2-минутного окна замера индекса консолидации барорефлекса PSTI в сервисе...");
+        onLog("[PSTI] Модуляция остановлена. Запуск 5-минутного окна замера индекса консолидации барорефлекса PSTI в сервисе...");
     }
 
     private void evaluateAndFinishPostiTrace() {
