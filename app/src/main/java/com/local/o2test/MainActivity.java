@@ -379,7 +379,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private void updateAttractorIndexDisplay(String iaValue) {
         if (ui.tvAttractorIndex != null) {
-            ui.tvAttractorIndex.setText(String.format(Locale.US, "IA: [%s]", iaValue));
+            ui.tvAttractorIndex.setText(String.format(Locale.US, "IA: [%s]%%", iaValue));
         }
     }
 
@@ -871,8 +871,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 }
             } else {
                 String logMsg = String.format(Locale.US,
-                        "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | IA: %.2f | TP: %.0f ms²",
-                        hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
+                        "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | IA: %.0f%% | TP: %.0f ms²",
+                        hr, hrv.rmssd, hrv.pnn50, (hrv != null ? hrv.lfHfRatio : 0.0), hrv.totalPower);
                 onLog(logMsg);
 
                 sessionDumpCount++;
@@ -900,7 +900,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 if (hrv != null) {
                     String rmssdStr = String.format(Locale.US, "%.1f ms", hrv.rmssd);
                     String pnn50Str = String.format(Locale.US, "%.1f%%", hrv.pnn50);
-                    String iaStr = String.format(Locale.US, "%.2f", hrv.lfHfRatio);
+                    String iaStr = String.format(Locale.US, "%.0f", hrv.lfHfRatio);
                     String tpStr = String.format(Locale.US, "%.0f ms²", hrv.totalPower);
 
                     runOnUiThread(() -> {
