@@ -50,6 +50,7 @@ public class UiBuilder {
         public TrendChartView chartView;
         public TextView tvHrvMetrics;
         public TextView tvStatusValue;
+        public TextView tvAttractorIndex; // Новое поле для отображения Индекса Аттрактора (IA) над пейсером
         public TextView tvLog;
         public ScrollView logScrollView;
         public ImageButton btnHeart;
@@ -106,7 +107,7 @@ public class UiBuilder {
         v.chartView.setLayoutParams(chartParams);
         v.mainLayout.addView(v.chartView);
 
-        // --- БЛОК ВСР ---
+        // --- БЛОК ВСР (без IA) ---
         v.tvHrvMetrics = new TextView(context);
         v.tvHrvMetrics.setTextSize(16);
         v.tvHrvMetrics.setTextColor(Color.WHITE);
@@ -116,7 +117,7 @@ public class UiBuilder {
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         hrvParams.setMargins(0, 8, 0, 2);
         v.tvHrvMetrics.setLayoutParams(hrvParams);
-        v.tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | LF/HF: -- | TP: --");
+        v.tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | TP: --");
         v.mainLayout.addView(v.tvHrvMetrics);
 
         // --- СТРОКА СТАТУСА ---
@@ -167,7 +168,7 @@ public class UiBuilder {
         v.btnProfiles.setLayoutParams(new LinearLayout.LayoutParams(iconSizePx, iconSizePx));
         actionPanel.addView(createActionItem(context, v.btnProfiles, "Профили"));
 
-        // 4. Кнопка "Монитор" (Сердце) — подпись изменена с "Панель монитора" на "Монитор"
+        // 4. Кнопка "Монитор" (Сердце)
         v.btnHeart = new ImageButton(context);
         v.btnHeart.setBackgroundColor(Color.TRANSPARENT);
         v.btnHeart.setImageResource(R.drawable.ic_heart_pulse);
@@ -202,14 +203,35 @@ public class UiBuilder {
         v.tvLog.setLayoutParams(tvLogParams);
         v.logScrollView.addView(v.tvLog);
 
-        // Правая половина: FrameLayout для центрирования
-        v.rightPanel = new FrameLayout(context);
+        // Правая половина: вертикальный контейнер для Индекса Аттрактора и пейсера
+        LinearLayout rightVerticalLayout = new LinearLayout(context);
+        rightVerticalLayout.setOrientation(LinearLayout.VERTICAL);
+        rightVerticalLayout.setGravity(Gravity.CENTER_HORIZONTAL);
         LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 2.0f);
         rightParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
-        v.rightPanel.setLayoutParams(rightParams);
+        rightVerticalLayout.setLayoutParams(rightParams);
 
-        // Создаем BreatheAnimationView с идеальным центрированием по горизонтали и вертикали
+        // Индекс Аттрактора (IA) сверху над модулем визуализации с отступом
+        v.tvAttractorIndex = new TextView(context);
+        v.tvAttractorIndex.setText("IA: [--]");
+        v.tvAttractorIndex.setTextSize(15);
+        v.tvAttractorIndex.setTextColor(0xFFFF6D00); // Оранжевый цвет
+        v.tvAttractorIndex.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams iaParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        iaParams.topMargin = (int) (4 * context.getResources().getDisplayMetrics().density);
+        iaParams.bottomMargin = (int) (4 * context.getResources().getDisplayMetrics().density);
+        v.tvAttractorIndex.setLayoutParams(iaParams);
+        rightVerticalLayout.addView(v.tvAttractorIndex);
+
+        // Правая половина (обертка для центрирования пейсера)
+        v.rightPanel = new FrameLayout(context);
+        LinearLayout.LayoutParams rightPanelParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
+        v.rightPanel.setLayoutParams(rightPanelParams);
+
+        // Создаем BreatheAnimationView
         v.pacerView = new BreatheAnimationView(context);
         FrameLayout.LayoutParams pacerParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -219,8 +241,10 @@ public class UiBuilder {
         v.pacerView.setLayoutParams(pacerParams);
         v.rightPanel.addView(v.pacerView);
 
+        rightVerticalLayout.addView(v.rightPanel);
+
         bottomSplitLayout.addView(v.logScrollView);
-        bottomSplitLayout.addView(v.rightPanel);
+        bottomSplitLayout.addView(rightVerticalLayout);
 
         v.mainLayout.addView(bottomSplitLayout);
 
@@ -249,7 +273,6 @@ public class UiBuilder {
             emptyText.setPadding(10, 20, 10, 20);
             layout.addView(emptyText);
         } else {
-            // Сортируем сессии в хронологическом порядке (от старых к новым)
             List<SessionEntity> sortedSessions = new ArrayList<>(sessions);
             sortedSessions.sort((s1, s2) -> Long.compare(s1.getStartTime(), s2.getStartTime()));
 
@@ -257,11 +280,10 @@ public class UiBuilder {
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US);
 
             List<String> sessionStrings = new ArrayList<>();
-            // Отображаем от новых к старым (новые сверху, старые внизу)
             for (int position = 0; position < sortedSessions.size(); position++) {
                 int dataIndex = sortedSessions.size() - 1 - position;
                 SessionEntity s = sortedSessions.get(dataIndex);
-                int sessionNumber = dataIndex + 1; // Самая первая сессия всегда имеет номер #1
+                int sessionNumber = dataIndex + 1;
                 
                 sessionStrings.add("Сессия #" + sessionNumber + " | " + sdf.format(new Date(s.getStartTime())) + 
                                   " | " + s.getWorkoutMode() + " | SpO2: " + s.getAvgSpo2() + "%");
