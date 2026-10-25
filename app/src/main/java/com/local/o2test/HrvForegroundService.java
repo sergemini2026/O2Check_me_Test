@@ -304,7 +304,7 @@ public class HrvForegroundService extends Service {
     public List<DataPoint> getTestDataPoints() {
         synchronized (testDataPoints) {
             return new ArrayList<>(testDataPoints);
-        } скопировать
+        }
     }
 
     public void addRrInterval(int rrMs) {
