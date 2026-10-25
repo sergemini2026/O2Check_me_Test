@@ -178,7 +178,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         UiBuilder.updateStatusHeader(ui.tvLiveMetrics, 0, 0, 0f, 0, 0);
 
         setInterfaceAuthorizedState(false);
-        updateMetricsDisplay("--", "--", "--", "--");
+        updateMetricsDisplay("--", "--", "--");
+        updateAttractorIndexDisplay("--");
         updateRightPanelStatus();
 
         if (ui.pacerView != null) {
@@ -367,12 +368,18 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     }
 
-    private void updateMetricsDisplay(String rmssd, String pnn50, String ia, String tp) {
+    private void updateMetricsDisplay(String rmssd, String pnn50, String tp) {
         if (ui.tvHrvMetrics != null) {
             String displayStr = String.format(Locale.US,
-                    "Профиль: %s  |  RMSSD: %s  |  pNN50: %s  |  IA: %s  |  TP: %s",
-                    activeProfileName, rmssd, pnn50, ia, tp);
+                    "Профиль: %s  |  RMSSD: %s  |  pNN50: %s  |  TP: %s",
+                    activeProfileName, rmssd, pnn50, tp);
             ui.tvHrvMetrics.setText(displayStr);
+        }
+    }
+
+    private void updateAttractorIndexDisplay(String iaValue) {
+        if (ui.tvAttractorIndex != null) {
+            ui.tvAttractorIndex.setText(String.format(Locale.US, "IA: [%s]", iaValue));
         }
     }
 
@@ -410,7 +417,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 isProfileAuthorized = true;
                 
                 setInterfaceAuthorizedState(true);
-                updateMetricsDisplay("--", "--", "--", "--");
+                updateMetricsDisplay("--", "--", "--");
+                updateAttractorIndexDisplay("--");
                 onLog("[GATEKEEPER] Активный профиль: " + profileName + " (ID: " + profileId + ")");
                 Toast.makeText(MainActivity.this, "Профиль активирован. Доступна связь с датчиками.", Toast.LENGTH_SHORT).show();
             }
@@ -425,7 +433,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     activeProfileName = "Не выбран";
                     isProfileAuthorized = false;
                     setInterfaceAuthorizedState(false);
-                    updateMetricsDisplay("--", "--", "--", "--");
+                    updateMetricsDisplay("--", "--", "--");
+                    updateAttractorIndexDisplay("--");
                     onLog("[GATEKEEPER] Активный профиль удален. Сессия завершена.");
                     Toast.makeText(MainActivity.this, "Активный профиль был удален. Сессия остановлена.", Toast.LENGTH_LONG).show();
                 }
@@ -534,7 +543,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         consecutiveArtifactsCount = 0;
         if (ui.chartView != null) ui.chartView.clearData();
         
-        updateMetricsDisplay("--", "--", "--", "--");
+        updateMetricsDisplay("--", "--", "--");
+        updateAttractorIndexDisplay("--");
         updateRightPanelStatus();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
         onLog("Мониторинг активен для профиль: " + activeProfileName + ", период T = " + fixedModulationPeriodMs + " мс");
@@ -888,7 +898,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     String iaStr = String.format(Locale.US, "%.2f", hrv.lfHfRatio);
                     String tpStr = String.format(Locale.US, "%.0f ms²", hrv.totalPower);
 
-                    runOnUiThread(() -> updateMetricsDisplay(rmssdStr, pnn50Str, iaStr, tpStr));
+                    runOnUiThread(() -> {
+                        updateMetricsDisplay(rmssdStr, pnn50Str, tpStr);
+                        updateAttractorIndexDisplay(iaStr);
+                    });
                 }
             }
         }
