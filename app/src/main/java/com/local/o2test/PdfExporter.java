@@ -133,15 +133,16 @@ public class PdfExporter {
             textPaint.setFakeBoldText(true);
             canvas1.drawText("1. Сводные вегетативные показатели и индекс следа (PSTI)", MARGIN, 82, textPaint);
 
-            drawMetricRow(canvas1, 95, "RMSSD (мск):", String.format(Locale.US, "%.1f", avgRmssd), "Норма: 20-100 (Вагусный тонус)");
-            drawMetricRow(canvas1, 108, "SDNN (мск):", String.format(Locale.US, "%.1f", avgSdnn), "Общая вариабельность ритма");
-            drawMetricRow(canvas1, 121, "Индекс Баевского (SI):", String.format(Locale.US, "%.1f у.е.", avgSi), "Индекс напряжения регуляторных систем");
             drawMetricRow(canvas1, 134, "Индекс Аттрактора (IA):", String.format(Locale.US, "%.2f", avgLfHf), "Степень вовлечения в когерентность (0-100%)");
-            drawMetricRow(canvas1, 147, "Общая мощность (TP):", String.format(Locale.US, "%.0f ms²", avgTp), "Суммарный вегетативный резерв");
+            drawMetricRow(canvas1, 186, "Индекс PSTI (след):", String.format(Locale.US, "%.1f%% (ratio: %.2f)", pstiScore, pstiRmssdRatio), "Консолидация барорефлекса (след. реакция)");
+            drawMetricRow(canvas1, 121, "Индекс Баевского (SI):", String.format(Locale.US, "%.1f у.е.", avgSi), "Индекс напряжения регуляторных систем");
             drawMetricRow(canvas1, 160, "Энтропия (SampEn):", String.format(Locale.US, "%.2f", avgSampEn), "Хаотичность и сложность регуляции");
             drawMetricRow(canvas1, 173, "DFA alpha1:", String.format(Locale.US, "%.2f", avgDfa), "Фрактальная корреляция (самоподобие)");
-            drawMetricRow(canvas1, 186, "Индекс PSTI (след):", String.format(Locale.US, "%.1f%% (ratio: %.2f)", pstiScore, pstiRmssdRatio), "Консолидация барорефлекса (след. реакция)");
-
+            drawMetricRow(canvas1, 95, "RMSSD (мск):", String.format(Locale.US, "%.1f", avgRmssd), "Норма: 20-100 (Вагусный тонус)");
+            drawMetricRow(canvas1, 108, "SDNN (мск):", String.format(Locale.US, "%.1f", avgSdnn), "Общая вариабельность ритма");
+            drawMetricRow(canvas1, 147, "Общая мощность (TP):", String.format(Locale.US, "%.0f ms²", avgTp), "Суммарный вегетативный резерв");
+            
+            
             textPaint.setTextSize(11f);
             textPaint.setFakeBoldText(true);
             textPaint.setColor(Color.parseColor("#0F172A"));
