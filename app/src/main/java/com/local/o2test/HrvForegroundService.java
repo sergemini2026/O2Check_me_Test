@@ -304,7 +304,7 @@ public class HrvForegroundService extends Service {
     public List<DataPoint> getTestDataPoints() {
         synchronized (testDataPoints) {
             return new ArrayList<>(testDataPoints);
-        }
+        } скопировать
     }
 
     public void addRrInterval(int rrMs) {
@@ -359,6 +359,11 @@ public class HrvForegroundService extends Service {
         }
     }
 
+    /**
+     * Обработка скользящего окна в фоновом режиме.
+     * Во время активной внешней модуляции частотой Майера вычисляемые метрики
+     * (включая спектральное соотношение) фиксируют Индекс Аттрактора (IA).
+     */
     private void processAndSaveWindow(List<Integer> windowData) {
         try {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(windowData);
