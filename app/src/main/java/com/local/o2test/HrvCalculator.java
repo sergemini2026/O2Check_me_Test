@@ -13,7 +13,7 @@ public class HrvCalculator {
         public final double lfPower;
         public final double hfPower;
         public final double totalPower;
-        public final double lfHfRatio; // Индекс Аттрактора (IA) при активной внешней модуляции частотой Майера
+        public final double lfHfRatio;
         public final double sd1;
         public final double sd2;
         public final double sd1sd2Ratio;
@@ -42,7 +42,7 @@ public class HrvCalculator {
             this.lfPower = lfPower;
             this.hfPower = hfPower;
             this.totalPower = totalPower;
-            this.lfHfRatio = lfHfRatio; // Индекс Аттрактора (IA)
+            this.lfHfRatio = lfHfRatio;
             this.sd1 = sd1;
             this.sd2 = sd2;
             this.sd1sd2Ratio = sd1sd2Ratio;
@@ -200,7 +200,7 @@ public class HrvCalculator {
         double lfPower = 0;
         double hfPower = 0;
         double totalPower = sdnn * sdnn;
-        double rawLfHf = 0; // Индекс Аттрактора (IA) в цикле модуляции
+        double rawLfHf = 0;
 
         if (numSamples >= 32) {
             double[] rrArray = new double[N];
@@ -266,9 +266,6 @@ public class HrvCalculator {
             }
 
             totalPower = vlfPower + lfPower + hfPower;
-            // ВНИМАНИЕ: Во время активного цикла внешней модуляции частотой Майера (около 0.1 Гц)
-            // данный показатель отражает не чистый симпато-вагальный баланс, а Индекс Аттрактора (IA) — 
-            // меру фазового вовлечения и резонансного захвата системы управляющим ритмом.
             rawLfHf = (lfPower + hfPower > 0) ? (2.0 * lfPower / (lfPower + hfPower)) : (hfPower > 0 ? lfPower / hfPower : 0);
         }
 
