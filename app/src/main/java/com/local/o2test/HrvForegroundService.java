@@ -361,6 +361,12 @@ public class HrvForegroundService extends Service {
 
     private void processAndSaveWindow(List<Integer> windowData) {
         try {
+            /* 
+             * Внимание: расчеты спектральных показателей соотношения LF/HF в данном контуре 
+             * не являются чистыми показателями баланса вегетатики, так как они производятся во время 
+             * режима модуляции внешними источниками сигналов с частотой волн Майера, 
+             * и являются синтетическим показателем — Индекс Аттрактора.
+             */
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(windowData);
             if (metrics != null && metrics.isValid) {
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
