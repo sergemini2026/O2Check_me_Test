@@ -214,7 +214,7 @@ public class UiBuilder {
 
         // Индекс Аттрактора (IA) сверху над модулем визуализации
         v.tvAttractorIndex = new TextView(context);
-        v.tvAttractorIndex.setText("IA: [--]");
+        v.tvAttractorIndex.setText("IA: [--]%");
         v.tvAttractorIndex.setTextSize(15);
         v.tvAttractorIndex.setTextColor(0xFFFF6D00); // Оранжевый цвет
         v.tvAttractorIndex.setGravity(Gravity.CENTER);
