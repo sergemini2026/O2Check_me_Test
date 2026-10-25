@@ -136,7 +136,7 @@ public class PdfExporter {
             drawMetricRow(canvas1, 95, "RMSSD (мск):", String.format(Locale.US, "%.1f", avgRmssd), "Норма: 20-100 (Вагусный тонус)");
             drawMetricRow(canvas1, 108, "SDNN (мск):", String.format(Locale.US, "%.1f", avgSdnn), "Общая вариабельность ритма");
             drawMetricRow(canvas1, 121, "Индекс Баевского (SI):", String.format(Locale.US, "%.1f у.е.", avgSi), "Индекс напряжения регуляторных систем");
-            drawMetricRow(canvas1, 134, "Баланс LF/HF:", String.format(Locale.US, "%.2f", avgLfHf), "Симпато-вагальный коэффициент (0-2)");
+            drawMetricRow(canvas1, 134, "Индекс аттрактора (IA):", String.format(Locale.US, "%.2f", avgLfHf), "Индекс Аттрактора (0-2)");
             drawMetricRow(canvas1, 147, "Общая мощность (TP):", String.format(Locale.US, "%.0f ms²", avgTp), "Суммарный вегетативный резерв");
             drawMetricRow(canvas1, 160, "Энтропия (SampEn):", String.format(Locale.US, "%.2f", avgSampEn), "Хаотичность и сложность регуляции");
             drawMetricRow(canvas1, 173, "DFA alpha1:", String.format(Locale.US, "%.2f", avgDfa), "Фрактальная корреляция (самоподобие)");
@@ -272,7 +272,7 @@ public class PdfExporter {
             document.finishPage(page2);
 
             // ==========================================
-            // СТРАНИЦЫ 3+: Хронологический лог снимков (Столбец Артефакты заменен на Модуляция)
+            // СТРАНИЦЫ 3+: Хронологический лог снимков (Столбец LF/HF заменен на IA)
             // ==========================================
             SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
             int rowsPerPage = 22;
@@ -299,11 +299,11 @@ public class PdfExporter {
                 canvasN.drawText("RMSSD", MARGIN + 55, startY, textPaint);
                 canvasN.drawText("SDNN", MARGIN + 105, startY, textPaint);
                 canvasN.drawText("SI", MARGIN + 155, startY, textPaint);
-                canvasN.drawText("LF/HF", MARGIN + 200, startY, textPaint);
+                canvasN.drawText("IA", MARGIN + 210, startY, textPaint); // Заменено с "LF/HF" на "IA"
                 canvasN.drawText("TP", MARGIN + 250, startY, textPaint);
                 canvasN.drawText("SampEn", MARGIN + 310, startY, textPaint);
                 canvasN.drawText("DFA α1", MARGIN + 370, startY, textPaint);
-                canvasN.drawText("Модуляция", MARGIN + 435, startY, textPaint); // Заменено с "Артефакты"
+                canvasN.drawText("Модуляция", MARGIN + 435, startY, textPaint);
 
                 strokePaint.setColor(Color.parseColor("#CBD5E1"));
                 strokePaint.setStrokeWidth(1f);
@@ -328,12 +328,11 @@ public class PdfExporter {
                     canvasN.drawText(String.format(Locale.US, "%.1f", s.getRmssd()), MARGIN + 55, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.1f", s.getSdnn()), MARGIN + 105, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.1f", s.getBaevskySi()), MARGIN + 155, currentY, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.2f", logLfHf), MARGIN + 200, currentY, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.2f", logLfHf), MARGIN + 210, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.0f", s.getTotalPower()), MARGIN + 250, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getSampleEntropy()), MARGIN + 310, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getDfaAlpha1()), MARGIN + 370, currentY, textPaint);
                     
-                    // Вывод значения модуляции в секундах
                     float modSec = s.getModulationSec() > 0 ? s.getModulationSec() : 10.0f;
                     canvasN.drawText(String.format(Locale.US, "%.1f с", modSec), MARGIN + 435, currentY, textPaint);
 
