@@ -197,6 +197,10 @@ public class HrvCalculator {
         double dt = 1.0 / samplingFreq;
         int numSamples = (int) Math.floor(currentTime * samplingFreq);
 
+        // Внимание: данные расчеты спектральных показателей и соотношений LF/HF 
+        // не являются чистыми показателями баланса вегетатики. Так как они производятся 
+        // во время режима модуляции внешними источниками сигналов с частотой волн Майера. 
+        // И являются синтетическим показателем Индекс Аттрактора.
         double lfPower = 0;
         double hfPower = 0;
         double totalPower = sdnn * sdnn;
