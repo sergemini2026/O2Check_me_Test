@@ -107,7 +107,7 @@ public class UiBuilder {
         v.chartView.setLayoutParams(chartParams);
         v.mainLayout.addView(v.chartView);
 
-        // --- БЛОК ВСР (без IA) ---
+        // --- БЛОК ВСР (без LF/HF / IA) ---
         v.tvHrvMetrics = new TextView(context);
         v.tvHrvMetrics.setTextSize(16);
         v.tvHrvMetrics.setTextColor(Color.WHITE);
@@ -133,7 +133,7 @@ public class UiBuilder {
         v.tvStatusValue.setLayoutParams(statusParams);
         v.mainLayout.addView(v.tvStatusValue);
 
-        // --- БЛОК УПРАВЛЕНИЯ МОНИТОРИНГom И ТРЕНИРОВКАМИ (4 КНОПКИ) ---
+        // --- БЛОК УПРАВЛЕНИЯ МОНИТОРИНГОМ И ТРЕНИРОВКАМИ (4 КНОПКИ) ---
         LinearLayout actionPanel = new LinearLayout(context);
         actionPanel.setOrientation(LinearLayout.HORIZONTAL);
         actionPanel.setGravity(Gravity.CENTER_VERTICAL);
@@ -212,7 +212,7 @@ public class UiBuilder {
         rightParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
         rightVerticalLayout.setLayoutParams(rightParams);
 
-        // Индекс Аттрактора (IA) сверху над модулем визуализации с отступом
+        // Индекс Аттрактора (IA) сверху над модулем визуализации
         v.tvAttractorIndex = new TextView(context);
         v.tvAttractorIndex.setText("IA: [--]");
         v.tvAttractorIndex.setTextSize(15);
