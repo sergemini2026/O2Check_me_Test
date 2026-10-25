@@ -270,11 +270,16 @@ public class HrvCalculator {
             }
 
             totalPower = vlfPower + lfPower + hfPower;
-            rawLfHf = (lfPower + hfPower > 0) ? (2.0 * lfPower / (lfPower + hfPower)) : (hfPower > 0 ? lfPower / hfPower : 0);
+            
+            // Базовый расчет соотношения (диапазон 1.0 - 2.0)
+            double baseLfHf = (lfPower + hfPower > 0) ? (2.0 * lfPower / (lfPower + hfPower)) : (hfPower > 0 ? lfPower / hfPower : 0);
+            
+            // Перевод в процентный формат (0% - 100%) с защитой от выхода за границы
+            rawLfHf = Math.max(0.0, Math.min(100.0, (baseLfHf - 1.0) * 100.0));
         }
 
         if (rawLfHf < 0) rawLfHf = 0;
-        if (rawLfHf > 2.0) rawLfHf = 2.0;
+        if (rawLfHf > 100.0) rawLfHf = 100.0;
 
         boolean isValid = validateMetrics(rmssd, baevskySi, sd1sd2Ratio, artifactPct);
 
