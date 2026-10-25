@@ -359,11 +359,6 @@ public class HrvForegroundService extends Service {
         }
     }
 
-    /**
-     * Обработка скользящего окна в фоновом режиме.
-     * Во время активной внешней модуляции частотой Майера вычисляемые метрики
-     * (включая спектральное соотношение) фиксируют Индекс Аттрактора (IA).
-     */
     private void processAndSaveWindow(List<Integer> windowData) {
         try {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(windowData);
