@@ -367,11 +367,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     }
 
-    private void updateMetricsDisplay(String rmssd, String pnn50, String lfHf, String tp) {
+    private void updateMetricsDisplay(String rmssd, String pnn50, String ia, String tp) {
         if (ui.tvHrvMetrics != null) {
             String displayStr = String.format(Locale.US,
-                    "Профиль: %s  |  RMSSD: %s  |  pNN50: %s  |  LF/HF: %s  |  TP: %s",
-                    activeProfileName, rmssd, pnn50, lfHf, tp);
+                    "Профиль: %s  |  RMSSD: %s  |  pNN50: %s  |  IA: %s  |  TP: %s",
+                    activeProfileName, rmssd, pnn50, ia, tp);
             ui.tvHrvMetrics.setText(displayStr);
         }
     }
@@ -493,7 +493,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         fixedModulationPeriodMs = (isBound && hrvService != null) ? hrvService.getModulationPeriodMs() : modulationManager.getModulationPeriodMs();
 
-        // Запуск прогресс-бара по кнопке Монитор
         if (progressManager != null) {
             progressManager.start();
         }
@@ -563,7 +562,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             hrvService.startPostiRecording();
         }
 
-        // Синхронизируем прогресс-бар при старте замера PSTI
         if (progressManager != null) {
             progressManager.restart();
         }
@@ -623,7 +621,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateRightPanelStatus();
         onLog("[PSTI] Завершено. Возобновление дыхательного контура и аудио...");
 
-        // Синхронизируем прогресс-бар при возврате к тренировочному циклу
         if (progressManager != null) {
             progressManager.restart();
         }
@@ -658,7 +655,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         piWindow.clear();
         
-        // Останов прогресс-бара по повторному нажатию кнопки «Монитор»
         if (progressManager != null) {
             progressManager.stop();
         }
@@ -861,7 +857,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 }
             } else {
                 String logMsg = String.format(Locale.US,
-                        "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %.2f | TP: %.0f ms²",
+                        "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | IA: %.2f | TP: %.0f ms²",
                         hr, hrv.rmssd, hrv.pnn50, hrv.lfHfRatio, hrv.totalPower);
                 onLog(logMsg);
 
@@ -870,7 +866,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
                 onLog(String.format(Locale.US, "[Дамп #%d завершен]", sessionDumpCount));
 
-                // Синхронизируем прогресс-бар при завершении текущего дампа и переходе к следующему
                 if (progressManager != null) {
                     progressManager.restart();
                 }
@@ -890,10 +885,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 if (hrv != null) {
                     String rmssdStr = String.format(Locale.US, "%.1f ms", hrv.rmssd);
                     String pnn50Str = String.format(Locale.US, "%.1f%%", hrv.pnn50);
-                    String lfHfStr = String.format(Locale.US, "%.2f", hrv.lfHfRatio);
+                    String iaStr = String.format(Locale.US, "%.2f", hrv.lfHfRatio);
                     String tpStr = String.format(Locale.US, "%.0f ms²", hrv.totalPower);
 
-                    runOnUiThread(() -> updateMetricsDisplay(rmssdStr, pnn50Str, lfHfStr, tpStr));
+                    runOnUiThread(() -> updateMetricsDisplay(rmssdStr, pnn50Str, iaStr, tpStr));
                 }
             }
         }
