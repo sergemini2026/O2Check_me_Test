@@ -645,6 +645,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             onLog("[PSTI] Окно замера завершено, но данные RR отсутствуют.");
         }
 
+        // Сбрасываем счетчик тренировочных дампов для строгого цикла 3-1-3-1
+        sessionDumpCount = 0;
+
         updateRightPanelStatus();
         onLog("[PSTI] Завершено. Возобновление дыхательного контура и аудио...");
 
@@ -904,9 +907,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     hrvService.updateNotificationText("HR: " + hr + " bpm | RMSSD: " + rmssdStr);
                 }
             } else {
-                // Обновляем LF/HF только во время чистого тестового окна (PSTI), 
-                // а во время тренировочных 15 минут с модуляцией не трогаем, чтобы не дублировать IA
                 boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
+                // Обновляем LF/HF только во время чистого тестового окна (PSTI)
                 if (isPostiActive && hrv != null) {
                     currentLfHfDisplayStr = String.format(Locale.US, "%.2f", hrv.lfHfRatio);
                 }
@@ -916,25 +918,30 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         hr, hrv.rmssd, hrv.pnn50, currentLfHfDisplayStr, hrv.totalPower);
                 onLog(logMsg);
 
-                sessionDumpCount++;
-                completedCyclesInCurrentDump = 0;
+                // Увеличиваем sessionDumpCount и управляем циклом только во время тренировочных дампов, но не во время окна PSTI
+                if (!isPostiActive) {
+                    sessionDumpCount++;
+                    completedCyclesInCurrentDump = 0;
 
-                onLog(String.format(Locale.US, "[Дамп #%d завершен]", sessionDumpCount));
+                    onLog(String.format(Locale.US, "[Дамп #%d завершен]", sessionDumpCount));
 
-                if (progressManager != null) {
-                    progressManager.restart();
-                }
+                    if (progressManager != null) {
+                        progressManager.restart();
+                    }
 
-                if (sessionDumpCount % POSTI_INTERVAL_DUMPS == 0) {
-                    startPostiTraceWindow();
-                    if (isBound && hrvService != null) {
-                        hrvService.updateNotificationText("Запись завершена. Замер PSTI...");
+                    if (sessionDumpCount % POSTI_INTERVAL_DUMPS == 0) {
+                        startPostiTraceWindow();
+                        if (isBound && hrvService != null) {
+                            hrvService.updateNotificationText("Запись завершена. Замер PSTI...");
+                        }
+                    } else {
+                        onLog("[Мониторинг] Продолжение сеанса дыхания (следующий замер PSTI через " + (POSTI_INTERVAL_DUMPS - (sessionDumpCount % POSTI_INTERVAL_DUMPS)) + " дамп(а))...");
+                        if (isBound && hrvService != null) {
+                            hrvService.updateNotificationText("HR: " + hr + " bpm | RMSSD: " + (hrv != null ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--"));
+                        }
                     }
                 } else {
-                    onLog("[Мониторинг] Продолжение сеанса дыхания (следующий замер PSTI через " + (POSTI_INTERVAL_DUMPS - (sessionDumpCount % POSTI_INTERVAL_DUMPS)) + " дамп(а))...");
-                    if (isBound && hrvService != null) {
-                        hrvService.updateNotificationText("HR: " + hr + " bpm | RMSSD: " + (hrv != null ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--"));
-                    }
+                    onLog("[PSTI Дамп 100% внутри окна замера]");
                 }
 
                 if (hrv != null) {
