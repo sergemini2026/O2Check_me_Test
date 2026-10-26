@@ -944,7 +944,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     String pnn50Str = String.format(Locale.US, "%.1f%%", hrv.pnn50);
                     
                     // Расчет IA в процентах для панели пейсера по формуле (IA - 1) * 100
-                    double iaNorm = (hrv.lfPower + hv.hfPower > 0) ? (2.0 * hv.lfPower / (hrv.lfPower + hv.hfPower)) : 1.0;
+                    double iaNorm = (hrv.lfPower + hrv.hfPower > 0) ? (2.0 * hrv.lfPower / (hrv.lfPower + hrv.hfPower)) : 1.0;
                     double iaPct = Math.max(0.0, Math.min(100.0, (iaNorm - 1.0) * 100.0));
                     String iaStr = String.format(Locale.US, "%.0f", iaPct);
                     
