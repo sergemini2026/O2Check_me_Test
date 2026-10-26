@@ -904,8 +904,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     hrvService.updateNotificationText("HR: " + hr + " bpm | RMSSD: " + rmssdStr);
                 }
             } else {
-                // Берем актуальный LF/HF из текущего дампа hrv, а если его нет — используем базовый
-                if (hrv != null) {
+                // Обновляем LF/HF только во время чистого тестового окна (PSTI), 
+                // а во время тренировочных 15 минут с модуляцией не трогаем, чтобы не дублировать IA
+                boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
+                if (isPostiActive && hrv != null) {
                     currentLfHfDisplayStr = String.format(Locale.US, "%.2f", hrv.lfHfRatio);
                 }
 
