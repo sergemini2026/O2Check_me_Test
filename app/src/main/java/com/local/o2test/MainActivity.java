@@ -72,7 +72,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private double lastPstiScore = 0.0;
     private double lastPstiRmssdRatio = 0.0;
 
-    // Новые поля для иерархической диагностики LF/HF
+    // Поля для иерархической диагностики LF/HF
     private double baselineLfHf = 0.0;
     private final List<Double> cycleLfHfValuesList = new ArrayList<>();
     private String currentLfHfDisplayStr = "--";
@@ -332,7 +332,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     private void saveSessionAutomatically() {
-        // Формируем строковое представление массива значений LF/HF циклов через запятую
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < cycleLfHfValuesList.size(); i++) {
             if (i > 0) sb.append(",");
@@ -623,7 +622,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 baselineRr = hrvService.getSessionRrData();
             }
 
-            // Расчет отфильтрованного LF/HF для тестового окна (0.1 Hz notch filter)
+            // Изолированный расчет LF/HF с Notch-фильтрацией для тестового окна
             double testLfHf = calculateTestLfHfWithFiltering(snapshotRr);
             cycleLfHfValuesList.add(testLfHf);
             currentLfHfDisplayStr = String.format(Locale.US, "%.2f", testLfHf);
@@ -664,29 +663,20 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     /**
-     * Расчет базового LF/HF по первым 100 интервалам калибровки (без фильтра)
+     * Расчет базового стандартного LF/HF по первичному 100-интервальному буферу калибровки
      */
     private double calculateBaselineLfHf(List<Integer> rrList) {
         if (rrList == null || rrList.size() < 10) return 0.0;
-        HrvCalculator.Metrics metrics = HrvCalculator.calculate(rrList);
-        return metrics != null ? metrics.lfHfRatio : 0.0;
+        return HrvCalculator.calculateStandardLfHf(rrList);
     }
 
     /**
-     * Расчет LF/HF в 5-минутном тестовом окне с применением спектрального фильтра (устранение следового пика 0.1 Гц)
+     * Расчет LF/HF в 5-минутном тестовом окне с применением спектрального Notch-фильтра
      */
     private double calculateTestLfHfWithFiltering(List<Integer> rrList) {
         if (rrList == null || rrList.size() < 30) return 0.0;
         try {
-            // Вызываем стандартный расчет метрик через HrvCalculator
-            HrvCalculator.Metrics metrics = HrvCalculator.calculate(rrList);
-            if (metrics == null || !metrics.isValid) return 0.0;
-
-            // Корректный расчет с учетом сглаживания точечного пика в полосе 0.09-0.11 Гц
-            // (Замена значения бина на среднее арифметическое соседей для исключения следового артефакта)
-            double rawLfHf = metrics.lfHfRatio;
-            // Применяем мягкую коррекцию огибающей, если зафиксирован следовой резонанс
-            return rawLfHf;
+            return HrvCalculator.calculateTestLfHfWithNotch(rrList);
         } catch (Exception e) {
             e.printStackTrace();
             return 0.0;
@@ -847,7 +837,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                 isCalibrationCompleted = true;
                                 completedCyclesInCurrentDump = 0;
 
-                                // Вычисляем baseline LF/HF по первым 100 интервалам без фильтра
+                                // Вычисляем baseline LF/HF по первым 100 интервалам через стандартный метод
                                 baselineLfHf = calculateBaselineLfHf(phaseBuffer);
                                 currentLfHfDisplayStr = String.format(Locale.US, "%.2f", baselineLfHf);
                                 onLog(String.format(Locale.US, "[Калибровка] Базовый Baseline LF/HF (по 100 интервалам): %.2f", baselineLfHf));
@@ -952,7 +942,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 if (hrv != null) {
                     String rmssdStr = String.format(Locale.US, "%.1f ms", hrv.rmssd);
                     String pnn50Str = String.format(Locale.US, "%.1f%%", hrv.pnn50);
-                    String iaStr = String.format(Locale.US, "%.0f", hrv.lfHfRatio);
+                    
+                    // Расчет IA в процентах для панели пейсера по формуле (IA - 1) * 100
+                    double iaNorm = (hrv.lfPower + hv.hfPower > 0) ? (2.0 * hv.lfPower / (hrv.lfPower + hv.hfPower)) : 1.0;
+                    double iaPct = Math.max(0.0, Math.min(100.0, (iaNorm - 1.0) * 100.0));
+                    String iaStr = String.format(Locale.US, "%.0f", iaPct);
+                    
                     String tpStr = String.format(Locale.US, "%.0f ms²", hrv.totalPower);
 
                     runOnUiThread(() -> {
