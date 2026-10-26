@@ -50,7 +50,7 @@ public class UiBuilder {
         public TrendChartView chartView;
         public TextView tvHrvMetrics;
         public TextView tvStatusValue;
-        public TextView tvAttractorIndex; // Новое поле для отображения Индекса Аттрактора (IA) над пейсером
+        public TextView tvAttractorIndex; // Индекс Аттрактора (IA) над пейсером
         public TextView tvLog;
         public ScrollView logScrollView;
         public ImageButton btnHeart;
@@ -107,7 +107,7 @@ public class UiBuilder {
         v.chartView.setLayoutParams(chartParams);
         v.mainLayout.addView(v.chartView);
 
-        // --- БЛОК ВСР (без LF/HF / IA) ---
+        // --- БЛОК ВСР (с поддержкой LF/HF) ---
         v.tvHrvMetrics = new TextView(context);
         v.tvHrvMetrics.setTextSize(16);
         v.tvHrvMetrics.setTextColor(Color.WHITE);
@@ -117,7 +117,7 @@ public class UiBuilder {
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         hrvParams.setMargins(0, 8, 0, 2);
         v.tvHrvMetrics.setLayoutParams(hrvParams);
-        v.tvHrvMetrics.setText("RMSSD: -- | pNN50: -- | TP: --");
+        v.tvHrvMetrics.setText("Профиль: Не выбран  |  RMSSD: --  |  pNN50: --  |  LF/HF: --  |  TP: --");
         v.mainLayout.addView(v.tvHrvMetrics);
 
         // --- СТРОКА СТАТУСА ---
@@ -249,6 +249,18 @@ public class UiBuilder {
         v.mainLayout.addView(bottomSplitLayout);
 
         return v;
+    }
+
+    /**
+     * Универсальный метод обновления строки параметров HRV с поддержкой LF/HF
+     */
+    public static void updateHrvDisplay(TextView tvHrvMetrics, String profileName, String rmssd, String pnn50, String lfHfStr, String tp) {
+        if (tvHrvMetrics != null) {
+            String displayStr = String.format(Locale.US,
+                    "Профиль: %s  |  RMSSD: %s  |  pNN50: %s  |  LF/HF: %s  |  TP: %s",
+                    profileName, rmssd, pnn50, lfHfStr, tp);
+            tvHrvMetrics.setText(displayStr);
+        }
     }
 
     public static void showSessionsDialog(Context context, ProfileEntity profile, List<SessionEntity> sessions) {
