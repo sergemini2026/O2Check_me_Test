@@ -20,7 +20,7 @@ import com.local.o2test.db.entity.SessionEntity
         RawMetricsEntity::class,
         HrvSnapshotEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
