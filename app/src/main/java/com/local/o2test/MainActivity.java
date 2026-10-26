@@ -622,7 +622,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 baselineRr = hrvService.getSessionRrData();
             }
 
-            // Изолированный расчет LF/HF с Notch-фильтрацией для тестового окна
             double testLfHf = calculateTestLfHfWithFiltering(snapshotRr);
             cycleLfHfValuesList.add(testLfHf);
             currentLfHfDisplayStr = String.format(Locale.US, "%.2f", testLfHf);
@@ -662,17 +661,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         });
     }
 
-    /**
-     * Расчет базового стандартного LF/HF по первичному 100-интервальному буферу калибровки
-     */
     private double calculateBaselineLfHf(List<Integer> rrList) {
         if (rrList == null || rrList.size() < 10) return 0.0;
         return HrvCalculator.calculateStandardLfHf(rrList);
     }
 
-    /**
-     * Расчет LF/HF в 5-минутном тестовом окне с применением спектрального Notch-фильтра
-     */
     private double calculateTestLfHfWithFiltering(List<Integer> rrList) {
         if (rrList == null || rrList.size() < 30) return 0.0;
         try {
@@ -837,7 +830,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                 isCalibrationCompleted = true;
                                 completedCyclesInCurrentDump = 0;
 
-                                // Вычисляем baseline LF/HF по первым 100 интервалам через стандартный метод
                                 baselineLfHf = calculateBaselineLfHf(phaseBuffer);
                                 currentLfHfDisplayStr = String.format(Locale.US, "%.2f", baselineLfHf);
                                 onLog(String.format(Locale.US, "[Калибровка] Базовый Baseline LF/HF (по 100 интервалам): %.2f", baselineLfHf));
@@ -851,7 +843,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                         ui.tvStatusValue.setText("Сбор завершен");
                                     }
                                     
-                                    // Выводим стартовый baseline в строку параметров под графиком
                                     updateMetricsDisplay("--", "--", currentLfHfDisplayStr, "--");
 
                                     if (isBound && hrvService != null) {
@@ -913,6 +904,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     hrvService.updateNotificationText("HR: " + hr + " bpm | RMSSD: " + rmssdStr);
                 }
             } else {
+                // Берем актуальный LF/HF из текущего дампа hrv, а если его нет — используем базовый
+                if (hrv != null) {
+                    currentLfHfDisplayStr = String.format(Locale.US, "%.2f", hrv.lfHfRatio);
+                }
+
                 String logMsg = String.format(Locale.US,
                         "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %s | TP: %.0f ms²",
                         hr, hrv.rmssd, hrv.pnn50, currentLfHfDisplayStr, hrv.totalPower);
@@ -943,15 +939,15 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     String rmssdStr = String.format(Locale.US, "%.1f ms", hrv.rmssd);
                     String pnn50Str = String.format(Locale.US, "%.1f%%", hrv.pnn50);
                     
-                    // Расчет IA в процентах для панели пейсера по формуле (IA - 1) * 100
                     double iaNorm = (hrv.lfPower + hrv.hfPower > 0) ? (2.0 * hrv.lfPower / (hrv.lfPower + hrv.hfPower)) : 1.0;
                     double iaPct = Math.max(0.0, Math.min(100.0, (iaNorm - 1.0) * 100.0));
                     String iaStr = String.format(Locale.US, "%.0f", iaPct);
                     
                     String tpStr = String.format(Locale.US, "%.0f ms²", hrv.totalPower);
 
+                    final String finalLfHfStr = currentLfHfDisplayStr;
                     runOnUiThread(() -> {
-                        updateMetricsDisplay(rmssdStr, pnn50Str, currentLfHfDisplayStr, tpStr);
+                        updateMetricsDisplay(rmssdStr, pnn50Str, finalLfHfStr, tpStr);
                         updateAttractorIndexDisplay(iaStr);
                     });
                 }
