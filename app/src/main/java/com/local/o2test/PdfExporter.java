@@ -133,7 +133,9 @@ public class PdfExporter {
             textPaint.setFakeBoldText(true);
             canvas1.drawText("1. Сводные вегетативные показатели и индекс следа (PSTI)", MARGIN, 82, textPaint);
 
-            drawMetricRow(canvas1, 95, "Индекс Аттрактора (IA):", String.format(Locale.US, "%.2f", avgLfHf), "Степень вовлечения в когерентность (0-100%)");
+            double iaPercent = Math.max(0.0, Math.min(100.0, (avgLfHf - 1.0) * 100.0));
+            drawMetricRow(canvas1, 95, "Индекс Аттрактора (IA):", String.format(Locale.US, "%.1f%%", iaPercent), "Степень вовлечения в когерентность (0-100%)");
+
             drawMetricRow(canvas1, 108, "Индекс PSTI (след):", String.format(Locale.US, "%.1f%% (ratio: %.2f)", pstiScore, pstiRmssdRatio), "Консолидация барорефлекса (след. реакция)");
             drawMetricRow(canvas1, 121, "Индекс Баевского (SI):", String.format(Locale.US, "%.1f у.е.", avgSi), "Индекс напряжения регуляторных систем");
             drawMetricRow(canvas1, 134, "Энтропия (SampEn):", String.format(Locale.US, "%.2f", avgSampEn), "Хаотичность и сложность регуляции");
