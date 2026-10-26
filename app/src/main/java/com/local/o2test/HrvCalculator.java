@@ -68,6 +68,135 @@ public class HrvCalculator {
     }
 
     /**
+     * 1. ИЗОЛИРОВАННЫЙ РАСЧЕТ ИНДЕКСА АТТРАКТОРА (IA) ДЛЯ АКТИВНОЙ ФАЗЫ
+     * Нормализует спектральные мощности к диапазону 0-2 (центр на 1.0) и переводит в % по формуле (IA - 1) * 100
+     */
+    public static double calculateAttractorIndexPercent(List<Integer> rawRrList) {
+        Metrics m = calculateRawMetrics(rawRrList);
+        if (!m.isValid) return 0.0;
+        
+        // Нормализация соотношения компонент в диапазон 0-2 (центр баланса 1.0)
+        double iaNormalized = (m.lfPower + m.hfPower > 0) ? (2.0 * m.lfPower / (m.lfPower + m.hfPower)) : 1.0;
+        iaNormalized = Math.max(0.0, Math.min(2.0, iaNormalized));
+
+        // Перевод в процентный формат по формуле (IA - 1) * 100
+        double iaPercent = (iaNormalized - 1.0) * 100.0;
+        return Math.max(0.0, Math.min(100.0, iaPercent));
+    }
+
+    /**
+     * 2. ИЗОЛИРОВАННЫЙ РАСЧЕТ СТАНДАРТНОГО LF/HF ДЛЯ БАЗОВОЙ ПАССИВНОЙ ФАЗЫ (калибровка, первые 100 интервалов)
+     */
+    public static double calculateStandardLfHf(List<Integer> rawRrList) {
+        Metrics m = calculateRawMetrics(rawRrList);
+        if (!m.isValid) return 0.0;
+
+        // Классическое физиологическое соотношение LF / HF в диапазоне 0 - 2.5 (норма 1.0 - 2.5)
+        double lfHf = (m.hfPower > 0) ? (m.lfPower / m.hfPower) : 0.0;
+        return Math.max(0.0, Math.min(5.0, lfHf));
+    }
+
+    /**
+     * 3. ИЗОЛИРОВАННЫЙ РАСЧЕТ LF/HF ДЛЯ 5-МИНУТНОГО ТЕСТОВОГО ОКНА (PSTI) С NOTCH-ФИЛЬТРАЦИЕЙ
+     * Устраняет следовой резонансный пик волн Майера в полосе 0.09 - 0.11 Гц
+     */
+    public static double calculateTestLfHfWithNotch(List<Integer> rawRrList) {
+        if (rawRrList == null || rawRrList.size() < 30) return 0.0;
+
+        List<Double> cleanRr = cleanRrIntervals(rawRrList);
+        if (cleanRr.size() < 16) return 0.0;
+
+        int N = cleanRr.size();
+        double[] timeStamps = new double[N];
+        double currentTime = 0;
+        for (int i = 0; i < N; i++) {
+            timeStamps[i] = currentTime;
+            currentTime += cleanRr.get(i) / 1000.0;
+        }
+
+        double samplingFreq = 4.0;
+        double dt = 1.0 / samplingFreq;
+        int numSamples = (int) Math.floor(currentTime * samplingFreq);
+        if (numSamples < 32) return 0.0;
+
+        double[] rrArray = new double[N];
+        for (int i = 0; i < N; i++) rrArray[i] = cleanRr.get(i);
+
+        double[] resampled = pchipInterpolate(timeStamps, rrArray, numSamples, dt);
+        double[] zTrend = smoothnessPriorsDetrend(resampled, 500.0);
+        double[] detrended = new double[numSamples];
+        for (int i = 0; i < numSamples; i++) {
+            detrended[i] = resampled[i] - zTrend[i];
+        }
+
+        int segmentLength = Math.min(128, numSamples);
+        int overlap = segmentLength / 2;
+        int step = segmentLength - overlap;
+        int fftSize = 256;
+
+        double hannPowerSum = 0;
+        double[] hannWindow = new double[segmentLength];
+        for (int i = 0; i < segmentLength; i++) {
+            hannWindow[i] = 0.5 * (1.0 - Math.cos(2.0 * Math.PI * i / (segmentLength - 1)));
+            hannPowerSum += hannWindow[i] * hannWindow[i];
+        }
+
+        double[] avgPsd = new double[fftSize / 2];
+        int segmentCount = 0;
+
+        for (int start = 0; start + segmentLength <= numSamples; start += step) {
+            double[] real = new double[fftSize];
+            double[] imag = new double[fftSize];
+
+            for (int i = 0; i < segmentLength; i++) {
+                real[i] = detrended[start + i] * hannWindow[i];
+            }
+
+            fft(real, imag);
+            double norm = 2.0 / (samplingFreq * hannPowerSum);
+
+            for (int k = 0; k < fftSize / 2; k++) {
+                double power = (real[k] * real[k] + imag[k] * imag[k]) * norm;
+                avgPsd[k] += power;
+            }
+            segmentCount++;
+        }
+
+        if (segmentCount == 0) segmentCount = 1;
+        for (int k = 0; k < fftSize / 2; k++) {
+            avgPsd[k] /= segmentCount;
+        }
+
+        // Notch-фильтрация: подавление следового пика в диапазоне 0.09 - 0.11 Гц
+        double df = samplingFreq / fftSize;
+        int startBin = (int) Math.round(0.09 / df);
+        int endBin = (int) Math.round(0.11 / df);
+        
+        if (startBin > 0 && endBin < avgPsd.length && startBin <= endBin) {
+            double neighborAvg = (avgPsd[startBin - 1] + avgPsd[Math.min(avgPsd.length - 1, endBin + 1)]) / 2.0;
+            for (int k = startBin; k <= endBin; k++) {
+                avgPsd[k] = neighborAvg;
+            }
+        }
+
+        double lfPower = 0;
+        double hfPower = 0;
+        for (int k = 0; k < fftSize / 2; k++) {
+            double freq = k * df;
+            double bandPower = avgPsd[k] * df;
+
+            if (freq >= 0.04 && freq < 0.15) {
+                lfPower += bandPower;
+            } else if (freq >= 0.15 && freq <= 0.40) {
+                hfPower += bandPower;
+            }
+        }
+
+        double filteredLfHf = (hfPower > 0) ? (lfPower / hfPower) : 0.0;
+        return Math.max(0.0, Math.min(5.0, filteredLfHf));
+    }
+
+    /**
      * Расчет Интегрального индекса следовой когерентности (PSTI)
      */
     public static PstiResult calculatePsti(List<Integer> baselineRrList, List<Integer> traceRrList) {
@@ -81,11 +210,9 @@ public class HrvCalculator {
             return new PstiResult(0.0, 0.0, false);
         }
 
-        // Коэффициент удержания RMSSD
         double rmssdRatio = traceMetrics.rmssd / baselineMetrics.rmssd;
         double rmssdScore = Math.min(1.0, Math.max(0.0, rmssdRatio)) * 50.0;
 
-        // Коэффициент удержания общей мощности (Total Power / LF)
         double powerRatio = Math.min(1.0, traceMetrics.totalPower / baselineMetrics.totalPower);
         double powerScore = Math.max(0.0, powerRatio) * 50.0;
 
@@ -94,25 +221,17 @@ public class HrvCalculator {
         return new PstiResult(pstiScore, rmssdRatio, true);
     }
 
-    public static Metrics calculate(List<Integer> rawRrList) {
-        if (rawRrList == null || rawRrList.size() < 16) {
-            return new Metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 1.0, 0, 100.0, false);
-        }
-
+    private static List<Double> cleanRrIntervals(List<Integer> rawRrList) {
         List<Double> cleanRr = new ArrayList<>();
-        int artifacts = 0;
         int consecutiveArtifacts = 0;
-
         for (int i = 0; i < rawRrList.size(); i++) {
             double rr = rawRrList.get(i);
             if (rr < 300 || rr > 2000) {
-                artifacts++;
                 continue;
             }
             if (!cleanRr.isEmpty()) {
                 double prev = cleanRr.get(cleanRr.size() - 1);
                 if (Math.abs(rr - prev) / prev > 0.25) {
-                    artifacts++;
                     consecutiveArtifacts++;
                     if (consecutiveArtifacts < 3) {
                         continue;
@@ -122,14 +241,20 @@ public class HrvCalculator {
             consecutiveArtifacts = 0;
             cleanRr.add(rr);
         }
+        return cleanRr;
+    }
 
+    private static Metrics calculateRawMetrics(List<Integer> rawRrList) {
+        if (rawRrList == null || rawRrList.size() < 16) {
+            return new Metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 1.0, 0, 100.0, false);
+        }
+
+        List<Double> cleanRr = cleanRrIntervals(rawRrList);
         if (cleanRr.size() < 16) {
-            return new Metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 1.0, artifacts, 100.0, false);
+            return new Metrics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 1.0, 0, 100.0, false);
         }
 
         int N = cleanRr.size();
-        double artifactPct = ((double) artifacts / rawRrList.size()) * 100.0;
-
         double sumDiffSq = 0.0;
         int nn50Count = 0;
         int totalPairs = N - 1;
@@ -137,18 +262,14 @@ public class HrvCalculator {
         for (int i = 0; i < totalPairs; i++) {
             double diff = Math.abs(cleanRr.get(i + 1) - cleanRr.get(i));
             sumDiffSq += diff * diff;
-            if (diff > 50.0) {
-                nn50Count++;
-            }
+            if (diff > 50.0) nn50Count++;
         }
 
         double rmssd = Math.sqrt(sumDiffSq / totalPairs);
         double pnn50 = ((double) nn50Count / totalPairs) * 100.0;
 
         double sumRr = 0.0;
-        for (double rr : cleanRr) {
-            sumRr += rr;
-        }
+        for (double rr : cleanRr) sumRr += rr;
         double meanRr = sumRr / N;
 
         double sumSdnnSq = 0.0;
@@ -160,16 +281,11 @@ public class HrvCalculator {
 
         double sumSqPerp = 0.0;
         double sumSqLong = 0.0;
-
         for (int i = 0; i < N - 1; i++) {
             double rr_i = cleanRr.get(i);
             double rr_next = cleanRr.get(i + 1);
-
-            double diff = rr_next - rr_i;
-            double sum = rr_next + rr_i;
-
-            sumSqPerp += diff * diff;
-            sumSqLong += Math.pow(sum - 2 * meanRr, 2);
+            sumSqPerp += Math.pow(rr_next - rr_i, 2);
+            sumSqLong += Math.pow((rr_next + rr_i) - 2 * meanRr, 2);
         }
 
         double sd1 = Math.sqrt(sumSqPerp / (2.0 * (N - 1)));
@@ -183,7 +299,6 @@ public class HrvCalculator {
         double rTol = 0.2 * sdnn;
         if (rTol < 1.0) rTol = 1.0;
         double sampleEntropy = calculateSampleEntropy(cleanRr, 2, rTol);
-
         double dfaAlpha1 = calculateDfaAlpha1(cleanRr);
 
         double[] timeStamps = new double[N];
@@ -197,14 +312,9 @@ public class HrvCalculator {
         double dt = 1.0 / samplingFreq;
         int numSamples = (int) Math.floor(currentTime * samplingFreq);
 
-        // Внимание: данные расчеты спектральных показателей и соотношений LF/HF 
-        // не являются чистыми показателями баланса вегетатики. Так как они производятся 
-        // во время режима модуляции внешними источниками сигналов с частотой волн Майера. 
-        // И являются синтетическим показателем Индекс Аттрактора.
         double lfPower = 0;
         double hfPower = 0;
         double totalPower = sdnn * sdnn;
-        double rawLfHf = 0;
 
         if (numSamples >= 32) {
             double[] rrArray = new double[N];
@@ -251,7 +361,6 @@ public class HrvCalculator {
             }
 
             if (segmentCount == 0) segmentCount = 1;
-
             double df = samplingFreq / fftSize;
             double vlfPower = 0;
 
@@ -268,23 +377,19 @@ public class HrvCalculator {
                     hfPower += bandPower;
                 }
             }
-
             totalPower = vlfPower + lfPower + hfPower;
-            
-            // Базовый расчет соотношения (диапазон 1.0 - 2.0)
-            double baseLfHf = (lfPower + hfPower > 0) ? (2.0 * lfPower / (lfPower + hfPower)) : (hfPower > 0 ? lfPower / hfPower : 0);
-            
-            // Перевод в процентный формат (0% - 100%) с защитой от выхода за границы
-            rawLfHf = Math.max(0.0, Math.min(100.0, (baseLfHf - 1.0) * 100.0));
         }
 
-        if (rawLfHf < 0) rawLfHf = 0;
-        if (rawLfHf > 100.0) rawLfHf = 100.0;
+        // Чистый стандартный LF/HF ratio для общих метрик
+        double lfHfRatio = (hfPower > 0) ? (lfPower / hfPower) : 0.0;
+        boolean isValid = validateMetrics(rmssd, baevskySi, sd1sd2Ratio, 0.0);
 
-        boolean isValid = validateMetrics(rmssd, baevskySi, sd1sd2Ratio, artifactPct);
+        return new Metrics(rmssd, sdnn, pnn50, lfPower, hfPower, totalPower, lfHfRatio, 
+                           sd1, sd2, sd1sd2Ratio, baevskySi, sampleEntropy, dfaAlpha1, 0, 0.0, isValid);
+    }
 
-        return new Metrics(rmssd, sdnn, pnn50, lfPower, hfPower, totalPower, rawLfHf, 
-                           sd1, sd2, sd1sd2Ratio, baevskySi, sampleEntropy, dfaAlpha1, artifacts, artifactPct, isValid);
+    public static Metrics calculate(List<Integer> rawRrList) {
+        return calculateRawMetrics(rawRrList);
     }
 
     private static double calculateDfaAlpha1(List<Double> cleanRr) {
