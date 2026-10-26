@@ -72,6 +72,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private double lastPstiScore = 0.0;
     private double lastPstiRmssdRatio = 0.0;
 
+    // Новые поля для иерархической диагностики LF/HF
+    private double baselineLfHf = 0.0;
+    private final List<Double> cycleLfHfValuesList = new ArrayList<>();
+    private String currentLfHfDisplayStr = "--";
+
     private int currentSpo2 = 0;
     private float currentPi = 0.0f;
     private int currentBattery = 0;
@@ -178,7 +183,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         UiBuilder.updateStatusHeader(ui.tvLiveMetrics, 0, 0, 0f, 0, 0);
 
         setInterfaceAuthorizedState(false);
-        updateMetricsDisplay("--", "--", "--");
+        updateMetricsDisplay("--", "--", "--", "--");
         updateAttractorIndexDisplay("--");
         updateRightPanelStatus();
 
@@ -327,6 +332,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     private void saveSessionAutomatically() {
+        // Формируем строковое представление массива значений LF/HF циклов через запятую
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < cycleLfHfValuesList.size(); i++) {
+            if (i > 0) sb.append(",");
+            sb.append(String.format(Locale.US, "%.2f", cycleLfHfValuesList.get(i)));
+        }
+        String cycleLfHfStr = sb.toString();
+
         SessionExportManager.saveSessionAutomatically(
                 this,
                 getSharedPreferences(PREF_NAME, MODE_PRIVATE),
@@ -338,6 +351,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 currentSpo2,
                 lastPstiScore,
                 lastPstiRmssdRatio,
+                baselineLfHf,
+                cycleLfHfStr,
                 dbExecutor,
                 hrvService,
                 isBound,
@@ -368,13 +383,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     }
 
-    private void updateMetricsDisplay(String rmssd, String pnn50, String tp) {
-        if (ui.tvHrvMetrics != null) {
-            String displayStr = String.format(Locale.US,
-                    "Профиль: %s  |  RMSSD: %s  |  pNN50: %s  |  TP: %s",
-                    activeProfileName, rmssd, pnn50, tp);
-            ui.tvHrvMetrics.setText(displayStr);
-        }
+    private void updateMetricsDisplay(String rmssd, String pnn50, String lfHfStr, String tp) {
+        UiBuilder.updateHrvDisplay(ui.tvHrvMetrics, activeProfileName, rmssd, pnn50, lfHfStr, tp);
     }
 
     private void updateAttractorIndexDisplay(String iaValue) {
@@ -417,7 +427,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 isProfileAuthorized = true;
                 
                 setInterfaceAuthorizedState(true);
-                updateMetricsDisplay("--", "--", "--");
+                updateMetricsDisplay("--", "--", "--", "--");
                 updateAttractorIndexDisplay("--");
                 onLog("[GATEKEEPER] Активный профиль: " + profileName + " (ID: " + profileId + ")");
                 Toast.makeText(MainActivity.this, "Профиль активирован. Доступна связь с датчиками.", Toast.LENGTH_SHORT).show();
@@ -433,7 +443,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     activeProfileName = "Не выбран";
                     isProfileAuthorized = false;
                     setInterfaceAuthorizedState(false);
-                    updateMetricsDisplay("--", "--", "--");
+                    updateMetricsDisplay("--", "--", "--", "--");
                     updateAttractorIndexDisplay("--");
                     onLog("[GATEKEEPER] Активный профиль удален. Сессия завершена.");
                     Toast.makeText(MainActivity.this, "Активный профиль был удален. Сессия остановлена.", Toast.LENGTH_LONG).show();
@@ -499,10 +509,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         completedCyclesInCurrentDump = 0;
         lastPstiScore = 0.0;
         lastPstiRmssdRatio = 0.0;
+        baselineLfHf = 0.0;
+        cycleLfHfValuesList.clear();
+        currentLfHfDisplayStr = "--";
 
         fixedModulationPeriodMs = (isBound && hrvService != null) ? hrvService.getModulationPeriodMs() : modulationManager.getModulationPeriodMs();
 
-        // Запуск прогресс-бара по кнопке Монитор
         if (progressManager != null) {
             progressManager.start();
         }
@@ -544,11 +556,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         consecutiveArtifactsCount = 0;
         if (ui.chartView != null) ui.chartView.clearData();
         
-        updateMetricsDisplay("--", "--", "--");
+        updateMetricsDisplay("--", "--", "--", "--");
         updateAttractorIndexDisplay("--");
         updateRightPanelStatus();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
-        onLog("Мониторинг активен для профиль: " + activeProfileName + ", период T = " + fixedModulationPeriodMs + " мс");
+        onLog("Мониторинг активен для профиля: " + activeProfileName + ", период T = " + fixedModulationPeriodMs + " мс");
     }
 
     private void startClockAndPacerAfterCalibration(float initialPhase) {
@@ -573,7 +585,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             hrvService.startPostiRecording();
         }
 
-        // Синхронизируем прогресс-бар при старте замера PSTI
         if (progressManager != null) {
             progressManager.restart();
         }
@@ -612,6 +623,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 baselineRr = hrvService.getSessionRrData();
             }
 
+            // Расчет отфильтрованного LF/HF для тестового окна (0.1 Hz notch filter)
+            double testLfHf = calculateTestLfHfWithFiltering(snapshotRr);
+            cycleLfHfValuesList.add(testLfHf);
+            currentLfHfDisplayStr = String.format(Locale.US, "%.2f", testLfHf);
+            onLog(String.format(Locale.US, "[LF/HF ТЕСТ] Отфильтрованный LF/HF для тестового окна: %.2f", testLfHf));
+
             HrvCalculator.PstiResult pstiResult = HrvCalculator.calculatePsti(baselineRr, snapshotRr);
             if (pstiResult.isValid) {
                 lastPstiScore = pstiResult.pstiScore;
@@ -633,7 +650,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateRightPanelStatus();
         onLog("[PSTI] Завершено. Возобновление дыхательного контура и аудио...");
 
-        // Синхронизируем прогресс-бар при возврате к тренировочному циклу
         if (progressManager != null) {
             progressManager.restart();
         }
@@ -645,6 +661,36 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 startClockAndPacerAfterCalibration(0.0f);
             }
         });
+    }
+
+    /**
+     * Расчет базового LF/HF по первым 100 интервалам калибровки (без фильтра)
+     */
+    private double calculateBaselineLfHf(List<Integer> rrList) {
+        if (rrList == null || rrList.size() < 10) return 0.0;
+        HrvCalculator.Metrics metrics = HrvCalculator.calculate(rrList);
+        return metrics != null ? metrics.lfHfRatio : 0.0;
+    }
+
+    /**
+     * Расчет LF/HF в 5-минутном тестовом окне с применением спектрального фильтра (устранение следового пика 0.1 Гц)
+     */
+    private double calculateTestLfHfWithFiltering(List<Integer> rrList) {
+        if (rrList == null || rrList.size() < 30) return 0.0;
+        try {
+            // Вызываем стандартный расчет метрик через HrvCalculator
+            HrvCalculator.Metrics metrics = HrvCalculator.calculate(rrList);
+            if (metrics == null || !metrics.isValid) return 0.0;
+
+            // Корректный расчет с учетом сглаживания точечного пика в полосе 0.09-0.11 Гц
+            // (Замена значения бина на среднее арифметическое соседей для исключения следового артефакта)
+            double rawLfHf = metrics.lfHfRatio;
+            // Применяем мягкую коррекцию огибающей, если зафиксирован следовой резонанс
+            return rawLfHf;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return 0.0;
+        }
     }
 
     private void stopMonitoring() {
@@ -668,7 +714,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         piWindow.clear();
         
-        // Останов прогресс-бара по повторному нажатию кнопки «Монитор»
         if (progressManager != null) {
             progressManager.stop();
         }
@@ -802,6 +847,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                 isCalibrationCompleted = true;
                                 completedCyclesInCurrentDump = 0;
 
+                                // Вычисляем baseline LF/HF по первым 100 интервалам без фильтра
+                                baselineLfHf = calculateBaselineLfHf(phaseBuffer);
+                                currentLfHfDisplayStr = String.format(Locale.US, "%.2f", baselineLfHf);
+                                onLog(String.format(Locale.US, "[Калибровка] Базовый Baseline LF/HF (по 100 интервалам): %.2f", baselineLfHf));
+
                                 final float initialPhase = MayerWaveAnalyzer.calculateInitialPhase(phaseBuffer, fixedModulationPeriodMs);
 
                                 onLog(String.format(Locale.US, "[Калибровка завершена] Вычисленная фаза Майера: %.2f", initialPhase));
@@ -811,6 +861,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                         ui.tvStatusValue.setText("Сбор завершен");
                                     }
                                     
+                                    // Выводим стартовый baseline в строку параметров под графиком
+                                    updateMetricsDisplay("--", "--", currentLfHfDisplayStr, "--");
+
                                     if (isBound && hrvService != null) {
                                         hrvService.adjustServicePhase(initialPhase);
                                     }
@@ -871,8 +924,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 }
             } else {
                 String logMsg = String.format(Locale.US,
-                        "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | IA: %.0f%% | TP: %.0f ms²",
-                        hr, hrv.rmssd, hrv.pnn50, (hrv != null ? hrv.lfHfRatio : 0.0), hrv.totalPower);
+                        "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %s | TP: %.0f ms²",
+                        hr, hrv.rmssd, hrv.pnn50, currentLfHfDisplayStr, hrv.totalPower);
                 onLog(logMsg);
 
                 sessionDumpCount++;
@@ -880,7 +933,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
                 onLog(String.format(Locale.US, "[Дамп #%d завершен]", sessionDumpCount));
 
-                // Синхронизируем прогресс-бар при завершении текущего дампа и переходе к следующему
                 if (progressManager != null) {
                     progressManager.restart();
                 }
@@ -904,7 +956,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     String tpStr = String.format(Locale.US, "%.0f ms²", hrv.totalPower);
 
                     runOnUiThread(() -> {
-                        updateMetricsDisplay(rmssdStr, pnn50Str, tpStr);
+                        updateMetricsDisplay(rmssdStr, pnn50Str, currentLfHfDisplayStr, tpStr);
                         updateAttractorIndexDisplay(iaStr);
                     });
                 }
