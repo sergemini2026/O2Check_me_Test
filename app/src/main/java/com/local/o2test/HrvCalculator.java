@@ -75,11 +75,9 @@ public class HrvCalculator {
         Metrics m = calculateRawMetrics(rawRrList);
         if (!m.isValid) return 0.0;
         
-        // Нормализация соотношения компонент в диапазон 0-2 (центр баланса 1.0)
         double iaNormalized = (m.lfPower + m.hfPower > 0) ? (2.0 * m.lfPower / (m.lfPower + m.hfPower)) : 1.0;
         iaNormalized = Math.max(0.0, Math.min(2.0, iaNormalized));
 
-        // Перевод в процентный формат по формуле (IA - 1) * 100
         double iaPercent = (iaNormalized - 1.0) * 100.0;
         return Math.max(0.0, Math.min(100.0, iaPercent));
     }
@@ -91,9 +89,8 @@ public class HrvCalculator {
         Metrics m = calculateRawMetrics(rawRrList);
         if (!m.isValid) return 0.0;
 
-        // Классическое физиологическое соотношение LF / HF в диапазоне 0 - 2.5 (норма 1.0 - 2.5)
-        double lfHf = (m.hfPower > 0) ? (m.lfPower / m.hfPower) : 0.0;
-        return Math.max(0.0, Math.min(5.0, lfHf));
+        // Честный расчет без искусственного ограничения (clamping)
+        return (m.hfPower > 0) ? (m.lfPower / m.hfPower) : 0.0;
     }
 
     /**
@@ -167,7 +164,6 @@ public class HrvCalculator {
             avgPsd[k] /= segmentCount;
         }
 
-        // Notch-фильтрация: подавление следового пика в диапазоне 0.09 - 0.11 Гц
         double df = samplingFreq / fftSize;
         int startBin = (int) Math.round(0.09 / df);
         int endBin = (int) Math.round(0.11 / df);
@@ -192,13 +188,10 @@ public class HrvCalculator {
             }
         }
 
-        double filteredLfHf = (hfPower > 0) ? (lfPower / hfPower) : 0.0;
-        return Math.max(0.0, Math.min(5.0, filteredLfHf));
+        // Возвращаем честное значение без усечения в 5.0
+        return (hfPower > 0) ? (lfPower / hfPower) : 0.0;
     }
 
-    /**
-     * Расчет Интегрального индекса следовой когерентности (PSTI)
-     */
     public static PstiResult calculatePsti(List<Integer> baselineRrList, List<Integer> traceRrList) {
         if (baselineRrList == null || baselineRrList.size() < 16 || traceRrList == null || traceRrList.size() < 16) {
             return new PstiResult(0.0, 0.0, false);
@@ -380,7 +373,7 @@ public class HrvCalculator {
             totalPower = vlfPower + lfPower + hfPower;
         }
 
-        // Чистый стандартный LF/HF ratio для общих метрик
+        // Честный расчет LF/HF ratio
         double lfHfRatio = (hfPower > 0) ? (lfPower / hfPower) : 0.0;
         boolean isValid = validateMetrics(rmssd, baevskySi, sd1sd2Ratio, 0.0);
 
