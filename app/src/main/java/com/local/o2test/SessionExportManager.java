@@ -60,6 +60,8 @@ public class SessionExportManager {
                                                 final int currentSpo2,
                                                 final double lastPstiScore,
                                                 final double lastPstiRmssdRatio,
+                                                final double baselineLfHf,
+                                                final String cycleLfHfValues,
                                                 final ExecutorService dbExecutor,
                                                 final HrvForegroundService hrvService,
                                                 final boolean isBound,
@@ -108,7 +110,7 @@ public class SessionExportManager {
                         }
                         proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, trainingFilePath, testFilePath, 
                                 activeProfileId, activeProfileName, sessionStartTime, currentPolarHr, currentSpo2, 
-                                lastPstiScore, lastPstiRmssdRatio, dbExecutor, hrvService, isBound, callback);
+                                lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, dbExecutor, hrvService, isBound, callback);
                     }
 
                     @Override
@@ -118,7 +120,7 @@ public class SessionExportManager {
                         }
                         proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, trainingFilePath, "", 
                                 activeProfileId, activeProfileName, sessionStartTime, currentPolarHr, currentSpo2, 
-                                lastPstiScore, lastPstiRmssdRatio, dbExecutor, hrvService, isBound, callback);
+                                lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, dbExecutor, hrvService, isBound, callback);
                     }
                 });
             }
@@ -130,7 +132,7 @@ public class SessionExportManager {
                 }
                 proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, "", "", 
                         activeProfileId, activeProfileName, sessionStartTime, currentPolarHr, currentSpo2, 
-                        lastPstiScore, lastPstiRmssdRatio, dbExecutor, hrvService, isBound, callback);
+                        lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, dbExecutor, hrvService, isBound, callback);
             }
         });
     }
@@ -147,6 +149,8 @@ public class SessionExportManager {
                                                   final int currentSpo2,
                                                   final double lastPstiScore,
                                                   final double lastPstiRmssdRatio,
+                                                  final double baselineLfHf,
+                                                  final String cycleLfHfValues,
                                                   final ExecutorService dbExecutor,
                                                   final HrvForegroundService hrvService,
                                                   final boolean isBound,
@@ -189,7 +193,9 @@ public class SessionExportManager {
                         trainingCsvPath,
                         testCsvPath,
                         lastPstiScore,
-                        lastPstiRmssdRatio
+                        lastPstiRmssdRatio,
+                        baselineLfHf,
+                        cycleLfHfValues
                 );
                 long sessionId = db.sessionDao().insertSessionSync(session);
 
