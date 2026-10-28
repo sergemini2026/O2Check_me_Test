@@ -17,6 +17,9 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.provider.Settings;
+import android.text.Layout;
+import android.text.SpannableString;
+import android.text.style.AlignmentSpan;
 import android.view.Gravity;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -174,6 +177,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     };
 
+    private SpannableString getCenteredTitle(String title) {
+        SpannableString s = new SpannableString(title);
+        s.setSpan(new AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER), 0, s.length(), 0);
+        return s;
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -314,21 +323,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private void showSensorNotConnectedAlert() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Внимание");
+        builder.setTitle(getCenteredTitle("Внимание"));
         builder.setMessage("⚠️ [ВНИМАНИЕ] Датчики не подключены, обновите связь.");
         builder.setPositiveButton("ОК", null);
         AlertDialog dialog = builder.create();
-        dialog.setOnShowListener(d -> {
-            try {
-                int titleId = getResources().getIdentifier("alertTitle", "id", "android");
-                if (titleId > 0) {
-                    TextView title = dialog.findViewById(titleId);
-                    if (title != null) {
-                        title.setGravity(Gravity.CENTER);
-                    }
-                }
-            } catch (Exception ignored) {}
-        });
         dialog.show();
     }
 
@@ -419,7 +417,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             if (!isTrainingSelected) {
                 ui.tvStatusValue.setText("Статус: Выберите тренировку" + pstiSuffix);
             } else {
-                // Исправлено: убраны лишние скобки вокруг режима тренировки
                 ui.tvStatusValue.setText("Статус: Готов " + currentWorkoutMode + pstiSuffix);
             }
         } else {
