@@ -144,7 +144,7 @@ public class TrendChartView extends View {
             canvas.drawText(val + "%", leftPad + 5f, y + 5f, paintSubText);
         }
 
-        // 2. Расчет ДИНАМИЧЕСКОГО масштаба оси Y для ЧСС только для ВИДИМЫХ точек
+        // 2. Расчет ДИНАМИЧЕСКОГО масштаба оси Y для ЧСС только для ВИДИМЫХ точек[span_2](start_span)[span_2](end_span)[span_3](start_span)[span_3](end_span)
         float minHR = Float.MAX_VALUE;
         float maxHR = Float.MIN_VALUE;
 
@@ -166,11 +166,22 @@ public class TrendChartView extends View {
             minHR -= 2f; maxHR += 2f;
         }
 
-        float hrStep = (maxHR - minHR) / 4f;
+        // Логарифмические параметры для нелинейной шкалы ЧСС
+        float maxVal = Math.max(1.0f, maxHR - minHR);
+        float k = 0.08f;
+        float logDenominator = (float) Math.log(1.0 + maxVal * k);
+
         for (int i = 0; i <= 4; i++) {
-            float val = maxHR - i * hrStep;
             float ratio = 1.0f - (i / 4.0f);
             float y = (topPad + 2 * zoneH) - ratio * zoneH;
+            
+            float val;
+            if (maxVal <= 0.001f || logDenominator <= 0.0001f) {
+                val = minHR + (1.0f - ratio) * maxVal;
+            } else {
+                val = minHR + (float) ((Math.pow(1.0 + maxVal * k, ratio) - 1.0) / k);
+            }
+
             canvas.drawLine(leftPad, y, w - rightPad, y, paintGrid);
             canvas.drawText(String.format(Locale.US, "%.0f", val), leftPad + 5f, y + 5f, paintSubText);
         }
@@ -205,7 +216,7 @@ public class TrendChartView extends View {
         // --- ВЫВОД ПОКАЗАТЕЛЕЙ ГАЗОВЫХ ДАТЧИКОВ ПО ВЕРХУ КАНВАСА (ПО ЦЕНТРУ) ---
         float gasTextWidth = paintGasText.measureText(gasMetricsText);
         float gasTextX = (w - gasTextWidth) / 2f;
-        float gasTextY = topPad + 26f; // отступили одну строку от верхнего края
+        float gasTextY = topPad + 26f;
         canvas.drawText(gasMetricsText, gasTextX, gasTextY, paintGasText);
 
         if (points.isEmpty()) return;
@@ -236,7 +247,15 @@ public class TrendChartView extends View {
             float normSpO2 = (Math.max(80f, Math.min(100f, (float) dp.spo2)) - 80f) / 20f;
             float ySpO2 = (topPad + zoneH) - (normSpO2 * zoneH);
 
-            float normHR = (Math.max(minHR, Math.min(maxHR, (float) dp.hr)) - minHR) / (maxHR - minHR);
+            // Логарифмическое нелинейное преобразование для точки пульса ЧСС
+            float hrVal = Math.max(0f, (float) dp.hr - minHR);
+            float normHR;
+            if (maxVal <= 0.001f || logDenominator <= 0.0001f) {
+                normHR = hrVal / maxVal;
+            } else {
+                normHR = (float) (Math.log(1.0 + hrVal * k) / logDenominator);
+            }
+            normHR = Math.max(0f, Math.min(1.0f, normHR));
             float yHR = (topPad + 2 * zoneH) - (normHR * zoneH);
 
             float normPI = (Math.max(0f, Math.min(2f, dp.pi)) - 0f) / 2f;
