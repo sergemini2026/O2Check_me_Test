@@ -5,6 +5,9 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Environment;
+import android.text.Layout;
+import android.text.SpannableString;
+import android.text.style.AlignmentSpan;
 import android.widget.Toast;
 
 import com.local.o2test.db.AppDatabase;
@@ -30,6 +33,12 @@ public class SessionExportManager {
 
     public interface ExportCallback {
         void onLog(String message);
+    }
+
+    private static SpannableString getCenteredTitle(String title) {
+        SpannableString s = new SpannableString(title);
+        s.setSpan(new AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER), 0, s.length(), 0);
+        return s;
     }
 
     /**
@@ -363,7 +372,7 @@ public class SessionExportManager {
 
         if (backupFile.exists()) {
             new AlertDialog.Builder(context)
-                .setTitle("Внимание!")
+                .setTitle(getCenteredTitle("Внимание!"))
                 .setMessage("Файл бэкапа уже существует. Перезаписать ранее созданную версию?")
                 .setPositiveButton("Да", (d, w) -> exportRunnable.run())
                 .setNegativeButton("Отмена", null)
@@ -378,7 +387,7 @@ public class SessionExportManager {
      */
     public static void importDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
         new AlertDialog.Builder(context)
-            .setTitle("Внимание!")
+            .setTitle(getCenteredTitle("Внимание!"))
             .setMessage("Импорт бэкапа перезапишет текущие профили и сессии. Продолжить?")
             .setPositiveButton("Да", (d, w) -> {
                 dbExecutor.execute(() -> {
