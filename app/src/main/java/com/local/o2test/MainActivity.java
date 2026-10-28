@@ -1,6 +1,7 @@
 package com.local.o2test;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.content.ComponentName;
@@ -16,7 +17,9 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.provider.Settings;
+import android.view.Gravity;
 import android.widget.ScrollView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
@@ -209,6 +212,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 Toast.makeText(this, "Сначала выберите тип тренировки в меню!", Toast.LENGTH_SHORT).show();
                 return;
             }
+            
+            // Проверка подключения кардиодатчика перед стартом сессии
+            boolean isPolarConnected = polarManager != null && polarManager.isConnected();
+            if (!isRecording && !isPolarConnected) {
+                showSensorNotConnectedAlert();
+                return;
+            }
+
             if (!isRecording) {
                 isTrainingModeActive = true;
                 startMonitoringPanel();
@@ -266,7 +277,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     new TrainingDialogHelper.TrainingStartCallback() {
                         @Override
                         public void onTrainingSelected(String trainingType, String modeName, int[] pattern) {
-                            currentWorkoutMode = trainingType + " (" + modeName + ")";
+                            currentWorkoutMode = trainingType + " " + modeName;
                             currentTrainingPattern = pattern;
                             isTrainingSelected = true;
 
@@ -299,6 +310,26 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         setContentView(ui.mainLayout);
         PasswordAuthManager.checkMasterPasswordOnStart(this, getSharedPreferences(PREF_NAME, MODE_PRIVATE), authCallback);
+    }
+
+    private void showSensorNotConnectedAlert() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Внимание");
+        builder.setMessage("⚠️ [ВНИМАНИЕ] Датчики не подключены, обновите связь.");
+        builder.setPositiveButton("ОК", null);
+        AlertDialog dialog = builder.create();
+        dialog.setOnShowListener(d -> {
+            try {
+                int titleId = getResources().getIdentifier("alertTitle", "id", "android");
+                if (titleId > 0) {
+                    TextView title = dialog.findViewById(titleId);
+                    if (title != null) {
+                        title.setGravity(Gravity.CENTER);
+                    }
+                }
+            } catch (Exception ignored) {}
+        });
+        dialog.show();
     }
 
     private boolean isLocationEnabled(Context context) {
@@ -388,7 +419,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             if (!isTrainingSelected) {
                 ui.tvStatusValue.setText("Статус: Выберите тренировку" + pstiSuffix);
             } else {
-                ui.tvStatusValue.setText("Статус: Готов (" + currentWorkoutMode + ")" + pstiSuffix);
+                // Исправлено: убраны лишние скобки вокруг режима тренировки
+                ui.tvStatusValue.setText("Статус: Готов " + currentWorkoutMode + pstiSuffix);
             }
         } else {
             if (isPostiActive) {
@@ -423,7 +455,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             ui.btnSessions.setAlpha(alphaVal);
         }
         if (ui.btnHeart != null) {
-            // Кнопка Монитор заблокирована по умолчанию (требует и авторизацию, и выбор тренировки)
             boolean canEnableHeart = authorized && isTrainingSelected;
             ui.btnHeart.setEnabled(canEnableHeart);
             ui.btnHeart.setAlpha(canEnableHeart && isRecording ? 1.0f : alphaVal);
