@@ -51,6 +51,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private boolean isRecording = false;
     private boolean isTrainingModeActive = false;
+    private boolean isTrainingSelected = false; // Флаг готовности сеанса через меню Тренировки
+    private int[] currentTrainingPattern = {3, 3, 3}; // Текущий паттерн дампов
+
     private boolean isCalibrationCompleted = false;
     private int sessionDumpCount = 0;
     private long sessionStartTime = 0;
@@ -100,7 +103,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             
             updateRightPanelStatus();
             if (ui.btnHeart != null) {
-                ui.btnHeart.setAlpha(isProfileAuthorized ? 1.0f : 0.5f);
+                ui.btnHeart.setAlpha(isProfileAuthorized && isTrainingSelected ? 1.0f : 0.5f);
             }
         }
         @Override
@@ -202,8 +205,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 openProfilesManager();
                 return;
             }
+            if (!isTrainingSelected) {
+                Toast.makeText(this, "Сначала выберите тип тренировки в меню!", Toast.LENGTH_SHORT).show();
+                return;
+            }
             if (!isRecording) {
-                isTrainingModeActive = false;
+                isTrainingModeActive = true;
                 startMonitoringPanel();
             } else {
                 stopMonitoring();
@@ -258,12 +265,20 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     this, dbExecutor, activeProfileId, activeProfileName, isProfileAuthorized,
                     new TrainingDialogHelper.TrainingStartCallback() {
                         @Override
-                        public void onStartTraining(String trainingType, String modeName) {
-                            currentWorkoutMode = trainingType + ", " + modeName;
-                            isTrainingModeActive = true;
-                            onLog("[СТАРТ] " + currentWorkoutMode);
-                            startMonitoringPanel();
+                        public void onTrainingSelected(String trainingType, String modeName, int[] pattern) {
+                            currentWorkoutMode = trainingType + " (" + modeName + ")";
+                            currentTrainingPattern = pattern;
+                            isTrainingSelected = true;
+
+                            // Разблокируем кнопку Монитор после выбора тренировки
+                            if (ui.btnHeart != null) {
+                                ui.btnHeart.setEnabled(true);
+                                ui.btnHeart.setAlpha(1.0f);
+                            }
+                            updateRightPanelStatus();
+                            onLog("[ТРЕНИРОВКА ВЫБРАНА] " + currentWorkoutMode);
                         }
+
                         @Override
                         public void onRequireProfileAuth() {
                             openProfilesManager();
@@ -370,7 +385,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         String pstiSuffix = (lastPstiScore > 0.0) ? String.format(Locale.US, " PSTI [%.1f%%]", lastPstiScore) : "";
 
         if (!isRecording) {
-            ui.tvStatusValue.setText("Статус: Ожидание" + pstiSuffix);
+            if (!isTrainingSelected) {
+                ui.tvStatusValue.setText("Статус: Выберите тренировку" + pstiSuffix);
+            } else {
+                ui.tvStatusValue.setText("Статус: Готов (" + currentWorkoutMode + ")" + pstiSuffix);
+            }
         } else {
             if (isPostiActive) {
                 ui.tvStatusValue.setText(String.format(Locale.US, "Статус: Замер следа (PSTI) - %d сек%s", seconds, pstiSuffix));
@@ -404,8 +423,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             ui.btnSessions.setAlpha(alphaVal);
         }
         if (ui.btnHeart != null) {
-            ui.btnHeart.setEnabled(authorized);
-            ui.btnHeart.setAlpha(authorized && isRecording ? 1.0f : alphaVal);
+            // Кнопка Монитор заблокирована по умолчанию (требует и авторизацию, и выбор тренировки)
+            boolean canEnableHeart = authorized && isTrainingSelected;
+            ui.btnHeart.setEnabled(canEnableHeart);
+            ui.btnHeart.setAlpha(canEnableHeart && isRecording ? 1.0f : alphaVal);
         }
         if (ui.btnReconnect != null) {
             ui.btnReconnect.setEnabled(authorized);
@@ -429,7 +450,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 updateMetricsDisplay("--", "--", "--", "--");
                 updateAttractorIndexDisplay("--");
                 onLog("[GATEKEEPER] Активный профиль: " + profileName + " (ID: " + profileId + ")");
-                Toast.makeText(MainActivity.this, "Профиль активирован. Доступна связь с датчиками.", Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, "Профиль активирован. Выберите тип тренировки.", Toast.LENGTH_SHORT).show();
             }
 
             @Override
@@ -441,6 +462,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     activeProfileId = -1L;
                     activeProfileName = "Не выбран";
                     isProfileAuthorized = false;
+                    isTrainingSelected = false;
                     setInterfaceAuthorizedState(false);
                     updateMetricsDisplay("--", "--", "--", "--");
                     updateAttractorIndexDisplay("--");
@@ -497,6 +519,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             onLog("[GATEKEEPER] Сеанс заблокирован: профиль не выбран!");
             Toast.makeText(this, "Требуется авторизация в профиле!", Toast.LENGTH_SHORT).show();
             openProfilesManager();
+            return;
+        }
+
+        if (!isTrainingSelected) {
+            onLog("[GATEKEEPER] Сеанс заблокирован: тренировка не выбрана!");
+            Toast.makeText(this, "Сначала выберите тип тренировки в меню!", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -559,7 +587,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateAttractorIndexDisplay("--");
         updateRightPanelStatus();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
-        onLog("Мониторинг активен для профиля: " + activeProfileName + ", период T = " + fixedModulationPeriodMs + " мс");
+        onLog("Мониторинг активен для профиля: " + activeProfileName + ", режим: " + currentWorkoutMode + ", период T = " + fixedModulationPeriodMs + " мс");
     }
 
     private void startClockAndPacerAfterCalibration(float initialPhase) {
@@ -645,7 +673,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             onLog("[PSTI] Окно замера завершено, но данные RR отсутствуют.");
         }
 
-        // Сбрасываем счетчик тренировочных дампов для строгого цикла 3-1-3-1
         sessionDumpCount = 0;
 
         updateRightPanelStatus();
@@ -706,7 +733,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         updateRightPanelStatus();
         if (ui.btnHeart != null) {
-            ui.btnHeart.setAlpha(isProfileAuthorized ? 1.0f : 0.5f);
+            ui.btnHeart.setAlpha(isProfileAuthorized && isTrainingSelected ? 1.0f : 0.5f);
         }
         onLog("Мониторинг остановлен и сброшен.");
     }
@@ -908,7 +935,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 }
             } else {
                 boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
-                // Обновляем LF/HF только во время чистого тестового окна (PSTI)
                 if (isPostiActive && hrv != null) {
                     currentLfHfDisplayStr = String.format(Locale.US, "%.2f", hrv.lfHfRatio);
                 }
@@ -918,7 +944,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         hr, hrv.rmssd, hrv.pnn50, currentLfHfDisplayStr, hrv.totalPower);
                 onLog(logMsg);
 
-                // Увеличиваем sessionDumpCount и управляем циклом только во время тренировочных дампов, но не во время окна PSTI
                 if (!isPostiActive) {
                     sessionDumpCount++;
                     completedCyclesInCurrentDump = 0;
@@ -935,7 +960,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                             hrvService.updateNotificationText("Запись завершена. Замер PSTI...");
                         }
                     } else {
-                        onLog("[Мониторинг] Продолжение сеанса дыхания (следующий замер PSTI через " + (POSTI_INTERVAL_DUMPS - (sessionDumpCount % POSTI_INTERVAL_DUMPS)) + " дамп(а))...");
+                        onLog("[Мониторинг] Продолжение сеанса дыхания...");
                         if (isBound && hrvService != null) {
                             hrvService.updateNotificationText("HR: " + hr + " bpm | RMSSD: " + (hrv != null ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--"));
                         }
