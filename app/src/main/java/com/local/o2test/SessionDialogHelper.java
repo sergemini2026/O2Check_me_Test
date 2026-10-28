@@ -6,7 +6,10 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.text.Layout;
+import android.text.SpannableString;
 import android.text.TextUtils;
+import android.text.style.AlignmentSpan;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
@@ -33,6 +36,12 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 
 public class SessionDialogHelper {
+
+    private static SpannableString getCenteredTitle(String title) {
+        SpannableString s = new SpannableString(title);
+        s.setSpan(new AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER), 0, s.length(), 0);
+        return s;
+    }
 
     public static void openSessionsDialog(Context context, ExecutorService dbExecutor, long profileId, String profileName, boolean isAuthorized) {
         if (!isAuthorized || profileId == -1L) {
@@ -64,6 +73,7 @@ public class SessionDialogHelper {
         title.setTextSize(18);
         title.setPadding(10, 10, 10, 15);
         title.setTextColor(0xFFFFFFFF);
+        title.setGravity(Gravity.CENTER); // Центрирование заголовка
         rootLayout.addView(title);
 
         if (sessions == null || sessions.isEmpty()) {
@@ -185,7 +195,7 @@ public class SessionDialogHelper {
             }
 
             new AlertDialog.Builder(context)
-                    .setTitle("Удаление сессий")
+                    .setTitle(getCenteredTitle("Удаление сессий"))
                     .setMessage("Удалить выбранные сессии (" + selectedPositions.size() + ") и связанные с ними файлы (PDF и CSV)?")
                     .setPositiveButton("Удалить", (d, w) -> {
                         dbExecutor.execute(() -> {
