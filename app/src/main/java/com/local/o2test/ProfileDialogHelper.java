@@ -80,6 +80,7 @@ public class ProfileDialogHelper {
         title.setTextSize(18);
         title.setPadding(10, 10, 10, 15);
         title.setTextColor(0xFFFFFFFF);
+        title.setGravity(Gravity.CENTER); // Центрирование заголовка
         rootLayout.addView(title);
 
         ListView listView = new ListView(context);
@@ -191,7 +192,7 @@ public class ProfileDialogHelper {
             }
 
             new AlertDialog.Builder(context)
-                    .setTitle("Удаление профилей")
+                    .setTitle(getCenteredTitle("Удаление профилей"))
                     .setMessage("Удалить выбранные профили (" + selectedPositions.size() + "), а также все их сессии и файлы (PDF и CSV)?")
                     .setPositiveButton("Удалить", (d, w) -> {
                         dbExecutor.execute(() -> {
