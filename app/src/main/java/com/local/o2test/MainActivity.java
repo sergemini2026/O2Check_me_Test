@@ -17,6 +17,9 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.provider.Settings;
+import android.text.Layout;
+import android.text.SpannableString;
+import android.text.style.AlignmentSpan;
 import android.view.Gravity;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -99,6 +102,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private String activeProfileName = "Не выбран";
 
     private final ExecutorService dbExecutor = Executors.newSingleThreadExecutor();
+
+    private static SpannableString getCenteredTitle(String title) {
+        SpannableString s = new SpannableString(title);
+        s.setSpan(new AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER), 0, s.length(), 0);
+        return s;
+    }
 
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         @Override
@@ -279,16 +288,47 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     new TrainingDialogHelper.TrainingStartCallback() {
                         @Override
                         public void onTrainingSelected(String trainingType, String modeName, int[] pattern) {
-                            currentWorkoutMode = trainingType + " " + modeName;
-                            currentTrainingPattern = pattern;
-                            isTrainingSelected = true;
+                            if (isRecording) {
+                                AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
+                                builder.setTitle("Внимание");
+                                builder.setMessage("⚠️ [ВНИМАНИЕ] Изменение тренировочного режима приведет к перезапуску текущей сессии, сохраните данные.");
+                                builder.setPositiveButton("Перезапустить", (dialog, which) -> {
+                                    onLog("[ТРЕНИРОВКА] Перезапуск текущей сессии с новым режимом...");
+                                    stopMonitoring();
+                                    currentWorkoutMode = trainingType + " " + modeName;
+                                    currentTrainingPattern = pattern;
+                                    isTrainingSelected = true;
+                                    updateRightPanelStatus();
+                                    onLog("[ТРЕНИРОВКА ВЫБРАНА] " + currentWorkoutMode);
+                                    isTrainingModeActive = true;
+                                    startMonitoringPanel();
+                                });
+                                builder.setNegativeButton("Отмена", null);
+                                AlertDialog dialog = builder.create();
+                                dialog.setOnShowListener(d -> {
+                                    try {
+                                        int titleId = getResources().getIdentifier("alertTitle", "id", "android");
+                                        if (titleId > 0) {
+                                            TextView title = dialog.findViewById(titleId);
+                                            if (title != null) {
+                                                title.setGravity(Gravity.CENTER);
+                                            }
+                                        }
+                                    } catch (Exception ignored) {}
+                                });
+                                dialog.show();
+                            } else {
+                                currentWorkoutMode = trainingType + " " + modeName;
+                                currentTrainingPattern = pattern;
+                                isTrainingSelected = true;
 
-                            if (ui.btnHeart != null) {
-                                ui.btnHeart.setEnabled(true);
-                                ui.btnHeart.setAlpha(1.0f);
+                                if (ui.btnHeart != null) {
+                                    ui.btnHeart.setEnabled(true);
+                                    ui.btnHeart.setAlpha(1.0f);
+                                }
+                                updateRightPanelStatus();
+                                onLog("[ТРЕНИРОВКА ВЫБРАНА] " + currentWorkoutMode);
                             }
-                            updateRightPanelStatus();
-                            onLog("[ТРЕНИРОВКА ВЫБРАНА] " + currentWorkoutMode);
                         }
 
                         @Override
@@ -706,15 +746,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             onLog("[PSTI] Окно замера завершено, но данные RR отсутствуют.");
         }
 
-        // Переходим к следующему блоку паттерна
         currentBlockIndex++;
 
-        // Проверка завершения полного цикла тренировки по всем блокам паттерна
         if (currentBlockIndex >= currentTrainingPattern.length) {
             onLog("[ТРЕНИРОВКА] Полный цикл сессии успешно завершен! Выполнение автосохранения в базу данных...");
             saveSessionAutomatically();
 
-            // Бесшовный перезапуск нового цикла по тому же паттерну
             currentBlockIndex = 0;
             onLog("[ТРЕНИРОВКА] Сеанс бесшовно продолжается заново по паттерну.");
         }
@@ -1002,10 +1039,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         progressManager.restart();
                     }
 
-                    // Проверяем, набрали ли нужное количество дампов для текущего блока паттерна
                     int requiredDumpsForBlock = currentTrainingPattern[currentBlockIndex];
                     if (currentBlockCompletedDumps >= requiredDumpsForBlock) {
-                        currentBlockCompletedDumps = 0; // сбрасываем счетчик дампов для следующего блока
+                        currentBlockCompletedDumps = 0; 
                         startPostiTraceWindow();
                         if (isBound && hrvService != null) {
                             hrvService.updateNotificationText("Блок завершен. Замер PSTI...");
