@@ -2,6 +2,8 @@ package com.local.o2test;
 
 import android.app.AlertDialog;
 import android.content.Context;
+import android.view.Gravity;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.concurrent.ExecutorService;
@@ -35,7 +37,10 @@ public class TrainingDialogHelper {
             }
         });
         builder.setNegativeButton("Отмена", null);
-        builder.show();
+        
+        AlertDialog dialog = builder.create();
+        centerDialogTitle(dialog);
+        dialog.show();
     }
 
     private static void showIgztSubMenu(Context context, TrainingStartCallback callback) {
@@ -52,7 +57,10 @@ public class TrainingDialogHelper {
             Toast.makeText(context, "Модуль ИГГТ находится в разработке", Toast.LENGTH_SHORT).show();
         });
         builder.setNegativeButton("Назад", (d, w) -> openTrainingDialog(context, null, -1L, "", true, callback));
-        builder.show();
+        
+        AlertDialog dialog = builder.create();
+        centerDialogTitle(dialog);
+        dialog.show();
     }
 
     private static void showPranayamaSubMenu(Context context, TrainingStartCallback callback) {
@@ -77,6 +85,23 @@ public class TrainingDialogHelper {
             }
         });
         builder.setNegativeButton("Назад", (d, w) -> openTrainingDialog(context, null, -1L, "", true, callback));
-        builder.show();
+        
+        AlertDialog dialog = builder.create();
+        centerDialogTitle(dialog);
+        dialog.show();
+    }
+
+    private static void centerDialogTitle(AlertDialog dialog) {
+        dialog.setOnShowListener(d -> {
+            try {
+                int titleId = dialog.getContext().getResources().getIdentifier("alertTitle", "id", "android");
+                if (titleId > 0) {
+                    TextView title = dialog.findViewById(titleId);
+                    if (title != null) {
+                        title.setGravity(Gravity.CENTER);
+                    }
+                }
+            } catch (Exception ignored) {}
+        });
     }
 }
