@@ -57,9 +57,9 @@ public class TrainingDialogHelper {
 
     private static void showPranayamaSubMenu(Context context, TrainingStartCallback callback) {
         String[] pranayamaModes = {
-            "3-1-3-1-3-1 (Классический цикл)",
-            "3-1-2-1-1-1 (Укороченный адаптивный цикл)",
-            "1-1-1-1-1-1 (Короткий интенсивный цикл)"
+            "3-1-3-1-3-1 (Стандартный)",
+            "3-1-2-1-1-1 (Укороченный)",
+            "1-1-1-1-1-1 (Экспресс)"
         };
 
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
