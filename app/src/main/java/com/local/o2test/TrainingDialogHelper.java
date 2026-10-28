@@ -44,7 +44,18 @@ public class TrainingDialogHelper {
             }
         });
         builder.setNegativeButton("Отмена", null);
-        builder.show();
+        
+        AlertDialog dialog = builder.create();
+        dialog.setOnShowListener(d -> {
+            try {
+                int titleId = context.getResources().getIdentifier("alertTitle", "id", "android");
+                if (titleId > 0) {
+                    android.widget.TextView title = dialog.findViewById(titleId);
+                    if (title != null) title.setGravity(android.view.Gravity.CENTER);
+                }
+            } catch (Exception ignored) {}
+        });
+        dialog.show();
     }
 
     private static void showIgztSubMenu(Context context, TrainingStartCallback callback) {
@@ -61,7 +72,18 @@ public class TrainingDialogHelper {
             Toast.makeText(context, "Модуль ИГГТ находится в разработке", Toast.LENGTH_SHORT).show();
         });
         builder.setNegativeButton("Назад", (d, w) -> openTrainingDialog(context, null, -1L, "", true, callback));
-        builder.show();
+        
+        AlertDialog dialog = builder.create();
+        dialog.setOnShowListener(d -> {
+            try {
+                int titleId = context.getResources().getIdentifier("alertTitle", "id", "android");
+                if (titleId > 0) {
+                    android.widget.TextView title = dialog.findViewById(titleId);
+                    if (title != null) title.setGravity(android.view.Gravity.CENTER);
+                }
+            } catch (Exception ignored) {}
+        });
+        dialog.show();
     }
 
     private static void showPranayamaSubMenu(Context context, TrainingStartCallback callback) {
@@ -79,12 +101,27 @@ public class TrainingDialogHelper {
                 callback.onTrainingSelected("Пранаяма", "3-1-3-1-3-1", pattern);
                 Toast.makeText(context, "Выбран режим: Пранаяма (3-1-3-1-3-1)", Toast.LENGTH_SHORT).show();
             } else if (which == 1) {
-                Toast.makeText(context, "Режим 3-1-2-1-1-1 будет доступен на Шаге 3", Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(context, "Режим 1-1-1-1-1-1 будет доступен на Шаге 3", Toast.LENGTH_SHORT).show();
+                int[] pattern = {3, 2, 1};
+                callback.onTrainingSelected("Пранаяма", "3-1-2-1-1-1", pattern);
+                Toast.makeText(context, "Выбран режим: Пранаяма (3-1-2-1-1-1)", Toast.LENGTH_SHORT).show();
+            } else if (which == 2) {
+                int[] pattern = {1, 1, 1};
+                callback.onTrainingSelected("Пранаяма", "1-1-1-1-1-1", pattern);
+                Toast.makeText(context, "Выбран режим: Пранаяма (1-1-1-1-1-1)", Toast.LENGTH_SHORT).show();
             }
         });
         builder.setNegativeButton("Назад", (d, w) -> openTrainingDialog(context, null, -1L, "", true, callback));
-        builder.show();
+        
+        AlertDialog dialog = builder.create();
+        dialog.setOnShowListener(d -> {
+            try {
+                int titleId = context.getResources().getIdentifier("alertTitle", "id", "android");
+                if (titleId > 0) {
+                    android.widget.TextView title = dialog.findViewById(titleId);
+                    if (title != null) title.setGravity(android.view.Gravity.CENTER);
+                }
+            } catch (Exception ignored) {}
+        });
+        dialog.show();
     }
 }
