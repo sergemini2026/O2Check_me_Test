@@ -79,11 +79,11 @@ public class TrainingDialogHelper {
                 callback.onTrainingSelected("Пранаяма", "3-1 Стандарт", pattern);
                 Toast.makeText(context, "Выбран режим: Пранаяма 3-1 (Стандарт)", Toast.LENGTH_SHORT).show();
             } else if (which == 1) {
-                int[] pattern = {2, 2, 2};
+                int[] pattern = {2, 2};
                 callback.onTrainingSelected("Пранаяма", "2-1 Краткий", pattern);
                 Toast.makeText(context, "Выбран режим: Пранаяма 2-1 (Краткий)", Toast.LENGTH_SHORT).show();
             } else if (which == 2) {
-                int[] pattern = {1, 1, 1};
+                int[] pattern = {1};
                 callback.onTrainingSelected("Пранаяма", "1-1 Экспресс", pattern);
                 Toast.makeText(context, "Выбран режим: Пранаяма 1-1 (Экспресс)", Toast.LENGTH_SHORT).show();
             }
