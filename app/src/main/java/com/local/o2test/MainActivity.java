@@ -347,7 +347,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private void showSensorNotConnectedAlert() {
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle(getCenteredTitle("⚠️ [ВНИМАНИЕ!]"));
-        builder.setMessage("Датчики не подключены, обновите связь.");
+        builder.setMessage("\nДатчики не подключены, обновите связь.");
         builder.setPositiveButton("ОК", null);
         AlertDialog dialog = builder.create();
         dialog.show();
@@ -1023,6 +1023,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                             hrvService.updateNotificationText(blockInfo + " | HR: " + hr + " bpm | RMSSD: " + (hrv != null ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--"));
                         }
                     }
+
+                    // Синхронизация отображения номера блока в строке статуса на UI
+                    runOnUiThread(() -> updateRightPanelStatus());
+
                 } else {
                     onLog("[PSTI Дамп 100% внутри окна замера]");
                 }
