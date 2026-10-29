@@ -43,7 +43,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private static final int CALIBRATION_TARGET = 100;
     private static final int TARGET_RR_PER_DUMP = 300;     
     private static final int POSTI_WINDOW_SEC = 300;       
-    private static final int POSTI_INTERVAL_DUMPS = 3;     
 
     private O2BleManager bleManager;
     private PolarH10Manager polarManager;
@@ -281,30 +280,21 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         });
 
         if (ui.btnWorkout != null) {
-            ui.btnWorkout.setOnClickListener(v -> TrainingDialogHelper.openTrainingDialog(
-                    this, dbExecutor, activeProfileId, activeProfileName, isProfileAuthorized,
-                    new TrainingDialogHelper.TrainingStartCallback() {
-                        @Override
-                        public void onTrainingSelected(String trainingType, String modeName, int[] pattern) {
-                            currentWorkoutMode = trainingType + " " + modeName;
-                            currentTrainingPattern = pattern;
-                            isTrainingSelected = true;
-
-                            // Разблокируем кнопку Монитор после выбора тренировки
-                            if (ui.btnHeart != null) {
-                                ui.btnHeart.setEnabled(true);
-                                ui.btnHeart.setAlpha(1.0f);
-                            }
-                            updateRightPanelStatus();
-                            onLog("[ТРЕНИРОВКА ВЫБРАНА] " + currentWorkoutMode);
-                        }
-
-                        @Override
-                        public void onRequireProfileAuth() {
-                            openProfilesManager();
-                        }
-                    }
-            ));
+            ui.btnWorkout.setOnClickListener(v -> {
+                if (isRecording) {
+                    new AlertDialog.Builder(this)
+                        .setTitle(getCenteredTitle("⚠️ [ВНИМАНИЕ!]"))
+                        .setMessage("Смена режима тренировки во время текущей сессии приведет к ее перезапуску.")
+                        .setPositiveButton("Подтвердить", (d, w) -> {
+                            stopMonitoring();
+                            openTrainingSelectionDialog();
+                        })
+                        .setNegativeButton("Отменить", null)
+                        .show();
+                } else {
+                    openTrainingSelectionDialog();
+                }
+            });
         }
 
         if (ui.btnSessions != null) {
@@ -319,6 +309,38 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         setContentView(ui.mainLayout);
         PasswordAuthManager.checkMasterPasswordOnStart(this, getSharedPreferences(PREF_NAME, MODE_PRIVATE), authCallback);
+    }
+
+    private void openTrainingSelectionDialog() {
+        TrainingDialogHelper.openTrainingDialog(
+                this, dbExecutor, activeProfileId, activeProfileName, isProfileAuthorized,
+                new TrainingDialogHelper.TrainingStartCallback() {
+                    @Override
+                    public void onTrainingSelected(String trainingType, String modeName, int[] pattern) {
+                        currentWorkoutMode = trainingType + " " + modeName;
+                        currentTrainingPattern = pattern;
+                        isTrainingSelected = true;
+
+                        // Разблокируем кнопку Монитор после выбора тренировки
+                        if (ui.btnHeart != null) {
+                            ui.btnHeart.setEnabled(true);
+                            ui.btnHeart.setAlpha(1.0f);
+                        }
+                        updateRightPanelStatus();
+                        onLog("[ТРЕНИРОВКА ВЫБРАНА] " + currentWorkoutMode);
+
+                        if (isRecording) {
+                            isTrainingModeActive = true;
+                            startMonitoringPanel();
+                        }
+                    }
+
+                    @Override
+                    public void onRequireProfileAuth() {
+                        openProfilesManager();
+                    }
+                }
+        );
     }
 
     private void showSensorNotConnectedAlert() {
@@ -417,14 +439,16 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             if (!isTrainingSelected) {
                 ui.tvStatusValue.setText("Статус: Выберите тренировку" + pstiSuffix);
             } else {
-                // Исправлено: убраны лишние скобки вокруг режима тренировки
                 ui.tvStatusValue.setText("Статус: Готов " + currentWorkoutMode + pstiSuffix);
             }
         } else {
             if (isPostiActive) {
-                ui.tvStatusValue.setText(String.format(Locale.US, "Статус: Замер следа (PSTI) - %d сек%s", seconds, pstiSuffix));
+                ui.tvStatusValue.setText(String.format(Locale.US, "Статус: Замер следа (PSTI) - Блок 1/1%s", pstiSuffix));
             } else if (isTrainingModeActive) {
-                ui.tvStatusValue.setText("Статус: " + currentWorkoutMode + pstiSuffix);
+                int totalBlocks = (currentTrainingPattern != null && currentTrainingPattern.length > 0) ? currentTrainingPattern.length : 3;
+                int currentBlockNum = (sessionDumpCount % totalBlocks) + 1;
+                String blockInfo = String.format(Locale.US, "Блок %d/%d", currentBlockNum, totalBlocks);
+                ui.tvStatusValue.setText(String.format(Locale.US, "Статус: %s - %s%s", currentWorkoutMode, blockInfo, pstiSuffix));
             } else {
                 ui.tvStatusValue.setText("Статус: Пранаяма" + pstiSuffix);
             }
@@ -952,25 +976,29 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             int remMin = remainingSec / 60;
             int remSec = remainingSec % 60;
 
+            boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
+            int totalBlocks = (currentTrainingPattern != null && currentTrainingPattern.length > 0) ? currentTrainingPattern.length : 3;
+            int currentBlockNum = isPostiActive ? 1 : ((sessionDumpCount % totalBlocks) + 1);
+            String blockInfo = String.format(Locale.US, "Блок %d/%d", currentBlockNum, isPostiActive ? 1 : totalBlocks);
+
             if (rrCount < totalTarget) {
                 String rmssdStr = (hrv != null) ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--";
                 String logMsg = String.format(Locale.US,
-                        "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
-                        percent, rrCount, totalTarget, remMin, remSec, hr, rmssdStr);
+                        "[Сбор дампа] %s | %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
+                        blockInfo, percent, rrCount, totalTarget, remMin, remSec, hr, rmssdStr);
                 onLog(logMsg);
 
                 if (isBound && hrvService != null) {
-                    hrvService.updateNotificationText("HR: " + hr + " bpm | RMSSD: " + rmssdStr);
+                    hrvService.updateNotificationText(blockInfo + " | HR: " + hr + " bpm | RMSSD: " + rmssdStr);
                 }
             } else {
-                boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
                 if (isPostiActive && hrv != null) {
                     currentLfHfDisplayStr = String.format(Locale.US, "%.2f", hrv.lfHfRatio);
                 }
 
                 String logMsg = String.format(Locale.US,
-                        "[Дамп ГОТОВ 100%%] HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %s | TP: %.0f ms²",
-                        hr, hrv.rmssd, hrv.pnn50, currentLfHfDisplayStr, hrv.totalPower);
+                        "[Дамп ГОТОВ 100%%] %s | HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %s | TP: %.0f ms²",
+                        blockInfo, hr, hrv.rmssd, hrv.pnn50, currentLfHfDisplayStr, hrv.totalPower);
                 onLog(logMsg);
 
                 if (!isPostiActive) {
@@ -983,15 +1011,15 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         progressManager.restart();
                     }
 
-                    if (sessionDumpCount % POSTI_INTERVAL_DUMPS == 0) {
+                    if (sessionDumpCount % totalBlocks == 0) {
                         startPostiTraceWindow();
                         if (isBound && hrvService != null) {
-                            hrvService.updateNotificationText("Запись завершена. Замер PSTI...");
+                            hrvService.updateNotificationText("Блок 1/1 | Запись завершена. Замер PSTI...");
                         }
                     } else {
                         onLog("[Мониторинг] Продолжение сеанса дыхания...");
                         if (isBound && hrvService != null) {
-                            hrvService.updateNotificationText("HR: " + hr + " bpm | RMSSD: " + (hrv != null ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--"));
+                            hrvService.updateNotificationText(blockInfo + " | HR: " + hr + " bpm | RMSSD: " + (hrv != null ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--"));
                         }
                     }
                 } else {
