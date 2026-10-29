@@ -372,7 +372,7 @@ public class SessionExportManager {
 
         if (backupFile.exists()) {
             new AlertDialog.Builder(context)
-                .setTitle(getCenteredTitle("Внимание!"))
+                .setTitle(getCenteredTitle("⚠️ [ВНИМАНИЕ!]"))
                 .setMessage("Файл бэкапа уже существует. Перезаписать ранее созданную версию?")
                 .setPositiveButton("Да", (d, w) -> exportRunnable.run())
                 .setNegativeButton("Отмена", null)
@@ -387,7 +387,7 @@ public class SessionExportManager {
      */
     public static void importDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
         new AlertDialog.Builder(context)
-            .setTitle(getCenteredTitle("Внимание!"))
+            .setTitle(getCenteredTitle("⚠️ [ВНИМАНИЕ!]"))
             .setMessage("Импорт бэкапа перезапишет текущие профили и сессии. Продолжить?")
             .setPositiveButton("Да", (d, w) -> {
                 dbExecutor.execute(() -> {
