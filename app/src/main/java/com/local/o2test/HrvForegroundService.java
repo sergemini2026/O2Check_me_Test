@@ -29,11 +29,9 @@ public class HrvForegroundService extends Service {
     private final IBinder binder = new LocalBinder();
     private PowerManager.WakeLock wakeLock;
 
-    // Шаг 1: Архитектурное разделение буферов данных на базе HrvSessionManager
     private final HrvSessionManager trainingSessionManager = new HrvSessionManager();
     private final HrvSessionManager testSessionManager = new HrvSessionManager();
 
-    // Раздельные списки точек данных для экспорта в CSV (_training и _test)
     private final List<DataPoint> trainingDataPoints = Collections.synchronizedList(new ArrayList<>());
     private final List<DataPoint> testDataPoints = Collections.synchronizedList(new ArrayList<>());
 
@@ -57,7 +55,7 @@ public class HrvForegroundService extends Service {
     private AudioPacerEngine serviceAudioEngine;
     private MasterClock serviceMasterClock;
     private int currentAudioResId = R.raw.o2test_01;
-    private long currentModulationPeriodMs = 10000; // Текущий период модуляции по умолчанию (10 с)
+    private long currentModulationPeriodMs = 10000;
 
     public interface ServiceCallback {
         void onRrDataReceived(int rrMs, int hr);
@@ -175,6 +173,19 @@ public class HrvForegroundService extends Service {
 
     public void setAudioResource(int resId) {
         this.currentAudioResId = resId;
+        // Оперативная смена аудиодорожки прямо по ходу сессии
+        if (isRecording) {
+            if (serviceAudioEngine != null) {
+                serviceAudioEngine.stop();
+                serviceAudioEngine = null;
+            }
+            serviceAudioEngine = new AudioPacerEngine(this, currentAudioResId);
+            serviceAudioEngine.prepareAsync(() -> {
+                if (serviceAudioEngine != null && isRecording) {
+                    serviceAudioEngine.start();
+                }
+            });
+        }
     }
 
     public void setModulationPeriod(long durationMs) {
@@ -308,7 +319,6 @@ public class HrvForegroundService extends Service {
     }
 
     public void addRrInterval(int rrMs) {
-        // Разделение входящего потока данных по изолированным буферам
         if (isPostiTraceActive) {
             testSessionManager.addRrInterval(rrMs);
             return;
@@ -361,12 +371,6 @@ public class HrvForegroundService extends Service {
 
     private void processAndSaveWindow(List<Integer> windowData) {
         try {
-            /* 
-             * Внимание: расчеты спектральных показателей соотношения LF/HF в данном контуре 
-             * не являются чистыми показателями баланса вегетатики, так как они производятся во время 
-             * режима модуляции внешними источниками сигналов с частотой волн Майера, 
-             * и являются синтетическим показателем — Индекс Аттрактора.
-             */
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(windowData);
             if (metrics != null && metrics.isValid) {
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
