@@ -280,21 +280,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         });
 
         if (ui.btnWorkout != null) {
-            ui.btnWorkout.setOnClickListener(v -> {
-                if (isRecording) {
-                    new AlertDialog.Builder(this)
-                        .setTitle(getCenteredTitle("⚠️ [ВНИМАНИЕ!]"))
-                        .setMessage("Смена режима тренировки во время текущей сессии приведет к ее перезапуску.")
-                        .setPositiveButton("Подтвердить", (d, w) -> {
-                            stopMonitoring();
-                            openTrainingSelectionDialog();
-                        })
-                        .setNegativeButton("Отменить", null)
-                        .show();
-                } else {
-                    openTrainingSelectionDialog();
-                }
-            });
+            ui.btnWorkout.setOnClickListener(v -> openTrainingSelectionDialog());
         }
 
         if (ui.btnSessions != null) {
@@ -317,21 +303,36 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 new TrainingDialogHelper.TrainingStartCallback() {
                     @Override
                     public void onTrainingSelected(String trainingType, String modeName, int[] pattern) {
-                        currentWorkoutMode = trainingType + " " + modeName;
-                        currentTrainingPattern = pattern;
-                        isTrainingSelected = true;
+                        Runnable applySelection = () -> {
+                            currentWorkoutMode = trainingType + " " + modeName;
+                            currentTrainingPattern = pattern;
+                            isTrainingSelected = true;
 
-                        // Разблокируем кнопку Монитор после выбора тренировки
-                        if (ui.btnHeart != null) {
-                            ui.btnHeart.setEnabled(true);
-                            ui.btnHeart.setAlpha(1.0f);
-                        }
-                        updateRightPanelStatus();
-                        onLog("[ТРЕНИРОВКА ВЫБРАНА] " + currentWorkoutMode);
+                            if (ui.btnHeart != null) {
+                                ui.btnHeart.setEnabled(true);
+                                ui.btnHeart.setAlpha(1.0f);
+                            }
+                            updateRightPanelStatus();
+                            onLog("[ТРЕНИРОВКА ВЫБРАНА] " + currentWorkoutMode);
+
+                            if (isRecording) {
+                                isTrainingModeActive = true;
+                                startMonitoringPanel();
+                            }
+                        };
 
                         if (isRecording) {
-                            isTrainingModeActive = true;
-                            startMonitoringPanel();
+                            new AlertDialog.Builder(MainActivity.this)
+                                .setTitle(getCenteredTitle("⚠️ [ВНИМАНИЕ!]"))
+                                .setMessage("Смена режима тренировки во время текущей сессии приведет к ее перезапуску.")
+                                .setPositiveButton("Подтвердить", (d, w) -> {
+                                    stopMonitoring();
+                                    applySelection.run();
+                                })
+                                .setNegativeButton("Отменить", null)
+                                .show();
+                        } else {
+                            applySelection.run();
                         }
                     }
 
