@@ -44,18 +44,7 @@ public class TrainingDialogHelper {
             }
         });
         builder.setNegativeButton("Отмена", null);
-        
-        AlertDialog dialog = builder.create();
-        dialog.setOnShowListener(d -> {
-            try {
-                int titleId = context.getResources().getIdentifier("alertTitle", "id", "android");
-                if (titleId > 0) {
-                    android.widget.TextView title = dialog.findViewById(titleId);
-                    if (title != null) title.setGravity(android.view.Gravity.CENTER);
-                }
-            } catch (Exception ignored) {}
-        });
-        dialog.show();
+        builder.show();
     }
 
     private static void showIgztSubMenu(Context context, TrainingStartCallback callback) {
@@ -72,25 +61,14 @@ public class TrainingDialogHelper {
             Toast.makeText(context, "Модуль ИГГТ находится в разработке", Toast.LENGTH_SHORT).show();
         });
         builder.setNegativeButton("Назад", (d, w) -> openTrainingDialog(context, null, -1L, "", true, callback));
-        
-        AlertDialog dialog = builder.create();
-        dialog.setOnShowListener(d -> {
-            try {
-                int titleId = context.getResources().getIdentifier("alertTitle", "id", "android");
-                if (titleId > 0) {
-                    android.widget.TextView title = dialog.findViewById(titleId);
-                    if (title != null) title.setGravity(android.view.Gravity.CENTER);
-                }
-            } catch (Exception ignored) {}
-        });
-        dialog.show();
+        builder.show();
     }
 
     private static void showPranayamaSubMenu(Context context, TrainingStartCallback callback) {
         String[] pranayamaModes = {
-            "3-1-3-1-3-1 (Стандартный)",
-            "3-1-2-1-1-1 (Укороченный)",
-            "1-1-1-1-1-1 (Экспресс)"
+            "3-1 (Стандарт)",
+            "2-1 (Краткий)",
+            "1-1 (Экспресс)"
         };
 
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
@@ -98,30 +76,19 @@ public class TrainingDialogHelper {
         builder.setItems(pranayamaModes, (dialog, which) -> {
             if (which == 0) {
                 int[] pattern = {3, 3, 3};
-                callback.onTrainingSelected("Пранаяма", "3-1-3-1-3-1", pattern);
-                Toast.makeText(context, "Выбран режим: Пранаяма (3-1-3-1-3-1)", Toast.LENGTH_SHORT).show();
+                callback.onTrainingSelected("Пранаяма", "3-1 Стандарт", pattern);
+                Toast.makeText(context, "Выбран режим: Пранаяма 3-1 (Стандарт)", Toast.LENGTH_SHORT).show();
             } else if (which == 1) {
-                int[] pattern = {3, 2, 1};
-                callback.onTrainingSelected("Пранаяма", "3-1-2-1-1-1", pattern);
-                Toast.makeText(context, "Выбран режим: Пранаяма (3-1-2-1-1-1)", Toast.LENGTH_SHORT).show();
+                int[] pattern = {2, 2, 2};
+                callback.onTrainingSelected("Пранаяма", "2-1 Краткий", pattern);
+                Toast.makeText(context, "Выбран режим: Пранаяма 2-1 (Краткий)", Toast.LENGTH_SHORT).show();
             } else if (which == 2) {
                 int[] pattern = {1, 1, 1};
-                callback.onTrainingSelected("Пранаяма", "1-1-1-1-1-1", pattern);
-                Toast.makeText(context, "Выбран режим: Пранаяма (1-1-1-1-1-1)", Toast.LENGTH_SHORT).show();
+                callback.onTrainingSelected("Пранаяма", "1-1 Экспресс", pattern);
+                Toast.makeText(context, "Выбран режим: Пранаяма 1-1 (Экспресс)", Toast.LENGTH_SHORT).show();
             }
         });
         builder.setNegativeButton("Назад", (d, w) -> openTrainingDialog(context, null, -1L, "", true, callback));
-        
-        AlertDialog dialog = builder.create();
-        dialog.setOnShowListener(d -> {
-            try {
-                int titleId = context.getResources().getIdentifier("alertTitle", "id", "android");
-                if (titleId > 0) {
-                    android.widget.TextView title = dialog.findViewById(titleId);
-                    if (title != null) title.setGravity(android.view.Gravity.CENTER);
-                }
-            } catch (Exception ignored) {}
-        });
-        dialog.show();
+        builder.show();
     }
 }
