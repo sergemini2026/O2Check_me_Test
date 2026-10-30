@@ -6,12 +6,14 @@ public class SessionSnapshot {
     private final HrvCalculator.Metrics metrics;
     private final float modulationSec;
     private final boolean isPstiPhase;
+    private final boolean isDumpSnapshot;
 
     public SessionSnapshot(long timestamp, HrvCalculator.Metrics metrics) {
         this.timestamp = timestamp;
         this.metrics = metrics;
         this.modulationSec = 10.0f; // Значение по умолчанию
         this.isPstiPhase = false;
+        this.isDumpSnapshot = false;
     }
 
     public SessionSnapshot(long timestamp, HrvCalculator.Metrics metrics, float modulationSec) {
@@ -19,6 +21,7 @@ public class SessionSnapshot {
         this.metrics = metrics;
         this.modulationSec = modulationSec;
         this.isPstiPhase = false;
+        this.isDumpSnapshot = false;
     }
 
     public SessionSnapshot(long timestamp, HrvCalculator.Metrics metrics, float modulationSec, boolean isPstiPhase) {
@@ -26,6 +29,15 @@ public class SessionSnapshot {
         this.metrics = metrics;
         this.modulationSec = modulationSec;
         this.isPstiPhase = isPstiPhase;
+        this.isDumpSnapshot = false;
+    }
+
+    public SessionSnapshot(long timestamp, HrvCalculator.Metrics metrics, float modulationSec, boolean isPstiPhase, boolean isDumpSnapshot) {
+        this.timestamp = timestamp;
+        this.metrics = metrics;
+        this.modulationSec = modulationSec;
+        this.isPstiPhase = isPstiPhase;
+        this.isDumpSnapshot = isDumpSnapshot;
     }
 
     /**
@@ -54,6 +66,13 @@ public class SessionSnapshot {
      */
     public boolean isPstiPhase() {
         return isPstiPhase;
+    }
+
+    /**
+     * Признак итогового снимка по завершении 300-ударного дампа
+     */
+    public boolean isDumpSnapshot() {
+        return isDumpSnapshot;
     }
 
     /**
