@@ -710,7 +710,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             currentLfHfDisplayStr = String.format(Locale.US, "%.2f", testLfHf);
             onLog(String.format(Locale.US, "[LF/HF ТЕСТ] Отфильтрованный LF/HF для тестового окна: %.2f", testLfHf));
 
-            // Вычисление детальных метрик для итогового снимка теста PSTI
+            // Вычисление детальных метрик для итогового снимка теста PSTI (isDumpSnapshot = true, isPstiPhase = true)
             HrvCalculator.Metrics postiMetrics = HrvCalculator.calculate(snapshotRr);
             if (postiMetrics != null && postiMetrics.isValid) {
                 float currentModulationSec = fixedModulationPeriodMs / 1000.0f;
@@ -718,7 +718,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         System.currentTimeMillis(),
                         postiMetrics,
                         currentModulationSec,
-                        true // Флаг фазы теста PSTI
+                        true, // isPstiPhase = true
+                        true  // isDumpSnapshot = true
                 );
                 if (isBound && hrvService != null) {
                     hrvService.addSnapshot(postiSummarySnapshot);
@@ -981,6 +982,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         @Override
         public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
+            boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
+            if (isPostiActive) return; // Игнорируем тренировочные дампы во время активного теста PSTI[span_2](start_span)[span_2](end_span)
+
             int totalTarget = TARGET_RR_PER_DUMP; // 300
             float percent = Math.min(100.0f, (rrCount / (float) totalTarget) * 100.0f);
             int remainingBeats = Math.max(0, totalTarget - rrCount);
@@ -992,10 +996,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             int remMin = remainingSec / 60;
             int remSec = remainingSec % 60;
 
-            boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
             int totalBlocks = (currentTrainingPattern != null && currentTrainingPattern.length > 0) ? currentTrainingPattern.length : 3;
-            int currentBlockNum = isPostiActive ? 1 : ((sessionDumpCount % totalBlocks) + 1);
-            String blockInfo = String.format(Locale.US, "Блок %d/%d", currentBlockNum, isPostiActive ? 1 : totalBlocks);
+            int currentBlockNum = (sessionDumpCount % totalBlocks) + 1;
+            String blockInfo = String.format(Locale.US, "Блок %d/%d", currentBlockNum, totalBlocks);
 
             if (rrCount < totalTarget) {
                 String rmssdStr = (hrv != null) ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--";
@@ -1008,43 +1011,49 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     hrvService.updateNotificationText(blockInfo + " | HR: " + hr + " bpm | RMSSD: " + rmssdStr);
                 }
             } else {
-                if (isPostiActive && hrv != null) {
-                    currentLfHfDisplayStr = String.format(Locale.US, "%.2f", hrv.lfHfRatio);
-                }
-
                 String logMsg = String.format(Locale.US,
                         "[Дамп ГОТОВ 100%%] %s | HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %s | TP: %.0f ms²",
                         blockInfo, hr, hrv.rmssd, hrv.pnn50, currentLfHfDisplayStr, hrv.totalPower);
                 onLog(logMsg);
 
-                if (!isPostiActive) {
-                    sessionDumpCount++;
-                    completedCyclesInCurrentDump = 0;
+                sessionDumpCount++;
+                completedCyclesInCurrentDump = 0;
 
-                    onLog(String.format(Locale.US, "[Дамп #%d завершен]", sessionDumpCount));
+                onLog(String.format(Locale.US, "[Дамп #%d завершен]", sessionDumpCount));
 
-                    if (progressManager != null) {
-                        progressManager.restart();
+                // Сохраняем итоговый снимок тренировочного дампа (isDumpSnapshot = true, isPstiPhase = false)
+                if (hrv != null && hrv.isValid) {
+                    float currentModulationSec = fixedModulationPeriodMs / 1000.0f;
+                    SessionSnapshot trainingDumpSnapshot = new SessionSnapshot(
+                            System.currentTimeMillis(),
+                            hrv,
+                            currentModulationSec,
+                            false, // isPstiPhase = false
+                            true   // isDumpSnapshot = true
+                    );
+                    if (isBound && hrvService != null) {
+                        hrvService.addSnapshot(trainingDumpSnapshot);
                     }
-
-                    if (sessionDumpCount % totalBlocks == 0) {
-                        startPostiTraceWindow();
-                        if (isBound && hrvService != null) {
-                            hrvService.updateNotificationText("Блок 1/1 | Запись завершена. Замер PSTI...");
-                        }
-                    } else {
-                        onLog("[Мониторинг] Продолжение сеанса дыхания...");
-                        if (isBound && hrvService != null) {
-                            hrvService.updateNotificationText(blockInfo + " | HR: " + hr + " bpm | RMSSD: " + (hrv != null ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--"));
-                        }
-                    }
-
-                    // Синхронизация отображения номера блока в строке статуса на UI
-                    runOnUiThread(() -> updateRightPanelStatus());
-
-                } else {
-                    onLog("[PSTI Дамп 100% внутри окна замера]");
                 }
+
+                if (progressManager != null) {
+                    progressManager.restart();
+                }
+
+                if (sessionDumpCount % totalBlocks == 0) {
+                    startPostiTraceWindow();
+                    if (isBound && hrvService != null) {
+                        hrvService.updateNotificationText("Блок 1/1 | Запись завершена. Замер PSTI...");
+                    }
+                } else {
+                    onLog("[Мониторинг] Продолжение сеанса дыхания...");
+                    if (isBound && hrvService != null) {
+                        hrvService.updateNotificationText(blockInfo + " | HR: " + hr + " bpm | RMSSD: " + (hrv != null ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--"));
+                    }
+                }
+
+                // Синхронизация отображения номера блока в строке статуса на UI
+                runOnUiThread(() -> updateRightPanelStatus());
 
                 if (hrv != null) {
                     String rmssdStr = String.format(Locale.US, "%.1f ms", hrv.rmssd);
