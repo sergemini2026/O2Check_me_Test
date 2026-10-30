@@ -401,6 +401,12 @@ public class HrvForegroundService extends Service {
         }
     }
 
+    public void addSnapshot(SessionSnapshot snapshot) {
+        synchronized (snapshotBuffer) {
+            snapshotBuffer.add(snapshot);
+        }
+    }
+
     @Override
     public void onDestroy() {
         stopAudioAndClock();
