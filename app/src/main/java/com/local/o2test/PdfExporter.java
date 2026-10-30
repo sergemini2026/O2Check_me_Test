@@ -1,17 +1,12 @@
 package com.local.o2test;
 
-import android.content.ContentResolver;
-import android.content.ContentValues;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.pdf.PdfDocument;
-import android.net.Uri;
-import android.os.Build;
 import android.os.Environment;
-import android.provider.MediaStore;
 import android.text.Layout;
 import android.text.StaticLayout;
 import android.text.TextPaint;
@@ -40,6 +35,7 @@ public class PdfExporter {
     private static final int PAGE_WIDTH = 595;
     private static final int PAGE_HEIGHT = 842;
     private static final int MARGIN = 40;
+    private static final int DUMP_RR_SIZE = 300;
 
     public static void generateHrvPdfReport(
             Context context,
@@ -59,25 +55,23 @@ public class PdfExporter {
         PdfDocument document = new PdfDocument();
         SimpleDateFormat sdf = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.US);
 
-        double avgRmssd = 0, avgSdnn = 0, avgSi = 0, avgLfHf = 0, avgTp = 0, avgSd1 = 0, avgSd2 = 0, avgSampEn = 0, avgDfa = 0;
+        double avgRmssd = 0, avgSdnn = 0, avgSi = 0, avgLfHf = 0, avgTp = 0, avgSampEn = 0, avgDfa = 0;
         int validCount = 0;
-        if (!snapshots.isEmpty()) {
+        if (snapshots != null && !snapshots.isEmpty()) {
             for (HrvSnapshotEntity s : snapshots) {
                 if (s.getBaevskySi() > 300 || s.getBaevskySi() <= 0) continue;
                 avgRmssd += s.getRmssd();
                 avgSdnn += s.getSdnn();
                 avgSi += s.getBaevskySi();
-                
+
                 double lf = s.getLfPower();
                 double hf = s.getHfPower();
                 double lfHfVal = (lf + hf > 0) ? (2.0 * lf / (lf + hf)) : s.getLfHfRatio();
                 if (lfHfVal < 0) lfHfVal = 0;
                 if (lfHfVal > 2.0) lfHfVal = 2.0;
                 avgLfHf += lfHfVal;
-                
+
                 avgTp += s.getTotalPower();
-                avgSd1 += s.getSd1();
-                avgSd2 += s.getSd2();
                 avgSampEn += s.getSampleEntropy();
                 avgDfa += s.getDfaAlpha1();
                 validCount++;
@@ -88,18 +82,18 @@ public class PdfExporter {
                 avgSi /= validCount;
                 avgLfHf /= validCount;
                 avgTp /= validCount;
-                avgSd1 /= validCount;
-                avgSd2 /= validCount;
                 avgSampEn /= validCount;
                 avgDfa /= validCount;
             }
         }
 
         try {
+            int currentPageNumber = 1;
+
             // ==========================================
-            // СТРАНИЦА 1: Шапка, Сводка, Клинический статус, Гистограмма PSTI, Гистограмма RR, Графики
+            // СТРАНИЦА 1: Сводка, Заключение, Гистограмма RR, Пуанкаре
             // ==========================================
-            PdfDocument.PageInfo pageInfo1 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 1).create();
+            PdfDocument.PageInfo pageInfo1 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
             PdfDocument.Page page1 = document.startPage(pageInfo1);
             Canvas canvas1 = page1.getCanvas();
             canvas1.drawColor(Color.WHITE);
@@ -135,7 +129,6 @@ public class PdfExporter {
 
             double iaPercent = Math.max(0.0, Math.min(100.0, (avgLfHf - 1.0) * 100.0));
             drawMetricRow(canvas1, 95, "Индекс Аттрактора (IA):", String.format(Locale.US, "%.1f%%", iaPercent), "Степень вовлечения в когерентность (0-100%)");
-
             drawMetricRow(canvas1, 108, "Индекс PSTI (след):", String.format(Locale.US, "%.1f%% (ratio: %.2f)", pstiScore, pstiRmssdRatio), "Консолидация барорефлекса (след. реакция)");
             drawMetricRow(canvas1, 121, "Индекс Баевского (SI):", String.format(Locale.US, "%.1f у.е.", avgSi), "Индекс напряжения регуляторных систем");
             drawMetricRow(canvas1, 134, "Энтропия (SampEn):", String.format(Locale.US, "%.2f", avgSampEn), "Хаотичность и сложность регуляции");
@@ -144,7 +137,7 @@ public class PdfExporter {
             drawMetricRow(canvas1, 173, "SDNN (мск):", String.format(Locale.US, "%.1f", avgSdnn), "Общая вариабельность ритма");
             drawMetricRow(canvas1, 186, "LF/HF (средний):", String.format(Locale.US, "%.2f", avgLfHf), "Баланс симпатической и вагусной активности");
             drawMetricRow(canvas1, 199, "Общая мощность (TP):", String.format(Locale.US, "%.0f ms²", avgTp), "Суммарный вегетативный резерв");
-            
+
             textPaint.setTextSize(11f);
             textPaint.setFakeBoldText(true);
             textPaint.setColor(Color.parseColor("#0F172A"));
@@ -152,16 +145,15 @@ public class PdfExporter {
 
             String statusTitle, statusDesc;
             int statusColor;
-
             if (avgSi < 50) {
                 statusTitle = "ВАГОТОНИЯ (Парасимпатическое преобладание)";
                 statusDesc = "Выраженное преобладание парасимпатического отдела. Организм находится в зоне глубокого восстановления, отдыха или спортивной брадикардии.";
                 statusColor = Color.parseColor("#047857");
-            } else if (avgSi >= 50 && avgSi <= 150) {
+            } else if (avgSi <= 150) {
                 statusTitle = "НОРМА (Сбалансированная вегетативная регуляция)";
                 statusDesc = "Оптимальный уровень адаптационных резервов. Вегетативная нервная система сбалансирована, нагрузка переносится гармонично.";
                 statusColor = Color.parseColor("#0284C7");
-            } else if (avgSi > 150 && avgSi <= 500) {
+            } else if (avgSi <= 500) {
                 statusTitle = "УМЕРЕННЫЙ СТРЕСС / СИМПАТИКОТОНИЯ";
                 statusDesc = "Преобладание симпатического тонуса. Указывает на мобилизацию ресурсов, активную работу, умеренную нагрузку или начальную фазу утомления.";
                 statusColor = Color.parseColor("#B45309");
@@ -198,104 +190,206 @@ public class PdfExporter {
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
             canvas1.restore();
 
-            drawPstiHistoryHistogram(canvas1, pstiHistory, MARGIN, 273, PAGE_WIDTH - 2 * MARGIN, 55, "Динамика индекса PSTI по сессиям (динамика: рост=зеленый, равно=синий, спад=красный)");
-            drawHistogram(canvas1, rawRrList, MARGIN, 336, PAGE_WIDTH - 2 * MARGIN, 60, Color.parseColor("#DC2626"), "Гистограмма RR-интервалов (мс) — распределение ритма");
-            
+            // Гистограмма RR-интервалов на странице 1
+            drawHistogram(canvas1, rawRrList, MARGIN, 273, PAGE_WIDTH - 2 * MARGIN, 65, Color.parseColor("#DC2626"), "Гистограмма RR-интервалов (мс) — распределение ритма");
+
             TextPaint histExpPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
             histExpPaint.setTextSize(7.5f);
             histExpPaint.setColor(Color.parseColor("#334155"));
+            String histLine = "Ширина и форма: Широкое основание («колокол») говорит о высокой вариабельности. Узкий, высокий пик — о ригидности ритма.";
+            canvas1.save();
+            canvas1.translate(MARGIN, 343);
+            StaticLayout.Builder.obtain(histLine, 0, histLine.length(), histExpPaint, PAGE_WIDTH - 2 * MARGIN)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
+            canvas1.restore();
 
-            String[] histLines = {
-                "Ширина и форма: Широкое основание («колокол») говорит о высокой вариабельности. Узкий, высокий пик — о ригидности ритма.",
-                "Динамика PSTI: Отображает до 15 последних сессий. Зеленый столбец — рост показателя, синий — стабильность, красный — снижение."
+            // Скатертограмма Пуанкаре с описанием перенесена на страницу 1
+            textPaint.setColor(Color.parseColor("#0F172A"));
+            textPaint.setTextSize(11f);
+            textPaint.setFakeBoldText(true);
+            canvas1.drawText("3. Скатертограмма Пуанкаре и анализ геометрии", MARGIN, 360, textPaint);
+
+            drawPoincarePlot(canvas1, rawRrList, MARGIN, 368, PAGE_WIDTH - 2 * MARGIN, 340);
+
+            textPaint.setTextSize(9.5f);
+            textPaint.setFakeBoldText(true);
+            textPaint.setColor(Color.parseColor("#0F172A"));
+            canvas1.drawText("Расшифровка показателей Пуанкаре:", MARGIN, 715, textPaint);
+
+            TextPaint poincareDescPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+            poincareDescPaint.setTextSize(8.0f);
+            poincareDescPaint.setColor(Color.parseColor("#334155"));
+
+            String[] poincareDescriptions = {
+                "• Смысл графика: Каждый удар сердца сравнивается с предыдущим. Точки образуют «облако», показывающее общую стабильность ритма.",
+                "• Цветовой градиент: От серовато-голубых точек (начало) до насыщенных темно-синих (активные фазы во время теста).",
+                "• SD1 (поперечная ось): Парасимпатический тонус | SD2 (продольная ось): Долгосрочные резервы и стабильность."
             };
 
-            int histTextY = 401;
-            for (String line : histLines) {
+            int currentDescY = 726;
+            for (String desc : poincareDescriptions) {
                 canvas1.save();
-                canvas1.translate(MARGIN, histTextY);
-                StaticLayout layout = StaticLayout.Builder.obtain(line, 0, line.length(), histExpPaint, PAGE_WIDTH - 2 * MARGIN)
-                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                        .build();
+                canvas1.translate(MARGIN, currentDescY);
+                StaticLayout layout = StaticLayout.Builder.obtain(desc, 0, desc.length(), poincareDescPaint, PAGE_WIDTH - 2 * MARGIN)
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL).build();
                 layout.draw(canvas1);
                 canvas1.restore();
-                histTextY += layout.getHeight() + 3;
+                currentDescY += layout.getHeight() + 2;
             }
-
-            drawOxygenationChart(canvas1, dataPoints, MARGIN, 431, PAGE_WIDTH - 2 * MARGIN, 50, Color.parseColor("#0284C7"), "Динамика оксигенации SpO2 (%)");
-            drawHeartRateChart(canvas1, dataPoints, MARGIN, 489, PAGE_WIDTH - 2 * MARGIN, 50, Color.parseColor("#10B981"), "Динамика ЧСС (HR, уд/мин)");
 
             document.finishPage(page1);
 
             // ==========================================
-            // СТРАНИЦА 2: Скатертограмма Пуанкаре + Расшифровка
+            // СТРАНИЦА 2+: Динамика PSTI по сессиям (по 15 штук в строке)
             // ==========================================
-            PdfDocument.PageInfo pageInfo2 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 2).create();
+            PdfDocument.PageInfo pageInfo2 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
             PdfDocument.Page page2 = document.startPage(pageInfo2);
             Canvas canvas2 = page2.getCanvas();
             canvas2.drawColor(Color.WHITE);
 
             textPaint.setColor(Color.parseColor("#0F172A"));
-            textPaint.setTextSize(14);
+            textPaint.setTextSize(14f);
             textPaint.setFakeBoldText(true);
-            canvas2.drawText("3. Скатертограмма Пуанкаре и анализ геометрии", MARGIN, 45, textPaint);
+            canvas2.drawText("4. Динамика индекса PSTI по сессиям", MARGIN, 45, textPaint);
 
-            drawPoincarePlot(canvas2, rawRrList, MARGIN, 65, PAGE_WIDTH - 2 * MARGIN, 340);
+            int startYPsti = 65;
+            if (pstiHistory == null || pstiHistory.isEmpty()) {
+                textPaint.setTextSize(9.5f);
+                textPaint.setFakeBoldText(false);
+                textPaint.setColor(Color.parseColor("#64748B"));
+                canvas2.drawText("Нет предшествующих сессий для отображения динамики PSTI.", MARGIN, startYPsti + 20, textPaint);
+            } else {
+                int totalPsti = pstiHistory.size();
+                int itemsPerRow = 15;
+                int rowsCount = (int) Math.ceil((double) totalPsti / itemsPerRow);
 
-            textPaint.setTextSize(11);
-            textPaint.setFakeBoldText(true);
+                for (int r = 0; r < rowsCount; r++) {
+                    int subStart = r * itemsPerRow;
+                    int subEnd = Math.min(subStart + itemsPerRow, totalPsti);
+                    List<Double> subHistory = pstiHistory.subList(subStart, subEnd);
+
+                    String title = String.format(Locale.US, "Сессии %d - %d (рост=зеленый, равно=синий, спад=красный)", subStart + 1, subEnd);
+                    drawPstiGridRow(canvas2, subHistory, MARGIN, startYPsti, PAGE_WIDTH - 2 * MARGIN, 75, title);
+                    startYPsti += 90;
+
+                    if (startYPsti + 90 > PAGE_HEIGHT - MARGIN && r < rowsCount - 1) {
+                        document.finishPage(page2);
+                        pageInfo2 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
+                        page2 = document.startPage(pageInfo2);
+                        canvas2 = page2.getCanvas();
+                        canvas2.drawColor(Color.WHITE);
+                        startYPsti = 45;
+                    }
+                }
+            }
+
+            // ==========================================
+            // ПОПАРНЫЕ ГРАФИКИ ОКСИГЕНАЦИИ И ПУЛЬСА (По дампам = 300 RR)
+            // ==========================================
+            int dumpTotal = (int) Math.ceil((double) rawRrList.size() / DUMP_RR_SIZE);
+            if (dumpTotal < 1) dumpTotal = 1;
+
+            int totalPatternBlocks = 3;
+            if (workoutMode.contains("2-1")) totalPatternBlocks = 2;
+            else if (workoutMode.contains("1-1")) totalPatternBlocks = 1;
+
+            int currentYCharts = startYPsti + 20;
+            if (currentYCharts + 160 > PAGE_HEIGHT - MARGIN) {
+                document.finishPage(page2);
+                pageInfo2 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
+                page2 = document.startPage(pageInfo2);
+                canvas2 = page2.getCanvas();
+                canvas2.drawColor(Color.WHITE);
+                currentYCharts = 45;
+            }
+
             textPaint.setColor(Color.parseColor("#0F172A"));
-            canvas2.drawText("Расшифровка показателей Пуанкаре:", MARGIN, 420, textPaint);
+            textPaint.setTextSize(13f);
+            textPaint.setFakeBoldText(true);
+            canvas2.drawText("5. Динамика SpO2 и ЧСС по дампам сессии (по 300 RR)", MARGIN, currentYCharts, textPaint);
+            currentYCharts += 15;
 
-            TextPaint poincareDescPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-            poincareDescPaint.setTextSize(9.0f);
-            poincareDescPaint.setColor(Color.parseColor("#334155"));
+            int pointsPerDump = Math.max(1, dataPoints.size() / dumpTotal);
 
-            String[] poincareDescriptions = {
-                "• Смысл графика: Каждый удар сердца сравнивается с предыдущим. Точки образуют «облако», показывающее общую стабильность ритма.",
-                "• Цветовой градиент: От серовато-голубых точек (начало сеанса) до насыщенных темно-синих (активные фазы во время теста).",
-                "• SD1 (поперечная ось): Отвечает за короткие интервалы и парасимпатический тонус.",
-                "• SD2 (продольная ось): Характеризует долгосрочные резервы и стабильность работы сердца."
-            };
+            for (int d = 0; d < dumpTotal; d++) {
+                if (currentYCharts + 165 > PAGE_HEIGHT - MARGIN) {
+                    document.finishPage(page2);
+                    pageInfo2 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
+                    page2 = document.startPage(pageInfo2);
+                    canvas2 = page2.getCanvas();
+                    canvas2.drawColor(Color.WHITE);
+                    currentYCharts = 45;
+                }
 
-            int currentDescY = 434;
-            int availableWidth = PAGE_WIDTH - 2 * MARGIN;
+                int blockNumber = (d % totalPatternBlocks) + 1;
+                boolean isPstiPhase = (d >= totalPatternBlocks);
+                String phaseStr = isPstiPhase ? "Тест PSTI" : "Тренировка";
 
-            for (String desc : poincareDescriptions) {
-                canvas2.save();
-                canvas2.translate(MARGIN, currentDescY);
-                StaticLayout layout = StaticLayout.Builder.obtain(desc, 0, desc.length(), poincareDescPaint, availableWidth)
-                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                        .build();
-                layout.draw(canvas2);
-                canvas2.restore();
-                currentDescY += layout.getHeight() + 4;
+                String headerTitle = String.format(Locale.US, "Блок %d/%d | %s | Фаза: %s",
+                        blockNumber, isPstiPhase ? 1 : totalPatternBlocks, workoutMode, phaseStr);
+
+                int pStart = d * pointsPerDump;
+                int pEnd = Math.min(pStart + pointsPerDump, dataPoints.size());
+                List<DataPoint> dumpPoints = (pStart < dataPoints.size()) ? dataPoints.subList(pStart, pEnd) : new ArrayList<>();
+
+                drawOxygenationChart(canvas2, dumpPoints, MARGIN, currentYCharts, PAGE_WIDTH - 2 * MARGIN, 45, Color.parseColor("#0284C7"), headerTitle + " — SpO2 (%)");
+                currentYCharts += 50;
+
+                drawHeartRateChart(canvas2, dumpPoints, MARGIN, currentYCharts, PAGE_WIDTH - 2 * MARGIN, 45, Color.parseColor("#10B981"), "ЧСС (HR, уд/мин)");
+                currentYCharts += 50;
+
+                // Под сдвоенным блоком графика выводится строка показателей соответствующего снимка
+                HrvSnapshotEntity snapshot = (d < snapshots.size()) ? snapshots.get(d) : null;
+                if (snapshot != null) {
+                    SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.US);
+                    double lf = snapshot.getLfPower();
+                    double hf = snapshot.getHfPower();
+                    double lfHfVal = (lf + hf > 0) ? (2.0 * lf / (lf + hf)) : snapshot.getLfHfRatio();
+                    double iaPct = Math.max(0.0, Math.min(100.0, (lfHfVal - 1.0) * 100.0));
+                    float modSec = snapshot.getModulationSec() > 0 ? snapshot.getModulationSec() : 10.0f;
+
+                    String snapshotLine = String.format(Locale.US,
+                            "[%s] RMSSD:%.1f | SDNN:%.1f | SI:%.1f | IA:%.0f%% | LF/HF:%.2f | TP:%.0f | SampEn:%.2f | DFA:%.2f | T:%.1fс",
+                            timeFmt.format(new Date(snapshot.getTimestamp())), snapshot.getRmssd(), snapshot.getSdnn(),
+                            snapshot.getBaevskySi(), iaPct, snapshot.getLfHfRatio(), snapshot.getTotalPower(),
+                            snapshot.getSampleEntropy(), snapshot.getDfaAlpha1(), modSec);
+
+                    fillPaint.setColor(Color.parseColor("#F1F5F9"));
+                    canvas2.drawRect(MARGIN, currentYCharts, PAGE_WIDTH - MARGIN, currentYCharts + 14, fillPaint);
+
+                    textPaint.setTextSize(7.5f);
+                    textPaint.setFakeBoldText(true);
+                    textPaint.setColor(Color.parseColor("#0F172A"));
+                    canvas2.drawText(snapshotLine, MARGIN + 4, currentYCharts + 10, textPaint);
+                    currentYCharts += 20;
+                } else {
+                    currentYCharts += 10;
+                }
             }
 
             document.finishPage(page2);
 
             // ==========================================
-            // СТРАНИЦЫ 3+: Хронологический лог снимков
+            // ХРОНОЛОГИЧЕСКИЙ ЛОГ СНИМКОВ (С чередованием фаз Тренировка / Тест PSTI)
             // ==========================================
             SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
             int rowsPerPage = 22;
             int totalSnapshots = snapshots.size();
-            int totalPages = (int) Math.ceil((double) totalSnapshots / rowsPerPage);
-            if (totalPages < 1) totalPages = 1;
 
-            for (int pageIndex = 0; pageIndex < totalPages; pageIndex++) {
-                PdfDocument.PageInfo pageInfoN = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 3 + pageIndex).create();
+            int snapshotIdx = 0;
+            while (snapshotIdx < totalSnapshots) {
+                PdfDocument.PageInfo pageInfoN = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
                 PdfDocument.Page pageN = document.startPage(pageInfoN);
                 Canvas canvasN = pageN.getCanvas();
                 canvasN.drawColor(Color.WHITE);
 
                 textPaint.setColor(Color.parseColor("#0F172A"));
-                textPaint.setTextSize(14);
+                textPaint.setTextSize(13f);
                 textPaint.setFakeBoldText(true);
-                canvasN.drawText("4. Хронологический лог снимков (Страница " + (pageIndex + 1) + " из " + totalPages + ")", MARGIN, 45, textPaint);
+                canvasN.drawText("6. Хронологический лог снимков по фазам", MARGIN, 42, textPaint);
 
-                int startY = 80;
-                textPaint.setTextSize(8.5f);
+                int startY = 65;
+                textPaint.setTextSize(8.0f);
                 textPaint.setFakeBoldText(true);
                 textPaint.setColor(Color.parseColor("#0F172A"));
                 canvasN.drawText("Время", MARGIN, startY, textPaint);
@@ -311,17 +405,32 @@ public class PdfExporter {
 
                 strokePaint.setColor(Color.parseColor("#CBD5E1"));
                 strokePaint.setStrokeWidth(1f);
-                canvasN.drawLine(MARGIN, startY + 6, PAGE_WIDTH - MARGIN, startY + 6, strokePaint);
+                canvasN.drawLine(MARGIN, startY + 4, PAGE_WIDTH - MARGIN, startY + 4, strokePaint);
 
                 textPaint.setColor(Color.parseColor("#1E293B"));
                 textPaint.setFakeBoldText(false);
 
-                int startRow = pageIndex * rowsPerPage;
-                int endRow = Math.min(startRow + rowsPerPage, totalSnapshots);
-                int currentY = startY + 24;
+                int currentY = startY + 20;
+                int rowsOnPage = 0;
 
-                for (int i = startRow; i < endRow; i++) {
-                    HrvSnapshotEntity s = snapshots.get(i);
+                while (snapshotIdx < totalSnapshots && rowsOnPage < rowsPerPage) {
+                    boolean isPstiPhase = (snapshotIdx >= totalPatternBlocks && (snapshotIdx % (totalPatternBlocks + 1) == totalPatternBlocks));
+
+                    // Перед каждым новым хронологическим блоком выводится соответствующий заголовок фазы и названия тренировки
+                    if (snapshotIdx % totalPatternBlocks == 0 || snapshotIdx == totalPatternBlocks) {
+                        fillPaint.setColor(Color.parseColor("#E2E8F0"));
+                        canvasN.drawRect(MARGIN, currentY - 10, PAGE_WIDTH - MARGIN, currentY + 4, fillPaint);
+
+                        textPaint.setTextSize(8.0f);
+                        textPaint.setFakeBoldText(true);
+                        textPaint.setColor(Color.parseColor("#0F172A"));
+                        String headerPhase = isPstiPhase ? "ФАЗА: ТЕСТ PSTI" : "ФАЗА: ТРЕНИРОВКА";
+                        canvasN.drawText(headerPhase + " — " + workoutMode, MARGIN + 6, currentY, textPaint);
+                        currentY += 16;
+                        textPaint.setFakeBoldText(false);
+                    }
+
+                    HrvSnapshotEntity s = snapshots.get(snapshotIdx);
                     double lf = s.getLfPower();
                     double hf = s.getHfPower();
                     double logLfHf = (lf + hf > 0) ? (2.0 * lf / (lf + hf)) : s.getLfHfRatio();
@@ -339,18 +448,20 @@ public class PdfExporter {
                     canvasN.drawText(String.format(Locale.US, "%.0f", s.getTotalPower()), MARGIN + 252, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getSampleEntropy()), MARGIN + 308, currentY, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getDfaAlpha1()), MARGIN + 368, currentY, textPaint);
-                    
+
                     float modSec = s.getModulationSec() > 0 ? s.getModulationSec() : 10.0f;
                     canvasN.drawText(String.format(Locale.US, "%.1f с", modSec), MARGIN + 435, currentY, textPaint);
 
-                    currentY += 22;
+                    currentY += 18;
+                    rowsOnPage++;
+                    snapshotIdx++;
                 }
 
                 document.finishPage(pageN);
             }
 
             // ==========================================
-            // Сохранение файла в папку профиля
+            // Сохранение файла в целевую директорию
             // ==========================================
             String fileName = "HRV_Report_" + System.currentTimeMillis() + ".pdf";
             File targetDir;
@@ -411,7 +522,7 @@ public class PdfExporter {
         canvas.drawText(desc, MARGIN + 260, y, rowPaint);
     }
 
-    private static void drawPstiHistoryHistogram(Canvas canvas, List<Double> history, int left, int top, int width, int height, String title) {
+    private static void drawPstiGridRow(Canvas canvas, List<Double> history, int left, int top, int width, int height, String title) {
         Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         fillPaint.setStyle(Paint.Style.FILL);
 
@@ -427,42 +538,34 @@ public class PdfExporter {
 
         Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         textPaint.setColor(Color.parseColor("#0F172A"));
-        textPaint.setTextSize(9.5f);
+        textPaint.setTextSize(8.5f);
         textPaint.setFakeBoldText(true);
         canvas.drawText(title, left + 8, top + 12, textPaint);
 
-        if (history == null || history.isEmpty()) {
-            textPaint.setTextSize(9f);
-            textPaint.setColor(Color.parseColor("#64748B"));
-            textPaint.setFakeBoldText(false);
-            canvas.drawText("Нет предшествующих сессий для отображения динамики", left + 10, top + 35, textPaint);
-            return;
-        }
+        if (history == null || history.isEmpty()) return;
 
-        List<Double> recentHistory = new ArrayList<>();
-        int startIndex = Math.max(0, history.size() - 15);
-        for (int i = startIndex; i < history.size(); i++) {
-            recentHistory.add(history.get(i));
-        }
-
-        int plotLeft = left + 15;
+        int plotLeft = left + 12;
         int plotTop = top + 18;
-        int plotWidth = width - 30;
-        int plotHeight = height - 25;
+        int plotWidth = width - 24;
+        int plotHeight = height - 32;
 
-        int count = recentHistory.size();
-        float barW = (float) plotWidth / Math.max(1, count);
+        int count = history.size();
+        float barW = (float) plotWidth / 15f; // Всегда 15 колонок для точности сетки
         double maxVal = 100.0;
 
+        Paint valPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        valPaint.setTextSize(6.5f);
+        valPaint.setColor(Color.parseColor("#334155"));
+
         for (int i = 0; i < count; i++) {
-            double val = recentHistory.get(i);
+            double val = history.get(i);
             float barH = (float) Math.min(plotHeight, (val / maxVal) * plotHeight);
 
             int barColor;
             if (i == 0) {
                 barColor = Color.parseColor("#0284C7");
             } else {
-                double prevVal = recentHistory.get(i - 1);
+                double prevVal = history.get(i - 1);
                 if (val > prevVal) {
                     barColor = Color.parseColor("#047857");
                 } else if (val == prevVal) {
@@ -479,6 +582,10 @@ public class PdfExporter {
             float y2 = plotTop + plotHeight;
 
             canvas.drawRect(x1, y1, x2, y2, fillPaint);
+
+            // Значение показателя под каждым столбцом
+            String valStr = String.format(Locale.US, "%.0f", val);
+            canvas.drawText(valStr, x1 + 1, top + height - 3, valPaint);
         }
     }
 
@@ -498,7 +605,7 @@ public class PdfExporter {
 
         Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         textPaint.setColor(Color.parseColor("#0F172A"));
-        textPaint.setTextSize(9.5f);
+        textPaint.setTextSize(9.0f);
         textPaint.setFakeBoldText(true);
         canvas.drawText(title, left + 8, top + 12, textPaint);
 
@@ -535,7 +642,7 @@ public class PdfExporter {
         int plotLeft = left + 12;
         int plotTop = top + 18;
         int plotWidth = width - 24;
-        int plotHeight = height - 30;
+        int plotHeight = height - 28;
 
         fillPaint.setColor(lineColor);
         float barW = (float) plotWidth / binCount;
@@ -546,9 +653,9 @@ public class PdfExporter {
 
         Paint labelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         labelPaint.setColor(Color.parseColor("#64748B"));
-        labelPaint.setTextSize(8f);
-        canvas.drawText(minRr + " мс", plotLeft, plotTop + plotHeight + 10, labelPaint);
-        canvas.drawText(maxRr + " мс", plotLeft + plotWidth - 45, plotTop + plotHeight + 10, labelPaint);
+        labelPaint.setTextSize(7.5f);
+        canvas.drawText(minRr + " мс", plotLeft, plotTop + plotHeight + 9, labelPaint);
+        canvas.drawText(maxRr + " мс", plotLeft + plotWidth - 40, plotTop + plotHeight + 9, labelPaint);
     }
 
     private static void drawOxygenationChart(Canvas canvas, List<DataPoint> dataPoints, int left, int top, int width, int height, int lineColor, String title) {
@@ -567,16 +674,16 @@ public class PdfExporter {
 
         Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         textPaint.setColor(Color.parseColor("#0F172A"));
-        textPaint.setTextSize(9.5f);
+        textPaint.setTextSize(8.5f);
         textPaint.setFakeBoldText(true);
-        canvas.drawText(title, left + 8, top + 12, textPaint);
+        canvas.drawText(title, left + 8, top + 11, textPaint);
 
-        int plotLeft = left + 35;
-        int plotTop = top + 18;
-        int plotWidth = width - 45;
-        int plotHeight = height - 22;
+        int plotLeft = left + 30;
+        int plotTop = top + 15;
+        int plotWidth = width - 40;
+        int plotHeight = height - 18;
 
-        textPaint.setTextSize(7f);
+        textPaint.setTextSize(6.5f);
         textPaint.setFakeBoldText(false);
         textPaint.setColor(Color.parseColor("#64748B"));
 
@@ -587,13 +694,13 @@ public class PdfExporter {
         for (float lvl : levels) {
             float y = plotTop + ((100f - lvl) / 15.0f) * plotHeight;
             canvas.drawLine(plotLeft, y, plotLeft + plotWidth, y, strokePaint);
-            canvas.drawText(String.format(Locale.US, "%.0f%%", lvl), left + 8, y + 3, textPaint);
+            canvas.drawText(String.format(Locale.US, "%.0f%%", lvl), left + 6, y + 2, textPaint);
         }
 
         if (dataPoints == null || dataPoints.isEmpty()) return;
 
         strokePaint.setColor(lineColor);
-        strokePaint.setStrokeWidth(2f);
+        strokePaint.setStrokeWidth(1.5f);
 
         Path path = new Path();
         int size = dataPoints.size();
@@ -624,16 +731,16 @@ public class PdfExporter {
 
         Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         textPaint.setColor(Color.parseColor("#0F172A"));
-        textPaint.setTextSize(9.5f);
+        textPaint.setTextSize(8.5f);
         textPaint.setFakeBoldText(true);
-        canvas.drawText(title, left + 8, top + 12, textPaint);
+        canvas.drawText(title, left + 8, top + 11, textPaint);
 
-        int plotLeft = left + 35;
-        int plotTop = top + 18;
-        int plotWidth = width - 45;
-        int plotHeight = height - 22;
+        int plotLeft = left + 30;
+        int plotTop = top + 15;
+        int plotWidth = width - 40;
+        int plotHeight = height - 18;
 
-        textPaint.setTextSize(7f);
+        textPaint.setTextSize(6.5f);
         textPaint.setFakeBoldText(false);
         textPaint.setColor(Color.parseColor("#64748B"));
 
@@ -646,13 +753,13 @@ public class PdfExporter {
         for (float lvl : hrLevels) {
             float y = plotTop + ((maxHr - lvl) / (maxHr - minHr)) * plotHeight;
             canvas.drawLine(plotLeft, y, plotLeft + plotWidth, y, strokePaint);
-            canvas.drawText(String.format(Locale.US, "%.0f", lvl), left + 8, y + 3, textPaint);
+            canvas.drawText(String.format(Locale.US, "%.0f", lvl), left + 6, y + 2, textPaint);
         }
 
         if (dataPoints == null || dataPoints.isEmpty()) return;
 
         strokePaint.setColor(lineColor);
-        strokePaint.setStrokeWidth(2f);
+        strokePaint.setStrokeWidth(1.5f);
 
         Path path = new Path();
         int size = dataPoints.size();
@@ -681,15 +788,15 @@ public class PdfExporter {
         strokePaint.setStrokeWidth(1f);
         canvas.drawRect(left, top, left + width, top + height, strokePaint);
 
-        int plotLeft = left + 40;
-        int plotTop = top + 20;
-        int plotWidth = width - 60;
-        int plotHeight = height - 50;
+        int plotLeft = left + 35;
+        int plotTop = top + 15;
+        int plotWidth = width - 50;
+        int plotHeight = height - 40;
 
         if (rawRrList == null || rawRrList.size() < 2) {
             Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
             textPaint.setColor(Color.parseColor("#64748B"));
-            textPaint.setTextSize(11f);
+            textPaint.setTextSize(10f);
             canvas.drawText("Недостаточно данных RR для построения Пуанкаре", left + 20, top + height / 2, textPaint);
             return;
         }
@@ -705,7 +812,7 @@ public class PdfExporter {
         if (maxRr <= minRr) maxRr = minRr + 500;
 
         strokePaint.setColor(Color.parseColor("#94A3B8"));
-        strokePaint.setStrokeWidth(1.5f);
+        strokePaint.setStrokeWidth(1.2f);
         canvas.drawLine(plotLeft, plotTop + plotHeight, plotLeft + plotWidth, plotTop, strokePaint);
 
         int totalPairs = rawRrList.size() - 1;
@@ -713,7 +820,7 @@ public class PdfExporter {
             int rrN = rawRrList.get(i);
             int rrN1 = rawRrList.get(i + 1);
 
-            if (rawRrList.get(i) >= 300 && rrN <= 2000 && rrN1 >= 300 && rrN1 <= 2000) {
+            if (rrN >= 300 && rrN <= 2000 && rrN1 >= 300 && rrN1 <= 2000) {
                 float x = plotLeft + ((float) (rrN - minRr) / (maxRr - minRr)) * plotWidth;
                 float y = plotTop + plotHeight - ((float) (rrN1 - minRr) / (maxRr - minRr)) * plotHeight;
 
@@ -722,18 +829,18 @@ public class PdfExporter {
                     int red = (int) (148 + progress * (2 - 148));
                     int green = (int) (163 + progress * (132 - 163));
                     int blue = (int) (184 + progress * (199 - 184));
-                    
+
                     fillPaint.setColor(Color.rgb(Math.max(0, red), Math.min(255, green), Math.min(255, blue)));
-                    canvas.drawCircle(x, y, 2.0f, fillPaint);
+                    canvas.drawCircle(x, y, 1.8f, fillPaint);
                 }
             }
         }
 
         Paint labelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         labelPaint.setColor(Color.parseColor("#475569"));
-        labelPaint.setTextSize(9f);
-        canvas.drawText(minRr + " мс", plotLeft, plotTop + plotHeight + 15, labelPaint);
-        canvas.drawText(maxRr + " мс", plotLeft + plotWidth - 40, plotTop + plotHeight + 15, labelPaint);
-        canvas.drawText("RR(n) мс", plotLeft + plotWidth / 2 - 20, plotTop + plotHeight + 28, labelPaint);
+        labelPaint.setTextSize(8f);
+        canvas.drawText(minRr + " мс", plotLeft, plotTop + plotHeight + 12, labelPaint);
+        canvas.drawText(maxRr + " мс", plotLeft + plotWidth - 35, plotTop + plotHeight + 12, labelPaint);
+        canvas.drawText("RR(n) мс", plotLeft + plotWidth / 2 - 15, plotTop + plotHeight + 22, labelPaint);
     }
 }
