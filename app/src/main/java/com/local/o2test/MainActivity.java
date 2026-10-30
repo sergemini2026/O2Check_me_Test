@@ -710,6 +710,21 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             currentLfHfDisplayStr = String.format(Locale.US, "%.2f", testLfHf);
             onLog(String.format(Locale.US, "[LF/HF ТЕСТ] Отфильтрованный LF/HF для тестового окна: %.2f", testLfHf));
 
+            // Вычисление детальных метрик для итогового снимка теста PSTI
+            HrvCalculator.Metrics postiMetrics = HrvCalculator.calculate(snapshotRr);
+            if (postiMetrics != null && postiMetrics.isValid) {
+                float currentModulationSec = fixedModulationPeriodMs / 1000.0f;
+                SessionSnapshot postiSummarySnapshot = new SessionSnapshot(
+                        System.currentTimeMillis(),
+                        postiMetrics,
+                        currentModulationSec,
+                        true // Флаг фазы теста PSTI
+                );
+                if (isBound && hrvService != null) {
+                    hrvService.addSnapshot(postiSummarySnapshot);
+                }
+            }
+
             HrvCalculator.PstiResult pstiResult = HrvCalculator.calculatePsti(baselineRr, snapshotRr);
             if (pstiResult.isValid) {
                 lastPstiScore = pstiResult.pstiScore;
@@ -717,7 +732,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 onLog(String.format(Locale.US, "[PSTI РЕЗУЛЬТАТ] Индекс консолидации барорефлекса PSTI: %.1f%% (RMSSD ratio: %.2f)",
                         lastPstiScore, lastPstiRmssdRatio));
             } else {
-                HrvCalculator.Metrics postiMetrics = HrvCalculator.calculate(snapshotRr);
                 if (postiMetrics != null) {
                     lastPstiScore = Math.min(100.0, (postiMetrics.rmssd / 50.0) * 50.0 + (Math.min(postiMetrics.totalPower, 2500.0) / 2500.0) * 50.0);
                     lastPstiRmssdRatio = 1.0;
