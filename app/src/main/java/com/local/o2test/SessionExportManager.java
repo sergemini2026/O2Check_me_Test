@@ -217,7 +217,8 @@ public class SessionExportManager {
                         HrvSnapshotEntity entity = new HrvSnapshotEntity(
                                 snapshot.getTimestamp(), 
                                 snapshot.getMetrics(), 
-                                snapshot.getModulationSec()
+                                snapshot.getModulationSec(),
+                                snapshot.isPstiPhase() // Передаем флаг фазы в сущность БД
                         );
                         if (entity.getBaevskySi() > 0 && entity.getBaevskySi() <= 300) {
                             entityList.add(entity);
