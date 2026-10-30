@@ -412,6 +412,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 sessionData,
                 activeProfileId,
                 activeProfileName,
+                currentWorkoutMode,
                 sessionStartTime,
                 currentPolarHr,
                 currentSpo2,
