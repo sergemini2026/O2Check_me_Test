@@ -374,7 +374,8 @@ public class HrvForegroundService extends Service {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(windowData);
             if (metrics != null && metrics.isValid) {
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
-                SessionSnapshot snapshot = new SessionSnapshot(System.currentTimeMillis(), metrics, currentModulationSec);
+                // Передаем текущий статус фазы PSTI в конструктор снимка
+                SessionSnapshot snapshot = new SessionSnapshot(System.currentTimeMillis(), metrics, currentModulationSec, isPostiTraceActive);
                 synchronized (snapshotBuffer) {
                     snapshotBuffer.add(snapshot);
                 }
