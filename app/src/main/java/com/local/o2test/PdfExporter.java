@@ -205,13 +205,13 @@ public class PdfExporter {
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
             canvas1.restore();
 
-            // Скатертограмма Пуанкаре с отступом в одну строку от гистограммы RR
+            // Скатертограмма Пуанкаре с разнесенным отступом от гистограммы RR (исключающим наложение)
             textPaint.setColor(Color.parseColor("#0F172A"));
             textPaint.setTextSize(11f);
             textPaint.setFakeBoldText(true);
-            canvas1.drawText("3. Скатертограмма Пуанкаре и анализ геометрии", MARGIN, 345, textPaint);
+            canvas1.drawText("3. Скатертограмма Пуанкаре и анализ геометрии", MARGIN, 350, textPaint);
 
-            drawPoincarePlot(canvas1, rawRrList, MARGIN, 353, PAGE_WIDTH - 2 * MARGIN, 335);
+            drawPoincarePlot(canvas1, rawRrList, MARGIN, 360, PAGE_WIDTH - 2 * MARGIN, 325);
 
             textPaint.setTextSize(9.5f);
             textPaint.setFakeBoldText(true);
@@ -288,7 +288,7 @@ public class PdfExporter {
             else if (workoutMode.contains("1-1")) totalPatternBlocks = 1;
 
             int currentYCharts = startYPsti + 20;
-            if (currentYCharts + 160 > PAGE_HEIGHT - MARGIN) {
+            if (currentYCharts + 205 > PAGE_HEIGHT - MARGIN) {
                 document.finishPage(page2);
                 pageInfo2 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
                 page2 = document.startPage(pageInfo2);
@@ -306,7 +306,7 @@ public class PdfExporter {
             int pointsPerDump = Math.max(1, dataPoints.size() / dumpTotal);
 
             for (int d = 0; d < dumpTotal; d++) {
-                if (currentYCharts + 165 > PAGE_HEIGHT - MARGIN) {
+                if (currentYCharts + 210 > PAGE_HEIGHT - MARGIN) {
                     document.finishPage(page2);
                     pageInfo2 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
                     page2 = document.startPage(pageInfo2);
@@ -326,11 +326,13 @@ public class PdfExporter {
                 int pEnd = Math.min(pStart + pointsPerDump, dataPoints.size());
                 List<DataPoint> dumpPoints = (pStart < dataPoints.size()) ? dataPoints.subList(pStart, pEnd) : new ArrayList<>();
 
+                // SpO2 график (высота 45)
                 drawOxygenationChart(canvas2, dumpPoints, MARGIN, currentYCharts, PAGE_WIDTH - 2 * MARGIN, 45, Color.parseColor("#0284C7"), headerTitle + " — SpO2 (%)");
                 currentYCharts += 50;
 
-                drawHeartRateChart(canvas2, dumpPoints, MARGIN, currentYCharts, PAGE_WIDTH - 2 * MARGIN, 45, Color.parseColor("#10B981"), "ЧСС (HR, уд/мин)");
-                currentYCharts += 50;
+                // ЧСС график (увеличенная высота 90 -> соотношение 1:2 к SpO2)
+                drawHeartRateChart(canvas2, dumpPoints, MARGIN, currentYCharts, PAGE_WIDTH - 2 * MARGIN, 90, Color.parseColor("#10B981"), "ЧСС (HR, уд/мин)");
+                currentYCharts += 95;
 
                 // Под сдвоенным блоком графика выводится строка показателей соответствующего снимка
                 HrvSnapshotEntity snapshot = (d < snapshots.size()) ? snapshots.get(d) : null;
@@ -757,9 +759,9 @@ public class PdfExporter {
         canvas.drawText(title, left + 8, top + 11, textPaint);
 
         int plotLeft = left + 30;
-        int plotTop = top + 15;
+        int plotTop = top + 16;
         int plotWidth = width - 40;
-        int plotHeight = height - 18;
+        int plotHeight = height - 24;
 
         textPaint.setTextSize(6.5f);
         textPaint.setFakeBoldText(false);
