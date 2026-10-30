@@ -24,9 +24,10 @@ data class HrvSnapshotEntity(
     val dfaAlpha1: Double = 1.0,
     val modulationSec: Float = 10.0f, // Сохранение периода модуляции в секундах
     val artifactsDetected: Int,
-    val artifactPct: Double
+    val artifactPct: Double,
+    val isPstiPhase: Boolean = false  // Флаг принадлежности к фазе теста PSTI
 ) {
-    constructor(timestamp: Long, m: HrvCalculator.Metrics, modulationSec: Float) : this(
+    constructor(timestamp: Long, m: HrvCalculator.Metrics, modulationSec: Float, isPstiPhase: Boolean) : this(
         timestamp = timestamp,
         rmssd = m.rmssd,
         sdnn = m.sdnn,
@@ -43,8 +44,13 @@ data class HrvSnapshotEntity(
         dfaAlpha1 = m.dfaAlpha1,
         modulationSec = modulationSec,
         artifactsDetected = m.artifactsDetected,
-        artifactPct = m.artifactPct
+        artifactPct = m.artifactPct,
+        isPstiPhase = isPstiPhase
     )
 
-    constructor(timestamp: Long, m: HrvCalculator.Metrics) : this(timestamp, m, 10.0f)
+    constructor(timestamp: Long, m: HrvCalculator.Metrics, modulationSec: Float) : this(
+        timestamp, m, modulationSec, false
+    )
+
+    constructor(timestamp: Long, m: HrvCalculator.Metrics) : this(timestamp, m, 10.0f, false)
 }
