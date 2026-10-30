@@ -207,7 +207,7 @@ public class PdfExporter {
             textPaint.setColor(Color.parseColor("#0F172A"));
             textPaint.setTextSize(11f);
             textPaint.setFakeBoldText(true);
-            canvas1.drawText("3. Скатертограмма Пуанкаре и анализ геометрии", MARGIN, 360, textPaint);
+            canvas1.drawText(\n"3. Скатертограмма Пуанкаре и анализ геометрии", MARGIN, 360, textPaint);
 
             drawPoincarePlot(canvas1, rawRrList, MARGIN, 368, PAGE_WIDTH - 2 * MARGIN, 340);
 
