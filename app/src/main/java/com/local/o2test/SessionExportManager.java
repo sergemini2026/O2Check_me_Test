@@ -64,6 +64,7 @@ public class SessionExportManager {
                                                 final List<DataPoint> sessionData,
                                                 final long activeProfileId,
                                                 final String activeProfileName,
+                                                final String workoutMode,
                                                 final long sessionStartTime,
                                                 final int currentPolarHr,
                                                 final int currentSpo2,
@@ -93,6 +94,7 @@ public class SessionExportManager {
 
         final List<DataPoint> finalTrainingPoints = trainingPoints;
         final List<DataPoint> finalTestPoints = testPoints;
+        final String finalWorkoutMode = (workoutMode != null && !workoutMode.isEmpty()) ? workoutMode : "Базовый мониторинг";
 
         File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
         File o2TestDir = new File(baseDir, "O2Test");
@@ -118,7 +120,7 @@ public class SessionExportManager {
                             callback.onLog("Тестовый CSV (PSTI) успешно сохранен: " + testFileName);
                         }
                         proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, trainingFilePath, testFilePath, 
-                                activeProfileId, activeProfileName, sessionStartTime, currentPolarHr, currentSpo2, 
+                                activeProfileId, activeProfileName, finalWorkoutMode, sessionStartTime, currentPolarHr, currentSpo2, 
                                 lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, dbExecutor, hrvService, isBound, callback);
                     }
 
@@ -128,7 +130,7 @@ public class SessionExportManager {
                             callback.onLog("Ошибка сохранения тестового CSV: " + errorMessage);
                         }
                         proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, trainingFilePath, "", 
-                                activeProfileId, activeProfileName, sessionStartTime, currentPolarHr, currentSpo2, 
+                                activeProfileId, activeProfileName, finalWorkoutMode, sessionStartTime, currentPolarHr, currentSpo2, 
                                 lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, dbExecutor, hrvService, isBound, callback);
                     }
                 });
@@ -140,7 +142,7 @@ public class SessionExportManager {
                     callback.onLog("Ошибка сохранения тренировочного CSV: " + errorMessage);
                 }
                 proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, "", "", 
-                        activeProfileId, activeProfileName, sessionStartTime, currentPolarHr, currentSpo2, 
+                        activeProfileId, activeProfileName, finalWorkoutMode, sessionStartTime, currentPolarHr, currentSpo2, 
                         lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, dbExecutor, hrvService, isBound, callback);
             }
         });
@@ -153,6 +155,7 @@ public class SessionExportManager {
                                                   final String testCsvPath,
                                                   final long activeProfileId,
                                                   final String activeProfileName,
+                                                  final String workoutMode,
                                                   final long sessionStartTime,
                                                   final int currentPolarHr,
                                                   final int currentSpo2,
@@ -189,7 +192,7 @@ public class SessionExportManager {
                 SessionEntity session = new SessionEntity(
                         0,
                         activeProfileId,
-                        "Базовый мониторинг",
+                        workoutMode,
                         sessionStartTime,
                         endTime,
                         currentPolarHr > 0 ? currentPolarHr : 75,
@@ -252,7 +255,7 @@ public class SessionExportManager {
                 mainHandler.post(() -> PdfExporter.generateHrvPdfReport(
                         context,
                         activeProfileName,
-                        "Базовый мониторинг",
+                        workoutMode,
                         sessionStartTime,
                         endTime,
                         entityList,
