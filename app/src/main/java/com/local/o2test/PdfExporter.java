@@ -410,10 +410,14 @@ public class PdfExporter {
                 int rowsOnPage = 0;
 
                 while (snapshotIdx < totalSnapshots && rowsOnPage < rowsPerPage) {
-                    boolean isPstiPhase = (snapshotIdx >= totalPatternBlocks && (snapshotIdx % (totalPatternBlocks + 1) == totalPatternBlocks));
+                    HrvSnapshotEntity s = snapshots.get(snapshotIdx);
+                    boolean isPstiPhase = s.isPstiPhase();
 
-                    // Перед каждым новым хронологическим блоком выводится заголовок ПО ЦЕНТРУ без слова «Фаза:» с реальным именем сессии
-                    if (snapshotIdx % totalPatternBlocks == 0 || snapshotIdx == totalPatternBlocks) {
+                    boolean isPhaseChanged = (snapshotIdx == 0) || (snapshots.get(snapshotIdx - 1).isPstiPhase() != isPstiPhase);
+                    boolean isNewPageStart = (rowsOnPage == 0);
+
+                    // Перед каждым новым хронологическим блоком (или в начале новой страницы) выводится заголовок ПО ЦЕНТРУ с реальным именем режима
+                    if (isPhaseChanged || isNewPageStart) {
                         fillPaint.setColor(Color.parseColor("#E2E8F0"));
                         canvasN.drawRect(MARGIN, currentY - 10, PAGE_WIDTH - MARGIN, currentY + 4, fillPaint);
 
@@ -430,7 +434,6 @@ public class PdfExporter {
                         textPaint.setFakeBoldText(false);
                     }
 
-                    HrvSnapshotEntity s = snapshots.get(snapshotIdx);
                     double lf = s.getLfPower();
                     double hf = s.getHfPower();
                     double logLfHf = (lf + hf > 0) ? (2.0 * lf / (lf + hf)) : s.getLfHfRatio();
