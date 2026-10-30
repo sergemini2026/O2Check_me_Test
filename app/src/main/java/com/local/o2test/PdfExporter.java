@@ -205,7 +205,7 @@ public class PdfExporter {
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
             canvas1.restore();
 
-            // Скатертограмма Пуанкаре с разнесенным отступом от гистограммы RR (исключающим наложение)
+            // Скатертограмма Пуанкаре
             textPaint.setColor(Color.parseColor("#0F172A"));
             textPaint.setTextSize(11f);
             textPaint.setFakeBoldText(true);
@@ -218,7 +218,6 @@ public class PdfExporter {
             textPaint.setColor(Color.parseColor("#0F172A"));
             canvas1.drawText("Расшифровка показателей Пуанкаре:", MARGIN, 701, textPaint);
 
-            // Описание Пуанкаре одним сплошным блоком текста без разбиения на абзацы/списки
             TextPaint poincareDescPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
             poincareDescPaint.setTextSize(8.0f);
             poincareDescPaint.setColor(Color.parseColor("#334155"));
@@ -283,6 +282,16 @@ public class PdfExporter {
             int dumpTotal = (int) Math.ceil((double) rawRrList.size() / DUMP_RR_SIZE);
             if (dumpTotal < 1) dumpTotal = 1;
 
+            // Выборка строго ИТОГОВЫХ снимков дампов для подписей под графиками
+            List<HrvSnapshotEntity> dumpSnapshots = new ArrayList<>();
+            if (snapshots != null) {
+                for (HrvSnapshotEntity s : snapshots) {
+                    if (s.isDumpSnapshot()) {
+                        dumpSnapshots.add(s);
+                    }
+                }
+            }
+
             int totalPatternBlocks = 3;
             if (workoutMode.contains("2-1")) totalPatternBlocks = 2;
             else if (workoutMode.contains("1-1")) totalPatternBlocks = 1;
@@ -330,12 +339,12 @@ public class PdfExporter {
                 drawOxygenationChart(canvas2, dumpPoints, MARGIN, currentYCharts, PAGE_WIDTH - 2 * MARGIN, 45, Color.parseColor("#0284C7"), headerTitle + " — SpO2 (%)");
                 currentYCharts += 50;
 
-                // ЧСС график (увеличенная высота 90 -> соотношение 1:2 к SpO2)
+                // ЧСС график (высота 90)
                 drawHeartRateChart(canvas2, dumpPoints, MARGIN, currentYCharts, PAGE_WIDTH - 2 * MARGIN, 90, Color.parseColor("#10B981"), "ЧСС (HR, уд/мин)");
                 currentYCharts += 95;
 
-                // Под сдвоенным блоком графика выводится строка показателей соответствующего снимка
-                HrvSnapshotEntity snapshot = (d < snapshots.size()) ? snapshots.get(d) : null;
+                // Берем строгий итоговый снимок соответствующего дампа по простому индексу d
+                HrvSnapshotEntity snapshot = (d < dumpSnapshots.size()) ? dumpSnapshots.get(d) : null;
                 if (snapshot != null) {
                     SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.US);
                     double lf = snapshot.getLfPower();
@@ -366,7 +375,7 @@ public class PdfExporter {
             document.finishPage(page2);
 
             // ==========================================
-            // ХРОНОЛОГИЧЕСКИЙ ЛОГ СНИМКОВ (С чередованием фаз Тренировка / Тест PSTI)
+            // ХРОНОЛОГИЧЕСКИЙ ЛОГ СНИМКОВ (Выводит абсолютно ВСЕ короткие срезы)
             // ==========================================
             SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
             int rowsPerPage = 22;
@@ -416,7 +425,6 @@ public class PdfExporter {
                     boolean isPhaseChanged = (snapshotIdx == 0) || (snapshots.get(snapshotIdx - 1).isPstiPhase() != isPstiPhase);
                     boolean isNewPageStart = (rowsOnPage == 0);
 
-                    // Перед каждым новым хронологическим блоком (или в начале новой страницы) выводится заголовок ПО ЦЕНТРУ с реальным именем режима
                     if (isPhaseChanged || isNewPageStart) {
                         fillPaint.setColor(Color.parseColor("#E2E8F0"));
                         canvasN.drawRect(MARGIN, currentY - 10, PAGE_WIDTH - MARGIN, currentY + 4, fillPaint);
@@ -464,7 +472,7 @@ public class PdfExporter {
             }
 
             // ==========================================
-            // Сохранение файла в целевую директорию
+            // Сохранение файла
             // ==========================================
             String fileName = "HRV_Report_" + System.currentTimeMillis() + ".pdf";
             File targetDir;
@@ -553,7 +561,7 @@ public class PdfExporter {
         int plotHeight = height - 32;
 
         int count = history.size();
-        float barW = (float) plotWidth / 15f; // Всегда 15 колонок для сетки
+        float barW = (float) plotWidth / 15f;
         double maxVal = 100.0;
 
         Paint valPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -586,7 +594,6 @@ public class PdfExporter {
 
             canvas.drawRect(x1, y1, x2, y2, fillPaint);
 
-            // Числовые показатели выведены СТРОГО ПО ЦЕНТРУ соответствующего столбца
             String valStr = String.format(Locale.US, "%.0f", val);
             float textWidth = valPaint.measureText(valStr);
             float columnCenterX = x1 + (x2 - x1) / 2f;
@@ -720,22 +727,15 @@ public class PdfExporter {
         canvas.drawPath(path, strokePaint);
     }
 
-    /**
-     * Нелинейное (кусочно-линейное) масштабирование шкалы ЧСС для диапазона 50-80 уд/мин,
-     * чтобы повысить информативность и уйти от «плоской синусоиды».
-     */
     private static float mapHrToY(float hr, float plotTop, float plotHeight) {
         float clamped = Math.max(40f, Math.min(200f, hr));
         if (clamped <= 50f) {
-            // Нижний диапазон [40 - 50]: занимает 15% высоты
             float norm = (clamped - 40f) / 10f;
             return plotTop + plotHeight - (norm * 0.15f * plotHeight);
         } else if (clamped <= 80f) {
-            // Рабочий диапазон [50 - 80]: занимает основную зону (70% высоты)
             float norm = (clamped - 50f) / 30f;
             return plotTop + plotHeight - ((0.15f + norm * 0.70f) * plotHeight);
         } else {
-            // Верхний диапазон [80 - 200]: занимает верхние 15% высоты
             float norm = (clamped - 80f) / 120f;
             return plotTop + plotHeight - ((0.85f + norm * 0.15f) * plotHeight);
         }
