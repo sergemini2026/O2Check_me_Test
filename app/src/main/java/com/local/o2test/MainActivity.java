@@ -330,6 +330,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                 .setTitle(getCenteredTitle("⚠️ [ВНИМАНИЕ!]"))
                                 .setMessage("Смена режима тренировки во время текущей сессии приведет к ее перезапуску.")
                                 .setPositiveButton("Подтвердить", (d, w) -> {
+                                    if (ui.chartView != null) ui.chartView.clearData();
                                     stopMonitoring();
                                     applySelection.run();
                                 })
@@ -517,6 +518,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 if (activeProfileId == deletedProfileId) {
                     if (isRecording) {
                         stopMonitoring();
+                    }
+                    if (ui.chartView != null) {
+                        ui.chartView.clearData();
                     }
                     activeProfileId = -1L;
                     activeProfileName = "Не выбран";
@@ -868,6 +872,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         
         if (progressManager != null) {
             progressManager.stop();
+        }
+
+        if (ui.chartView != null) {
+            ui.chartView.clearData();
         }
 
         updateRightPanelStatus();
