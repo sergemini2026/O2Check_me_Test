@@ -308,12 +308,16 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                             currentTrainingPattern = pattern;
                             isTrainingSelected = true;
 
+                            if (hrvService != null) {
+                                hrvService.setPresetPattern(pattern.length);
+                            }
+
                             if (ui.btnHeart != null) {
                                 ui.btnHeart.setEnabled(true);
                                 ui.btnHeart.setAlpha(1.0f);
                             }
                             updateRightPanelStatus();
-                            onLog("[ТРЕНИРОВКА ВЫБРАНА] " + currentWorkoutMode);
+                            onLog("[ТРЕНИРОВКА ВЫБРАНА] " + currentWorkoutMode + " (Паттерн блоков: " + pattern.length + ")");
 
                             if (isRecording) {
                                 isTrainingModeActive = true;
@@ -604,6 +608,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         if (isBound && hrvService != null) {
             hrvService.stopPostiRecording();
+            hrvService.setPresetPattern(currentTrainingPattern.length);
             hrvService.startSessionRecording();
             
             modulationManager.applyModulation(hrvService, isBound);
