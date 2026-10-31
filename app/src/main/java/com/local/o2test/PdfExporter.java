@@ -37,7 +37,6 @@ public class PdfExporter {
     private static final int PAGE_WIDTH = 595;
     private static final int PAGE_HEIGHT = 842;
     private static final int MARGIN = 40;
-    private static final int DUMP_RR_SIZE = 300;
 
     public static void generateHrvPdfReport(
             Context context,
@@ -114,7 +113,6 @@ public class PdfExporter {
             textPaint.setFakeBoldText(true);
             canvas1.drawText("ОТЧЕТ АНАЛИЗА ВАРИАБЕЛЬНОСТИ СЕРДЕЧНОГО РИТМА", MARGIN, 36, textPaint);
 
-            // Строка 2: Вывод в ОДНУ строку с динамическим именем режима тренировки
             textPaint.setTextSize(9.0f);
             textPaint.setFakeBoldText(false);
             textPaint.setColor(Color.parseColor("#334155"));
@@ -194,7 +192,6 @@ public class PdfExporter {
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
             canvas1.restore();
 
-            // Гистограмма RR-интервалов на странице 1 (с отступом от статуса)
             drawHistogram(canvas1, rawRrList, MARGIN, 263, PAGE_WIDTH - 2 * MARGIN, 60, Color.parseColor("#DC2626"), "Гистограмма RR-интервалов (мс) — распределение ритма");
 
             TextPaint histExpPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -207,7 +204,6 @@ public class PdfExporter {
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
             canvas1.restore();
 
-            // Скатертограмма Пуанкаре
             textPaint.setColor(Color.parseColor("#0F172A"));
             textPaint.setTextSize(11f);
             textPaint.setFakeBoldText(true);
@@ -279,9 +275,8 @@ public class PdfExporter {
             }
 
             // ==========================================
-            // ПОПАРНЫЕ ГРАФИКИ ОКСИГЕНАЦИИ И ПУЛЬСА (Строго по dumpIndex)
+            // ПОПАРНЫЕ ГРАФИКИ ОКСИГЕНАЦИИ И ПУЛЬСА (Строго по dumpIndex и реальному времени)
             // ==========================================
-            // Выборка и сортировка только ИТОГОВЫХ снимков дампов по сквозному dumpIndex
             List<HrvSnapshotEntity> dumpSnapshots = new ArrayList<>();
             if (snapshots != null) {
                 for (HrvSnapshotEntity s : snapshots) {
@@ -294,8 +289,7 @@ public class PdfExporter {
 
             int dumpTotal = dumpSnapshots.size();
             if (dumpTotal == 0) {
-                dumpTotal = (int) Math.ceil((double) rawRrList.size() / DUMP_RR_SIZE);
-                if (dumpTotal < 1) dumpTotal = 1;
+                dumpTotal = 1;
             }
 
             int totalPatternBlocks = 3;
@@ -315,13 +309,12 @@ public class PdfExporter {
             textPaint.setColor(Color.parseColor("#0F172A"));
             textPaint.setTextSize(13f);
             textPaint.setFakeBoldText(true);
-            canvas2.drawText("5. Динамика SpO2 и ЧСС по дампам сессии (по 300 RR)", MARGIN, currentYCharts, textPaint);
+            canvas2.drawText("5. Динамика SpO2 и ЧСС по дампам сессии (строго по времени дампов)", MARGIN, currentYCharts, textPaint);
             currentYCharts += 15;
 
-            int pointsPerDump = Math.max(1, dataPoints.size() / dumpTotal);
-
+            // Цикл по каждому дампу строго на основе dumpSnapshots
             for (int d = 0; d < dumpTotal; d++) {
-                if (currentYCharts + 210 > PAGE_HEIGHT - MARGIN) {
+                if (currentYCharts + 225 > PAGE_HEIGHT - MARGIN) {
                     document.finishPage(page2);
                     pageInfo2 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
                     page2 = document.startPage(pageInfo2);
@@ -330,59 +323,85 @@ public class PdfExporter {
                     currentYCharts = 45;
                 }
 
-                HrvSnapshotEntity snapshot = (d < dumpSnapshots.size()) ? dumpSnapshots.get(d) : null;
-                boolean isPstiPhase = (snapshot != null) ? snapshot.isPstiPhase() : (d >= totalPatternBlocks);
-                int dumpIdx = (snapshot != null) ? snapshot.getDumpIndex() : d;
+                HrvSnapshotEntity snapshot = dumpSnapshots.get(d);
+                int dumpIdx = snapshot.getDumpIndex();
+                boolean isPstiPhase = snapshot.isPstiPhase();
+
+                // Определение интервала времени для текущего дампа
+                long dumpEndTime = snapshot.getTimestamp();
+                long dumpStartTime;
+                if (d > 0) {
+                    dumpStartTime = dumpSnapshots.get(d - 1).getTimestamp();
+                } else {
+                    dumpStartTime = startTime > 0 ? startTime : (dumpEndTime - 300000L);
+                }
+
+                // Сбор точек DataPoint строго в диапазоне [dumpStartTime, dumpEndTime]
+                List<DataPoint> dumpPoints = new ArrayList<>();
+                if (dataPoints != null) {
+                    for (DataPoint dp : dataPoints) {
+                        // Предполагаем, что у DataPoint есть метод получения времени в миллисекундах или вычисляем по секундам от старта
+                        // Поскольку в DataPoint хранится elapsedSec или можем сопоставить через timestamp:
+                        // Сравним относительное время или преобразуем
+                        // В коде DataPoint поля: timestamp (строка), elapsedSec (int), spo2, hr, pi, rr
+                        // Привязку к реальному времени делаем через sessionStartTime + elapsedSec * 1000L
+                        long dpTime = startTime + (dp.elapsedSec * 1000L);
+                        if (dpTime >= dumpStartTime && dpTime <= dumpEndTime) {
+                            dumpPoints.add(dp);
+                        }
+                    }
+                }
+
+                // Если точек по точному времени не набралось (например, рассинхронизация меток), берем фоллбэк по индексу
+                if (dumpPoints.isEmpty() && dataPoints != null && !dataPoints.isEmpty()) {
+                    int pointsPerDump = Math.max(1, dataPoints.size() / dumpTotal);
+                    int pStart = d * pointsPerDump;
+                    int pEnd = Math.min(pStart + pointsPerDump, dataPoints.size());
+                    if (pStart < dataPoints.size()) {
+                        dumpPoints = dataPoints.subList(pStart, pEnd);
+                    }
+                }
 
                 int blockNumber = (dumpIdx % totalPatternBlocks) + 1;
                 String phaseStr = isPstiPhase ? "Тест PSTI" : "Тренировка";
-
                 String headerTitle = String.format(Locale.US, "Дамп #%d | Блок %d/%d | %s | Фаза: %s",
                         dumpIdx, blockNumber, isPstiPhase ? 1 : totalPatternBlocks, workoutMode, phaseStr);
 
-                int pStart = d * pointsPerDump;
-                int pEnd = Math.min(pStart + pointsPerDump, dataPoints.size());
-                List<DataPoint> dumpPoints = (pStart < dataPoints.size()) ? dataPoints.subList(pStart, pEnd) : new ArrayList<>();
-
-                // SpO2 график (высота 45)
-                drawOxygenationChart(canvas2, dumpPoints, MARGIN, currentYCharts, PAGE_WIDTH - 2 * MARGIN, 45, Color.parseColor("#0284C7"), headerTitle + " — SpO2 (%)");
+                // Отрисовка графиков с временной шкалой по оси X
+                drawOxygenationChart(canvas2, dumpPoints, MARGIN, currentYCharts, PAGE_WIDTH - 2 * MARGIN, 45, Color.parseColor("#0284C7"), headerTitle + " — SpO2 (%)", dumpStartTime, dumpEndTime);
                 currentYCharts += 50;
 
-                // ЧСС график (высота 90)
-                drawHeartRateChart(canvas2, dumpPoints, MARGIN, currentYCharts, PAGE_WIDTH - 2 * MARGIN, 90, Color.parseColor("#10B981"), "ЧСС (HR, уд/мин)");
-                currentYCharts += 95;
+                drawHeartRateChart(canvas2, dumpPoints, MARGIN, currentYCharts, PAGE_WIDTH - 2 * MARGIN, 90, Color.parseColor("#10B981"), "ЧСС (HR, уд/мин)", dumpStartTime, dumpEndTime);
+                currentYCharts += 105; // Увеличено для размещения оси X и отступа
 
-                if (snapshot != null) {
-                    SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.US);
-                    double lf = snapshot.getLfPower();
-                    double hf = snapshot.getHfPower();
-                    double lfHfVal = (lf + hf > 0) ? (2.0 * lf / (lf + hf)) : snapshot.getLfHfRatio();
-                    double iaPct = Math.max(0.0, Math.min(100.0, (lfHfVal - 1.0) * 100.0));
-                    float modSec = snapshot.getModulationSec() > 0 ? snapshot.getModulationSec() : 10.0f;
+                // Вывод итоговой плашки метрик строго для этого dumpIndex
+                SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.US);
+                double lf = snapshot.getLfPower();
+                double hf = snapshot.getHfPower();
+                double lfHfVal = (lf + hf > 0) ? (2.0 * lf / (lf + hf)) : snapshot.getLfHfRatio();
+                double iaPct = Math.max(0.0, Math.min(100.0, (lfHfVal - 1.0) * 100.0));
+                float modSec = snapshot.getModulationSec() > 0 ? snapshot.getModulationSec() : 10.0f;
 
-                    String snapshotLine = String.format(Locale.US,
-                            "[%s] RMSSD:%.1f | SDNN:%.1f | SI:%.1f | IA:%.0f%% | LF/HF:%.2f | TP:%.0f | SampEn:%.2f | DFA:%.2f | T:%.1fс",
-                            timeFmt.format(new Date(snapshot.getTimestamp())), snapshot.getRmssd(), snapshot.getSdnn(),
-                            snapshot.getBaevskySi(), iaPct, snapshot.getLfHfRatio(), snapshot.getTotalPower(),
-                            snapshot.getSampleEntropy(), snapshot.getDfaAlpha1(), modSec);
+                String snapshotLine = String.format(Locale.US,
+                        "[%s] RMSSD:%.1f | SDNN:%.1f | SI:%.1f | IA:%.0f%% | LF/HF:%.2f | TP:%.0f | SampEn:%.2f | DFA:%.2f | T:%.1fс",
+                        timeFmt.format(new Date(snapshot.getTimestamp())), snapshot.getRmssd(), snapshot.getSdnn(),
+                        snapshot.getBaevskySi(), iaPct, snapshot.getLfHfRatio(), snapshot.getTotalPower(),
+                        snapshot.getSampleEntropy(), snapshot.getDfaAlpha1(), modSec);
 
-                    fillPaint.setColor(Color.parseColor("#F1F5F9"));
-                    canvas2.drawRect(MARGIN, currentYCharts, PAGE_WIDTH - MARGIN, currentYCharts + 14, fillPaint);
+                fillPaint.setColor(Color.parseColor("#F1F5F9"));
+                canvas2.drawRect(MARGIN, currentYCharts, PAGE_WIDTH - MARGIN, currentYCharts + 14, fillPaint);
 
-                    textPaint.setTextSize(7.5f);
-                    textPaint.setFakeBoldText(true);
-                    textPaint.setColor(Color.parseColor("#0F172A"));
-                    canvas2.drawText(snapshotLine, MARGIN + 4, currentYCharts + 10, textPaint);
-                    currentYCharts += 20;
-                } else {
-                    currentYCharts += 10;
-                }
+                textPaint.setTextSize(7.5f);
+                textPaint.setFakeBoldText(true);
+                textPaint.setColor(Color.parseColor("#0F172A"));
+                canvas2.drawText(snapshotLine, MARGIN + 4, currentYCharts + 10, textPaint);
+                currentYCharts += 20;
             }
 
             document.finishPage(page2);
 
             // ==========================================
-            // ХРОНОЛОГИЧЕСКИЙ ЛОГ СНИМКОВ (Выводит абсолютно ВСЕ короткие срезы)
+            // ХРОНОЛОГИЧЕСКИЙ ЛОГ СНИМКОВ
             // ==========================================
             SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
             int rowsPerPage = 22;
@@ -677,7 +696,7 @@ public class PdfExporter {
         canvas.drawText(maxRr + " мс", plotLeft + plotWidth - 40, plotTop + plotHeight + 9, labelPaint);
     }
 
-    private static void drawOxygenationChart(Canvas canvas, List<DataPoint> dataPoints, int left, int top, int width, int height, int lineColor, String title) {
+    private static void drawOxygenationChart(Canvas canvas, List<DataPoint> dataPoints, int left, int top, int width, int height, int lineColor, String title, long startTime, long endTime) {
         Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         fillPaint.setStyle(Paint.Style.FILL);
 
@@ -748,7 +767,7 @@ public class PdfExporter {
         }
     }
 
-    private static void drawHeartRateChart(Canvas canvas, List<DataPoint> dataPoints, int left, int top, int width, int height, int lineColor, String title) {
+    private static void drawHeartRateChart(Canvas canvas, List<DataPoint> dataPoints, int left, int top, int width, int height, int lineColor, String title, long startTime, long endTime) {
         Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         fillPaint.setStyle(Paint.Style.FILL);
 
@@ -771,7 +790,7 @@ public class PdfExporter {
         int plotLeft = left + 30;
         int plotTop = top + 16;
         int plotWidth = width - 40;
-        int plotHeight = height - 24;
+        int plotHeight = height - 28; // Оставили место снизу для оси X
 
         textPaint.setTextSize(6.5f);
         textPaint.setFakeBoldText(false);
@@ -787,21 +806,40 @@ public class PdfExporter {
             canvas.drawText(String.format(Locale.US, "%.0f", lvl), left + 6, y + 2, textPaint);
         }
 
-        if (dataPoints == null || dataPoints.isEmpty()) return;
+        if (dataPoints != null && !dataPoints.isEmpty()) {
+            strokePaint.setColor(lineColor);
+            strokePaint.setStrokeWidth(1.5f);
 
-        strokePaint.setColor(lineColor);
-        strokePaint.setStrokeWidth(1.5f);
-
-        Path path = new Path();
-        int size = dataPoints.size();
-        for (int i = 0; i < size; i++) {
-            DataPoint dp = dataPoints.get(i);
-            float x = plotLeft + (i / (float) Math.max(1, size - 1)) * plotWidth;
-            float y = mapHrToY((float) dp.hr, plotTop, plotHeight);
-            if (i == 0) path.moveTo(x, y);
-            else path.lineTo(x, y);
+            Path path = new Path();
+            int size = dataPoints.size();
+            for (int i = 0; i < size; i++) {
+                DataPoint dp = dataPoints.get(i);
+                float x = plotLeft + (i / (float) Math.max(1, size - 1)) * plotWidth;
+                float y = mapHrToY((float) dp.hr, plotTop, plotHeight);
+                if (i == 0) path.moveTo(x, y);
+                else path.lineTo(x, y);
+            }
+            canvas.drawPath(path, strokePaint);
         }
-        canvas.drawPath(path, strokePaint);
+
+        // Отрисовка временной шкалы по оси X под графиком ЧСС
+        SimpleDateFormat timeAxisFmt = new SimpleDateFormat("HH:mm:ss", Locale.US);
+        String startStr = timeAxisFmt.format(new Date(startTime));
+        String midStr = timeAxisFmt.format(new Date((startTime + endTime) / 2));
+        String endStr = timeAxisFmt.format(new Date(endTime));
+
+        Paint axisTextPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        axisTextPaint.setColor(Color.parseColor("#475569"));
+        axisTextPaint.setTextSize(7.0f);
+
+        float axisY = plotTop + plotHeight + 10;
+        canvas.drawText(startStr, plotLeft, axisY, axisTextPaint);
+
+        float midWidth = axisTextPaint.measureText(midStr);
+        canvas.drawText(midStr, plotLeft + (plotWidth / 2f) - (midWidth / 2f), axisY, axisTextPaint);
+
+        float endWidth = axisTextPaint.measureText(endStr);
+        canvas.drawText(endStr, plotLeft + plotWidth - endWidth, axisY, axisTextPaint);
     }
 
     private static void drawPoincarePlot(Canvas canvas, List<Integer> rawRrList, int left, int top, int width, int height) {
