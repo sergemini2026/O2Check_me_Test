@@ -61,6 +61,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private boolean isCalibrationCompleted = false;
     private int sessionDumpCount = 0;
+    private int globalDumpIndexCounter = 0; // Сквозной счетчик дампов (dumpIndex) для сессии
     private long sessionStartTime = 0;
     private long postiStartTime = 0;
 
@@ -588,6 +589,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = true;
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
+        globalDumpIndexCounter = 0; // Сброс сквозного индекса дампов при старте сессии
         completedCyclesInCurrentDump = 0;
         lastPstiScore = 0.0;
         lastPstiRmssdRatio = 0.0;
@@ -714,16 +716,19 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             HrvCalculator.Metrics postiMetrics = HrvCalculator.calculate(snapshotRr);
             if (postiMetrics != null && postiMetrics.isValid) {
                 float currentModulationSec = fixedModulationPeriodMs / 1000.0f;
+                int currentDumpIndex = globalDumpIndexCounter++;
                 SessionSnapshot postiSummarySnapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
                         postiMetrics,
                         currentModulationSec,
                         true, // isPstiPhase = true
-                        true  // isDumpSnapshot = true
+                        true, // isDumpSnapshot = true
+                        currentDumpIndex
                 );
                 if (isBound && hrvService != null) {
                     hrvService.addSnapshot(postiSummarySnapshot);
                 }
+                onLog(String.format(Locale.US, "[Дамп #%d (PSTI) завершен]", currentDumpIndex));
             }
 
             HrvCalculator.PstiResult pstiResult = HrvCalculator.calculatePsti(baselineRr, snapshotRr);
@@ -744,6 +749,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         sessionDumpCount = 0;
+
+        // ЖЕСТКИЙ СБРОС ТРЕНИРОВОЧНОГО БУФЕРА ДАТЧИКА ПРИ ВЫХОДЕ ИЗ PSTI (УСТРАНЕНИЕ ЗАЦИКЛИВАНИЯ)
+        if (polarManager != null) {
+            polarManager.startCollection(); // Перезапуск collection полностью очищает rrBuffer и hrWindow
+        }
 
         updateRightPanelStatus();
         onLog("[PSTI] Завершено. Возобновление дыхательного контура и аудио...");
@@ -781,6 +791,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isTrainingModeActive = false;
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
+        globalDumpIndexCounter = 0;
         completedCyclesInCurrentDump = 0;
         pstiHandler.removeCallbacks(pstiCountdownRunnable);
         
@@ -983,7 +994,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         @Override
         public void onPolarHrReceived(int hr, HrvCalculator.Metrics hrv, int rrCount) {
             boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
-            if (isPostiActive) return; // Игнорируем тренировочные дампы во время активного теста PSTI[span_2](start_span)[span_2](end_span)
+            if (isPostiActive) return; // Игнорируем тренировочные дампы во время активного теста PSTI
 
             int totalTarget = TARGET_RR_PER_DUMP; // 300
             float percent = Math.min(100.0f, (rrCount / (float) totalTarget) * 100.0f);
@@ -1019,9 +1030,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 sessionDumpCount++;
                 completedCyclesInCurrentDump = 0;
 
-                onLog(String.format(Locale.US, "[Дамп #%d завершен]", sessionDumpCount));
+                int currentDumpIndex = globalDumpIndexCounter++;
+                onLog(String.format(Locale.US, "[Дамп #%d завершен]", currentDumpIndex));
 
-                // Сохраняем итоговый снимок тренировочного дампа (isDumpSnapshot = true, isPstiPhase = false)
+                // Сохраняем итоговый снимок тренировочного дампа с инкрементированным dumpIndex
                 if (hrv != null && hrv.isValid) {
                     float currentModulationSec = fixedModulationPeriodMs / 1000.0f;
                     SessionSnapshot trainingDumpSnapshot = new SessionSnapshot(
@@ -1029,7 +1041,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                             hrv,
                             currentModulationSec,
                             false, // isPstiPhase = false
-                            true   // isDumpSnapshot = true
+                            true,  // isDumpSnapshot = true
+                            currentDumpIndex
                     );
                     if (isBound && hrvService != null) {
                         hrvService.addSnapshot(trainingDumpSnapshot);
