@@ -275,7 +275,7 @@ public class PdfExporter {
             }
 
             // ==========================================
-            // ПОПАРНЫЕ ГРАФИКИ ОКСИГЕНАЦИИ И ПУЛЬСА (Строго по dumpIndex и реальному времени)
+            // ПОПАРНЫЕ ГРАФИКИ ОКСИГЕНАЦИИ И ПУЛЬСА (Безопасная обработка дампов и графиков)
             // ==========================================
             List<HrvSnapshotEntity> dumpSnapshots = new ArrayList<>();
             if (snapshots != null) {
@@ -287,9 +287,10 @@ public class PdfExporter {
                 Collections.sort(dumpSnapshots, Comparator.comparingInt(HrvSnapshotEntity::getDumpIndex));
             }
 
+            // Надежное определение количества блоков: если dumpSnapshots пуст, берем оценку по rawRrList или ставим минимум 1
             int dumpTotal = dumpSnapshots.size();
             if (dumpTotal == 0) {
-                dumpTotal = 1;
+                dumpTotal = (rawRrList != null && !rawRrList.isEmpty()) ? (int) Math.ceil((double) rawRrList.size() / 300.0) : 1;
             }
 
             int totalPatternBlocks = 3;
@@ -312,7 +313,6 @@ public class PdfExporter {
             canvas2.drawText("5. Динамика SpO2 и ЧСС по дампам сессии (строго по времени дампов)", MARGIN, currentYCharts, textPaint);
             currentYCharts += 15;
 
-            // Цикл по каждому дампу строго на основе dumpSnapshots
             for (int d = 0; d < dumpTotal; d++) {
                 if (currentYCharts + 225 > PAGE_HEIGHT - MARGIN) {
                     document.finishPage(page2);
@@ -323,28 +323,28 @@ public class PdfExporter {
                     currentYCharts = 45;
                 }
 
-                HrvSnapshotEntity snapshot = dumpSnapshots.get(d);
-                int dumpIdx = snapshot.getDumpIndex();
-                boolean isPstiPhase = snapshot.isPstiPhase();
+                // Безопасное извлечение снимка без риска IndexOutOfBoundsException
+                HrvSnapshotEntity snapshot = (d < dumpSnapshots.size()) ? dumpSnapshots.get(d) : null;
+                int dumpIdx = (snapshot != null) ? snapshot.getDumpIndex() : (d + 1);
+                boolean isPstiPhase = (snapshot != null) ? snapshot.isPstiPhase() : (d >= totalPatternBlocks);
 
-                // Определение интервала времени для текущего дампа
-                long dumpEndTime = snapshot.getTimestamp();
+                // Расчет временных границ дампа с фоллбэками
+                long dumpEndTime = (snapshot != null) ? snapshot.getTimestamp() : endTime;
                 long dumpStartTime;
                 if (d > 0) {
-                    dumpStartTime = dumpSnapshots.get(d - 1).getTimestamp();
+                    if (d - 1 < dumpSnapshots.size() && dumpSnapshots.get(d - 1) != null) {
+                        dumpStartTime = dumpSnapshots.get(d - 1).getTimestamp();
+                    } else {
+                        dumpStartTime = startTime + (d - 1) * 300000L;
+                    }
                 } else {
                     dumpStartTime = startTime > 0 ? startTime : (dumpEndTime - 300000L);
                 }
 
-                // Сбор точек DataPoint строго в диапазоне [dumpStartTime, dumpEndTime]
+                // Сбор точек DataPoint по диапазону времени [dumpStartTime, dumpEndTime]
                 List<DataPoint> dumpPoints = new ArrayList<>();
                 if (dataPoints != null) {
                     for (DataPoint dp : dataPoints) {
-                        // Предполагаем, что у DataPoint есть метод получения времени в миллисекундах или вычисляем по секундам от старта
-                        // Поскольку в DataPoint хранится elapsedSec или можем сопоставить через timestamp:
-                        // Сравним относительное время или преобразуем
-                        // В коде DataPoint поля: timestamp (строка), elapsedSec (int), spo2, hr, pi, rr
-                        // Привязку к реальному времени делаем через sessionStartTime + elapsedSec * 1000L
                         long dpTime = startTime + (dp.elapsedSec * 1000L);
                         if (dpTime >= dumpStartTime && dpTime <= dumpEndTime) {
                             dumpPoints.add(dp);
@@ -352,7 +352,7 @@ public class PdfExporter {
                     }
                 }
 
-                // Если точек по точному времени не набралось (например, рассинхронизация меток), берем фоллбэк по индексу
+                // Фоллбэк деления точек по индексу, если по точным меткам времени ничего не нашлось
                 if (dumpPoints.isEmpty() && dataPoints != null && !dataPoints.isEmpty()) {
                     int pointsPerDump = Math.max(1, dataPoints.size() / dumpTotal);
                     int pStart = d * pointsPerDump;
@@ -372,30 +372,34 @@ public class PdfExporter {
                 currentYCharts += 50;
 
                 drawHeartRateChart(canvas2, dumpPoints, MARGIN, currentYCharts, PAGE_WIDTH - 2 * MARGIN, 90, Color.parseColor("#10B981"), "ЧСС (HR, уд/мин)", dumpStartTime, dumpEndTime);
-                currentYCharts += 105; // Увеличено для размещения оси X и отступа
+                currentYCharts += 105;
 
-                // Вывод итоговой плашки метрик строго для этого dumpIndex
-                SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.US);
-                double lf = snapshot.getLfPower();
-                double hf = snapshot.getHfPower();
-                double lfHfVal = (lf + hf > 0) ? (2.0 * lf / (lf + hf)) : snapshot.getLfHfRatio();
-                double iaPct = Math.max(0.0, Math.min(100.0, (lfHfVal - 1.0) * 100.0));
-                float modSec = snapshot.getModulationSec() > 0 ? snapshot.getModulationSec() : 10.0f;
+                // Вывод плашки метрик (только если снимок существует)
+                if (snapshot != null) {
+                    SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.US);
+                    double lf = snapshot.getLfPower();
+                    double hf = snapshot.getHfPower();
+                    double lfHfVal = (lf + hf > 0) ? (2.0 * lf / (lf + hf)) : snapshot.getLfHfRatio();
+                    double iaPct = Math.max(0.0, Math.min(100.0, (lfHfVal - 1.0) * 100.0));
+                    float modSec = snapshot.getModulationSec() > 0 ? snapshot.getModulationSec() : 10.0f;
 
-                String snapshotLine = String.format(Locale.US,
-                        "[%s] RMSSD:%.1f | SDNN:%.1f | SI:%.1f | IA:%.0f%% | LF/HF:%.2f | TP:%.0f | SampEn:%.2f | DFA:%.2f | T:%.1fс",
-                        timeFmt.format(new Date(snapshot.getTimestamp())), snapshot.getRmssd(), snapshot.getSdnn(),
-                        snapshot.getBaevskySi(), iaPct, snapshot.getLfHfRatio(), snapshot.getTotalPower(),
-                        snapshot.getSampleEntropy(), snapshot.getDfaAlpha1(), modSec);
+                    String snapshotLine = String.format(Locale.US,
+                            "[%s] RMSSD:%.1f | SDNN:%.1f | SI:%.1f | IA:%.0f%% | LF/HF:%.2f | TP:%.0f | SampEn:%.2f | DFA:%.2f | T:%.1fс",
+                            timeFmt.format(new Date(snapshot.getTimestamp())), snapshot.getRmssd(), snapshot.getSdnn(),
+                            snapshot.getBaevskySi(), iaPct, snapshot.getLfHfRatio(), snapshot.getTotalPower(),
+                            snapshot.getSampleEntropy(), snapshot.getDfaAlpha1(), modSec);
 
-                fillPaint.setColor(Color.parseColor("#F1F5F9"));
-                canvas2.drawRect(MARGIN, currentYCharts, PAGE_WIDTH - MARGIN, currentYCharts + 14, fillPaint);
+                    fillPaint.setColor(Color.parseColor("#F1F5F9"));
+                    canvas2.drawRect(MARGIN, currentYCharts, PAGE_WIDTH - MARGIN, currentYCharts + 14, fillPaint);
 
-                textPaint.setTextSize(7.5f);
-                textPaint.setFakeBoldText(true);
-                textPaint.setColor(Color.parseColor("#0F172A"));
-                canvas2.drawText(snapshotLine, MARGIN + 4, currentYCharts + 10, textPaint);
-                currentYCharts += 20;
+                    textPaint.setTextSize(7.5f);
+                    textPaint.setFakeBoldText(true);
+                    textPaint.setColor(Color.parseColor("#0F172A"));
+                    canvas2.drawText(snapshotLine, MARGIN + 4, currentYCharts + 10, textPaint);
+                    currentYCharts += 20;
+                } else {
+                    currentYCharts += 10;
+                }
             }
 
             document.finishPage(page2);
@@ -405,7 +409,7 @@ public class PdfExporter {
             // ==========================================
             SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
             int rowsPerPage = 22;
-            int totalSnapshots = snapshots.size();
+            int totalSnapshots = (snapshots != null) ? snapshots.size() : 0;
 
             int snapshotIdx = 0;
             while (snapshotIdx < totalSnapshots) {
@@ -790,7 +794,7 @@ public class PdfExporter {
         int plotLeft = left + 30;
         int plotTop = top + 16;
         int plotWidth = width - 40;
-        int plotHeight = height - 28; // Оставили место снизу для оси X
+        int plotHeight = height - 28;
 
         textPaint.setTextSize(6.5f);
         textPaint.setFakeBoldText(false);
