@@ -11,15 +11,16 @@ import android.bluetooth.BluetoothProfile;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 
-import java.util.ArrayList;
-import java.util.LinkedList;
 import java.util.List;
-import java.util.Queue;
 import java.util.UUID;
 
 @SuppressLint("MissingPermission")
 public class PolarH10Manager {
+
+    private static final boolean DEBUG = true;
+    private static final String TAG = "PolarH10Manager";
 
     // Включатель режимов: false — реальный датчик, true — эмуляция
     public static final boolean USE_MOCK_DATA = false;
@@ -31,11 +32,8 @@ public class PolarH10Manager {
     private static final UUID BATTERY_SERVICE_UUID = UUID.fromString("0000180f-0000-1000-8000-00805f9b34fb");
     private static final UUID BATTERY_CHAR_UUID    = UUID.fromString("00002a19-0000-1000-8000-00805f9b34fb");
 
-    private static final int MAX_RR_COUNT = 300; 
-
     public interface PolarCallback {
         void onPolarLog(String message);
-        void onPolarHrReceived(int avgHr, HrvCalculator.Metrics hrv, int rrCount);
         void onRrReceived(int rrMs, float instantHr);
         default void onPolarBatteryReceived(int battery) {}
     }
@@ -48,9 +46,6 @@ public class PolarH10Manager {
     private boolean isConnecting = false;
     private boolean isCollecting = false; // Флаг разрешения сбора данных (управляется Панелью монитора)
     private int batteryLevel = 0;
-    
-    private final Queue<Integer> rrBuffer = new LinkedList<>();
-    private final List<Integer> hrWindow = new ArrayList<>();
 
     public PolarH10Manager(Context context, PolarCallback callback) {
         this.context = context;
@@ -72,15 +67,14 @@ public class PolarH10Manager {
     }
 
     /**
-     * Запуск сбора данных в буфер (вызывается строго при активации Панели монитора)
+     * Запуск сбора данных (вызывается строго при активации Панели монитора)
      */
     public void startCollection() {
-        synchronized (rrBuffer) {
-            rrBuffer.clear();
-            hrWindow.clear();
-            isCollecting = true;
+        isCollecting = true;
+        if (DEBUG) {
+            Log.d(TAG, "[POLAR_TRANSPORT] Старт трансляции сырых RR-интервалов...");
         }
-        log("Polar H10: Старт накопления данных (300 RR)...");
+        log("Polar H10: Старт сбора данных...");
     }
 
     /**
@@ -88,11 +82,10 @@ public class PolarH10Manager {
      */
     public void stopCollection() {
         isCollecting = false;
-        synchronized (rrBuffer) {
-            rrBuffer.clear();
-            hrWindow.clear();
+        if (DEBUG) {
+            Log.d(TAG, "[POLAR_TRANSPORT] Трансляция сырых RR-интервалов остановлена.");
         }
-        log("Polar H10: Накопление данных остановлено.");
+        log("Polar H10: Сбор данных остановлен.");
     }
 
     private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
@@ -101,7 +94,7 @@ public class PolarH10Manager {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 isConnected = true;
                 isConnecting = false;
-                log("Polar H10: Подключен."); // Убран ошибочный автостарт накопления из лога соединения
+                log("Polar H10: Подключен.");
                 gatt.discoverServices();
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 isConnected = false;
@@ -186,80 +179,27 @@ public class PolarH10Manager {
                     // ЕСЛИ ПАНЕЛЬ МОНИТОРА НЕ АКТИВНА — ИГНОРИРУЕМ ВХОДЯЩИЙ ПОТОК ДАННЫХ
                     if (!isCollecting) return;
 
-                    int currentHr = parseHeartRate(data);
                     List<Integer> newRrList = HrvCalculator.parseRrIntervals(data);
+                    for (int rr : newRrList) {
+                        if (rr < 300 || rr > 2000) continue;
 
-                    synchronized (rrBuffer) {
-                        hrWindow.add(currentHr);
+                        final int rrMs = rr;
+                        final float instantHr = 60000.0f / rrMs;
 
-                        for (int rr : newRrList) {
-                            if (rr < 300 || rr > 2000) continue;
-
-                            rrBuffer.add(rr);
-
-                            final int rrMs = rr;
-                            final float instantHr = 60000.0f / rrMs;
-
-                            new Handler(Looper.getMainLooper()).post(() -> {
-                                if (callback != null) {
-                                    callback.onRrReceived(rrMs, instantHr);
-                                }
-                            });
-
-                            int currentCount = rrBuffer.size();
-
-                            // 1. При полном заполнении (300) — полный расчет и сброс
-                            if (currentCount == MAX_RR_COUNT) {
-                                List<Integer> snapshot = new ArrayList<>(rrBuffer);
-                                HrvCalculator.Metrics hrv = HrvCalculator.calculate(snapshot);
-                                
-                                int avgHr = getAverageHr();
-                                new Handler(Looper.getMainLooper()).post(() -> {
-                                    if (callback != null) {
-                                        callback.onPolarHrReceived(avgHr, hrv, MAX_RR_COUNT);
-                                    }
-                                });
-
-                                rrBuffer.clear();
-                                hrWindow.clear();
-
-                            // 2. В процессе сбора (каждые 10 ударов) — отправляем промежуточный статус
-                            } else if (currentCount % 10 == 0) {
-                                List<Integer> snapshot = new ArrayList<>(rrBuffer);
-                                HrvCalculator.Metrics hrv = currentCount >= 30 ? HrvCalculator.calculate(snapshot) : null;
-                                int avgHr = getAverageHr();
-                                
-                                new Handler(Looper.getMainLooper()).post(() -> {
-                                    if (callback != null) {
-                                        callback.onPolarHrReceived(avgHr, hrv, currentCount);
-                                    }
-                                });
-                            }
+                        if (DEBUG) {
+                            Log.d(TAG, "[POLAR_TRANSPORT] Транзит сырого rrMs: " + rrMs + " ms, мгновенный ЧСС: " + instantHr);
                         }
+
+                        new Handler(Looper.getMainLooper()).post(() -> {
+                            if (callback != null) {
+                                callback.onRrReceived(rrMs, instantHr);
+                            }
+                        });
                     }
                 }
             }
         }
     };
-
-    private int getAverageHr() {
-        if (hrWindow.isEmpty()) return 0;
-        int sum = 0;
-        for (int hr : hrWindow) {
-            sum += hr;
-        }
-        return Math.round((float) sum / hrWindow.size());
-    }
-
-    private int parseHeartRate(byte[] data) {
-        byte flags = data[0];
-        boolean is16Bit = (flags & 0x01) != 0;
-        if (is16Bit && data.length >= 3) {
-            return ((data[2] & 0xFF) << 8) | (data[1] & 0xFF);
-        } else {
-            return data[1] & 0xFF;
-        }
-    }
 
     private void log(String msg) {
         new Handler(Looper.getMainLooper()).post(() -> {
