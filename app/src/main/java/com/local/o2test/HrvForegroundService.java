@@ -12,6 +12,7 @@ import android.os.Binder;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
+import android.util.Log;
 import androidx.core.app.NotificationCompat;
 
 import java.util.ArrayList;
@@ -19,6 +20,9 @@ import java.util.Collections;
 import java.util.List;
 
 public class HrvForegroundService extends Service {
+
+    private static final boolean DEBUG = true;
+    private static final String TAG = "HrvForegroundService";
 
     public static final String CHANNEL_ID = "HrvServiceChannel";
     public static final int NOTIFICATION_ID = 1001;
@@ -42,6 +46,12 @@ public class HrvForegroundService extends Service {
     private int rsaCycleAccumulatedMs = 0;
     private static final int TARGET_CYCLE_MS = 10000;
 
+    // --- МАКРО-НАКОПЛЕНИЕ И АВТОМАТ СОСТОЯНИЙ (300 RR) ---
+    private static final int TARGET_MACRO_RR_COUNT = 300;
+    private final List<Integer> macroRrBuffer = Collections.synchronizedList(new ArrayList<>());
+    private final List<Integer> macroHrWindow = Collections.synchronizedList(new ArrayList<>());
+    private TrainingPresetStateMachine stateMachine;
+
     private boolean isRecording = false;
     private ServiceCallback callback;
 
@@ -62,6 +72,7 @@ public class HrvForegroundService extends Service {
         void onO2DataReceived(int spo2, int hr);
         void onConnectionStatusChanged(String deviceType, boolean isConnected);
         default void onPhaseCorrectionCalculated(float correctionDelta) {}
+        default void onMacroDumpCompleted(int avgHr, HrvCalculator.Metrics hrv, int rrCount, TrainingPresetStateMachine.QuantumContext context) {}
     }
 
     public class LocalBinder extends Binder {
@@ -74,6 +85,9 @@ public class HrvForegroundService extends Service {
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
+
+        // Инициализация автомата состояний по умолчанию (пресет 3-1)
+        stateMachine = new TrainingPresetStateMachine(3);
 
         PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
         if (powerManager != null) {
@@ -171,9 +185,12 @@ public class HrvForegroundService extends Service {
         return callback;
     }
 
+    public void setPresetPattern(int dumpsCount) {
+        this.stateMachine = new TrainingPresetStateMachine(dumpsCount);
+    }
+
     public void setAudioResource(int resId) {
         this.currentAudioResId = resId;
-        // Оперативная смена аудиодорожки прямо по ходу сессии
         if (isRecording) {
             if (serviceAudioEngine != null) {
                 serviceAudioEngine.stop();
@@ -247,6 +264,13 @@ public class HrvForegroundService extends Service {
         synchronized (slidingWindowList) { slidingWindowList.clear(); }
         synchronized (snapshotBuffer) { snapshotBuffer.clear(); }
         synchronized (rsaCycleBuffer) { rsaCycleBuffer.clear(); }
+        synchronized (macroRrBuffer) { macroRrBuffer.clear(); }
+        synchronized (macroHrWindow) { macroHrWindow.clear(); }
+        
+        if (stateMachine != null) {
+            stateMachine.reset();
+        }
+
         rsaCycleAccumulatedMs = 0;
         isPostiTraceActive = false;
         counterSinceLastProcess = 0;
@@ -266,6 +290,12 @@ public class HrvForegroundService extends Service {
         }
         synchronized (rsaCycleBuffer) {
             rsaCycleBuffer.clear();
+        }
+        synchronized (macroRrBuffer) {
+            macroRrBuffer.clear();
+        }
+        synchronized (macroHrWindow) {
+            macroHrWindow.clear();
         }
         rsaCycleAccumulatedMs = 0;
         
@@ -328,6 +358,7 @@ public class HrvForegroundService extends Service {
             trainingSessionManager.addRrInterval(rrMs);
             
             if (rrMs > 300 && rrMs < 2000) {
+                // 1. Микро-слой: Скользящее окно (150/50 RR) для живых графиков
                 synchronized (slidingWindowList) {
                     slidingWindowList.add(rrMs);
                     while (slidingWindowList.size() > WINDOW_SIZE) {
@@ -341,6 +372,7 @@ public class HrvForegroundService extends Service {
                     }
                 }
 
+                // 2. Оценка дыхательного цикла (10 сек)
                 synchronized (rsaCycleBuffer) {
                     rsaCycleBuffer.add(rrMs);
                     rsaCycleAccumulatedMs += rrMs;
@@ -353,7 +385,67 @@ public class HrvForegroundService extends Service {
                         evaluateCyclePhaseCorrection(cycleCopy);
                     }
                 }
+
+                // 3. Макро-слой: Накопление 300 RR для формирования атомарных дампов
+                synchronized (macroRrBuffer) {
+                    macroRrBuffer.add(rrMs);
+                    int instantHr = Math.round(60000.0f / rrMs);
+                    macroHrWindow.add(instantHr);
+
+                    if (macroRrBuffer.size() >= TARGET_MACRO_RR_COUNT) {
+                        List<Integer> dumpSnapshotData = new ArrayList<>(macroRrBuffer);
+                        int avgHr = calculateAverageHr(macroHrWindow);
+
+                        macroRrBuffer.clear();
+                        macroHrWindow.clear();
+
+                        processAndSaveMacroDump(dumpSnapshotData, avgHr);
+                    }
+                }
             }
+        }
+    }
+
+    private int calculateAverageHr(List<Integer> hrList) {
+        if (hrList == null || hrList.isEmpty()) return 0;
+        int sum = 0;
+        for (int hr : hrList) {
+            sum += hr;
+        }
+        return Math.round((float) sum / hrList.size());
+    }
+
+    private void processAndSaveMacroDump(List<Integer> dumpData, int avgHr) {
+        try {
+            HrvCalculator.Metrics metrics = HrvCalculator.calculate(dumpData);
+            if (metrics != null && metrics.isValid) {
+                TrainingPresetStateMachine.QuantumContext quantum = stateMachine.advanceAndGetNext();
+                float currentModulationSec = currentModulationPeriodMs / 1000.0f;
+
+                SessionSnapshot dumpSnapshot = new SessionSnapshot(
+                        System.currentTimeMillis(),
+                        metrics,
+                        currentModulationSec,
+                        quantum.isPstiPhase(),
+                        true, // isDumpSnapshot = true
+                        quantum.getDumpIndex()
+                );
+
+                synchronized (snapshotBuffer) {
+                    snapshotBuffer.add(dumpSnapshot);
+                }
+
+                if (DEBUG) {
+                    Log.d(TAG, String.format("[HRV_SERVICE] Сформирован макро-дамп #%d | Блок %d | PSTI: %b | RMSSD: %.1f ms",
+                            quantum.getDumpIndex(), quantum.getBlockNumber(), quantum.isPstiPhase(), metrics.rmssd));
+                }
+
+                if (callback != null) {
+                    callback.onMacroDumpCompleted(avgHr, metrics, TARGET_MACRO_RR_COUNT, quantum);
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
@@ -374,7 +466,6 @@ public class HrvForegroundService extends Service {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(windowData);
             if (metrics != null && metrics.isValid) {
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
-                // Передаем текущий статус фазы PSTI в конструктор снимка
                 SessionSnapshot snapshot = new SessionSnapshot(System.currentTimeMillis(), metrics, currentModulationSec, isPostiTraceActive);
                 synchronized (snapshotBuffer) {
                     snapshotBuffer.add(snapshot);
