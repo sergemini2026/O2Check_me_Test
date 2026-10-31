@@ -279,7 +279,7 @@ public class PdfExporter {
             }
 
             // ==========================================
-            // АДАПТАЦИЯ ШАГА 8: СТРОГО ПО МАКРО-ДАМПАМ (isDumpSnapshot = true) с сортировкой по dumpIndex
+            // МАКРО-УРОВЕНЬ ДЛЯ ГРАФИКОВ: СТРОГО ПО МАКРО-ДАМПАМ (isDumpSnapshot = true)
             // ==========================================
             List<HrvSnapshotEntity> dumpSnapshots = new ArrayList<>();
             if (snapshots != null) {
@@ -288,12 +288,11 @@ public class PdfExporter {
                         dumpSnapshots.add(s);
                     }
                 }
-                // Сортировка по сквозному dumpIndex для надежного порядка блоков
                 Collections.sort(dumpSnapshots, Comparator.comparingInt(HrvSnapshotEntity::getDumpIndex));
             }
 
             if (DEBUG) {
-                Log.d(TAG, String.format(Locale.US, "[PDF_EXPORTER] Отфильтровано макро-дампов (isDumpSnapshot=true): %d", dumpSnapshots.size()));
+                Log.d(TAG, String.format(Locale.US, "[PDF_EXPORTER] Отфильтровано макро-дампов для графиков: %d", dumpSnapshots.size()));
             }
 
             int dumpTotal = dumpSnapshots.size();
@@ -318,7 +317,7 @@ public class PdfExporter {
             textPaint.setColor(Color.parseColor("#0F172A"));
             textPaint.setTextSize(13f);
             textPaint.setFakeBoldText(true);
-            canvas2.drawText("5. Динамика SpO2 и ЧСС по дампам сессии (строго по макро-дампам)", MARGIN, currentYCharts, textPaint);
+            canvas2.drawText("5. Динамика SpO2 и ЧСС по дампам сессии (макро-уровень)", MARGIN, currentYCharts, textPaint);
             currentYCharts += 15;
 
             for (int d = 0; d < dumpTotal; d++) {
@@ -331,12 +330,10 @@ public class PdfExporter {
                     currentYCharts = 45;
                 }
 
-                // Безопасное извлечение макро-дампа
                 HrvSnapshotEntity snapshot = (d < dumpSnapshots.size()) ? dumpSnapshots.get(d) : null;
                 int dumpIdx = (snapshot != null) ? snapshot.getDumpIndex() : (d + 1);
                 boolean isPstiPhase = (snapshot != null) ? snapshot.isPstiPhase() : (d >= totalPatternBlocks);
 
-                // Расчет временных границ дампа
                 long dumpEndTime = (snapshot != null) ? snapshot.getTimestamp() : endTime;
                 long dumpStartTime;
                 if (d > 0) {
@@ -349,7 +346,6 @@ public class PdfExporter {
                     dumpStartTime = startTime > 0 ? startTime : (dumpEndTime - 300000L);
                 }
 
-                // Сбор точек DataPoint по диапазону времени
                 List<DataPoint> dumpPoints = new ArrayList<>();
                 if (dataPoints != null) {
                     for (DataPoint dp : dataPoints) {
@@ -410,14 +406,41 @@ public class PdfExporter {
             document.finishPage(page2);
 
             // ==========================================
-            // ХРОНОЛОГИЧЕСКИЙ ЛОГ СНИМКОВ (также по макро-дампам для стабильности)
+            // ХРОНОЛОГИЧЕСКИЙ ЛОГ (Раздел 6): Двухуровневый формат
+            // - Тренировка: микро-срезы (скользящие окна по 50 интервалов)
+            // - Тест PSTI: обобщенная строка макро-дампа теста
             // ==========================================
+            List<HrvSnapshotEntity> logSnapshots = new ArrayList<>();
+            if (snapshots != null) {
+                for (HrvSnapshotEntity s : snapshots) {
+                    if (!s.isPstiPhase()) {
+                        // Для тренировки берем оперативные микро-срезы
+                        if (!s.isDumpSnapshot()) {
+                            logSnapshots.add(s);
+                        }
+                    } else {
+                        // Для теста PSTI берем только итоговые макро-дампы (обобщенный срез)
+                        if (s.isDumpSnapshot()) {
+                            logSnapshots.add(s);
+                        }
+                    }
+                }
+                // Фоллбэк: если микро-снимков не оказалось, берем все доступные по фазам
+                if (logSnapshots.isEmpty()) {
+                    for (HrvSnapshotEntity s : snapshots) {
+                        if (!s.isPstiPhase() || s.isDumpSnapshot()) {
+                            logSnapshots.add(s);
+                        }
+                    }
+                }
+            }
+
             SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
             int rowsPerPage = 22;
-            int totalSnapshots = dumpSnapshots.size();
+            int totalLogSnapshots = logSnapshots.size();
 
             int snapshotIdx = 0;
-            while (snapshotIdx < totalSnapshots) {
+            while (snapshotIdx < totalLogSnapshots) {
                 PdfDocument.PageInfo pageInfoN = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
                 PdfDocument.Page pageN = document.startPage(pageInfoN);
                 Canvas canvasN = pageN.getCanvas();
@@ -426,7 +449,7 @@ public class PdfExporter {
                 textPaint.setColor(Color.parseColor("#0F172A"));
                 textPaint.setTextSize(13f);
                 textPaint.setFakeBoldText(true);
-                canvasN.drawText("6. Хронологический лог макро-дампов сессии", MARGIN, 42, textPaint);
+                canvasN.drawText("6. Хронологический лог сессии (Микро-срезы и макро-дампы)", MARGIN, 42, textPaint);
 
                 int startY = 65;
                 textPaint.setTextSize(8.0f);
@@ -453,11 +476,11 @@ public class PdfExporter {
                 int currentY = startY + 20;
                 int rowsOnPage = 0;
 
-                while (snapshotIdx < totalSnapshots && rowsOnPage < rowsPerPage) {
-                    HrvSnapshotEntity s = dumpSnapshots.get(snapshotIdx);
+                while (snapshotIdx < totalLogSnapshots && rowsOnPage < rowsPerPage) {
+                    HrvSnapshotEntity s = logSnapshots.get(snapshotIdx);
                     boolean isPstiPhase = s.isPstiPhase();
 
-                    boolean isPhaseChanged = (snapshotIdx == 0) || (dumpSnapshots.get(snapshotIdx - 1).isPstiPhase() != isPstiPhase);
+                    boolean isPhaseChanged = (snapshotIdx == 0) || (logSnapshots.get(snapshotIdx - 1).isPstiPhase() != isPstiPhase);
                     boolean isNewPageStart = (rowsOnPage == 0);
 
                     if (isPhaseChanged || isNewPageStart) {
@@ -467,7 +490,7 @@ public class PdfExporter {
                         textPaint.setTextSize(8.0f);
                         textPaint.setFakeBoldText(true);
                         textPaint.setColor(Color.parseColor("#0F172A"));
-                        String centerTitleText = (isPstiPhase ? "Тест PSTI" : "Тренировка") + " — " + workoutMode;
+                        String centerTitleText = (isPstiPhase ? "Тест PSTI (Итоговый макро-дамп)" : "Тренировка (Микро-срезы)") + " — " + workoutMode;
                         
                         float textWidth = textPaint.measureText(centerTitleText);
                         float centerX = MARGIN + (PAGE_WIDTH - 2 * MARGIN - textWidth) / 2f;
