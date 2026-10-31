@@ -8,6 +8,7 @@ import android.os.Environment;
 import android.text.Layout;
 import android.text.SpannableString;
 import android.text.style.AlignmentSpan;
+import android.util.Log;
 import android.widget.Toast;
 
 import com.local.o2test.db.AppDatabase;
@@ -29,6 +30,8 @@ import java.util.zip.ZipOutputStream;
 
 public class SessionExportManager {
 
+    private static final boolean DEBUG = true;
+    private static final String TAG = "SessionExportManager";
     private static final String PREF_NAME = "O2AppPrefs";
 
     public interface ExportCallback {
@@ -212,20 +215,37 @@ public class SessionExportManager {
                 long sessionId = db.sessionDao().insertSessionSync(session);
 
                 List<HrvSnapshotEntity> entityList = new ArrayList<>();
+                int dumpSnapshotsCount = 0;
+
                 if (!capturedSnapshots.isEmpty()) {
                     for (SessionSnapshot snapshot : capturedSnapshots) {
+                        // Каскадное исправление Шага 7: передаем полный набор полей, включая isDumpSnapshot и dumpIndex
                         HrvSnapshotEntity entity = new HrvSnapshotEntity(
                                 snapshot.getTimestamp(), 
                                 snapshot.getMetrics(), 
                                 snapshot.getModulationSec(),
-                                snapshot.isPstiPhase() // Передаем флаг фазы в сущность БД
+                                snapshot.isPstiPhase(),
+                                snapshot.isDumpSnapshot(),
+                                snapshot.getDumpIndex()
                         );
                         if (entity.getBaevskySi() > 0 && entity.getBaevskySi() <= 300) {
                             entityList.add(entity);
+                            if (snapshot.isDumpSnapshot()) {
+                                dumpSnapshotsCount++;
+                            }
                         }
                     }
+
+                    if (DEBUG) {
+                        Log.d(TAG, String.format(Locale.US, "[EXPORT_MANAGER] Буфер выгружен: всего снимков = %d, валидных в БД = %d, из них макро-дампов (isDumpSnapshot=true) = %d",
+                                capturedSnapshots.size(), entityList.size(), dumpSnapshotsCount));
+                    }
+
                     if (!entityList.isEmpty()) {
                         db.hrvSnapshotDao().insertAll(entityList);
+                        if (DEBUG) {
+                            Log.d(TAG, "[EXPORT_MANAGER] Пачка размеченных снимков успешно записана в базу данных.");
+                        }
                     }
                 }
 
@@ -241,7 +261,7 @@ public class SessionExportManager {
 
                 if (callback != null) {
                     callback.onLog("Сессия #" + calculatedSessionNumber + " зарегистрирована в БД. Индекс PSTI: " + 
-                            String.format(Locale.US, "%.1f%%", lastPstiScore));
+                            String.format(Locale.US, "%.1f%%", lastPstiScore) + String.format(Locale.US, " [Дампов в БД: %d]", dumpSnapshotsCount));
                 }
 
                 List<Double> pstiHistory = new ArrayList<>();
