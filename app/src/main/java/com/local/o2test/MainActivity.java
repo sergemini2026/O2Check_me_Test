@@ -38,6 +38,9 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity implements O2BleManager.BleListener {
 
+    private static final boolean DEBUG = true;
+    private static final String TAG = "MainActivity";
+
     private static final String PREF_NAME = "O2AppPrefs";
     private static final int PI_SMOOTHING_WINDOW = 5;
     private static final int CALIBRATION_TARGET = 100;
@@ -113,6 +116,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             hrvService = binder.getService();
             isBound = true;
             
+            if (DEBUG) {
+                onLog("[SERVICE] Сервис успешно привязан к MainActivity");
+            }
+
             updateRightPanelStatus();
             if (ui.btnHeart != null) {
                 ui.btnHeart.setAlpha(isProfileAuthorized && isTrainingSelected ? 1.0f : 0.5f);
@@ -122,6 +129,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         public void onServiceDisconnected(ComponentName name) {
             isBound = false;
             hrvService = null;
+            if (DEBUG) {
+                onLog("[SERVICE] Соединение с сервисом разорвано");
+            }
         }
     };
 
@@ -317,7 +327,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                 ui.btnHeart.setAlpha(1.0f);
                             }
                             updateRightPanelStatus();
-                            onLog("[ТРЕНИРОВКА ВЫБРАНА] " + currentWorkoutMode + " (Паттерн блоков: " + pattern.length + ")");
+                            
+                            if (DEBUG) {
+                                onLog(String.format(Locale.US, "[ТРЕНИРОВКА ВЫБРАНА] %s | Паттерн блоков: length=%d", currentWorkoutMode, pattern.length));
+                            } else {
+                                onLog("[ТРЕНИРОВКА ВЫБРАНА] " + currentWorkoutMode);
+                            }
 
                             if (isRecording) {
                                 isTrainingModeActive = true;
@@ -509,7 +524,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 setInterfaceAuthorizedState(true);
                 updateMetricsDisplay("--", "--", "--", "--");
                 updateAttractorIndexDisplay("--");
-                onLog("[GATEKEEPER] Активный профиль: " + profileName + " (ID: " + profileId + ")");
+                if (DEBUG) {
+                    onLog("[GATEKEEPER] Активный профиль авторизован: " + profileName + " (ID: " + profileId + ")");
+                } else {
+                    onLog("[GATEKEEPER] Активный профиль: " + profileName);
+                }
                 Toast.makeText(MainActivity.this, "Профиль активирован. Выберите тип тренировки.", Toast.LENGTH_SHORT).show();
             }
 
@@ -652,7 +671,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     completedCyclesInCurrentDump = 0;
 
                     int currentDumpIndex = context != null ? context.getDumpIndex() : globalDumpIndexCounter++;
-                    onLog(String.format(Locale.US, "[Дамп #%d завершен]", currentDumpIndex));
+                    if (DEBUG) {
+                        onLog(String.format(Locale.US, "[STATE_MACHINE] Дамп #%d завершен (Блок %d/%d)", currentDumpIndex, currentBlockNum, totalBlocks));
+                    } else {
+                        onLog(String.format(Locale.US, "[Дамп #%d завершен]", currentDumpIndex));
+                    }
 
                     if (progressManager != null) {
                         progressManager.restart();
@@ -708,7 +731,13 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateAttractorIndexDisplay("--");
         updateRightPanelStatus();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
-        onLog("Мониторинг активен для профиля: " + activeProfileName + ", режим: " + currentWorkoutMode + ", период T = " + fixedModulationPeriodMs + " мс");
+        
+        if (DEBUG) {
+            onLog(String.format(Locale.US, "[MONITORING] Активен профиль: %s | Режим: %s | Период T=%.1fс | Паттерн len=%d",
+                    activeProfileName, currentWorkoutMode, fixedModulationPeriodMs / 1000.0f, currentTrainingPattern.length));
+        } else {
+            onLog("Мониторинг активен для профиля: " + activeProfileName + ", режим: " + currentWorkoutMode);
+        }
     }
 
     private void startClockAndPacerAfterCalibration(float initialPhase) {
@@ -1013,7 +1042,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
                                 final float initialPhase = MayerWaveAnalyzer.calculateInitialPhase(phaseBuffer, fixedModulationPeriodMs);
 
-                                onLog(String.format(Locale.US, "[Калибровка завершена] Вычисленная фаза Майера: %.2f", initialPhase));
+                                if (DEBUG) {
+                                    onLog(String.format(Locale.US, "[CALIBRATION] Калибровка завершена. Вычисленная фаза Майера: %.2f", initialPhase));
+                                } else {
+                                    onLog(String.format(Locale.US, "[Калибровка завершена] Вычисленная фаза Майера: %.2f", initialPhase));
+                                }
 
                                 runOnUiThread(() -> {
                                     if (ui.tvStatusValue != null) {
