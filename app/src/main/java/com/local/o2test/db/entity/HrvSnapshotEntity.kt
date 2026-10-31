@@ -26,9 +26,10 @@ data class HrvSnapshotEntity(
     val artifactsDetected: Int,
     val artifactPct: Double,
     val isPstiPhase: Boolean = false,  // Флаг принадлежности к фазе теста PSTI
-    val isDumpSnapshot: Boolean = false // Флаг итогового снимка по завершении 300-ударного дампа
+    val isDumpSnapshot: Boolean = false, // Флаг итогового снимка по завершении 300-ударного дампа
+    val dumpIndex: Int = 0 // Сквозной порядковый номер дампа сессии
 ) {
-    constructor(timestamp: Long, m: HrvCalculator.Metrics, modulationSec: Float, isPstiPhase: Boolean, isDumpSnapshot: Boolean) : this(
+    constructor(timestamp: Long, m: HrvCalculator.Metrics, modulationSec: Float, isPstiPhase: Boolean, isDumpSnapshot: Boolean, dumpIndex: Int) : this(
         timestamp = timestamp,
         rmssd = m.rmssd,
         sdnn = m.sdnn,
@@ -47,16 +48,21 @@ data class HrvSnapshotEntity(
         artifactsDetected = m.artifactsDetected,
         artifactPct = m.artifactPct,
         isPstiPhase = isPstiPhase,
-        isDumpSnapshot = isDumpSnapshot
+        isDumpSnapshot = isDumpSnapshot,
+        dumpIndex = dumpIndex
+    )
+
+    constructor(timestamp: Long, m: HrvCalculator.Metrics, modulationSec: Float, isPstiPhase: Boolean, isDumpSnapshot: Boolean) : this(
+        timestamp, m, modulationSec, isPstiPhase, isDumpSnapshot, 0
     )
 
     constructor(timestamp: Long, m: HrvCalculator.Metrics, modulationSec: Float, isPstiPhase: Boolean) : this(
-        timestamp, m, modulationSec, isPstiPhase, false
+        timestamp, m, modulationSec, isPstiPhase, false, 0
     )
 
     constructor(timestamp: Long, m: HrvCalculator.Metrics, modulationSec: Float) : this(
-        timestamp, m, modulationSec, false, false
+        timestamp, m, modulationSec, false, false, 0
     )
 
-    constructor(timestamp: Long, m: HrvCalculator.Metrics) : this(timestamp, m, 10.0f, false, false)
+    constructor(timestamp: Long, m: HrvCalculator.Metrics) : this(timestamp, m, 10.0f, false, false, 0)
 }
