@@ -7,6 +7,7 @@ public class SessionSnapshot {
     private final float modulationSec;
     private final boolean isPstiPhase;
     private final boolean isDumpSnapshot;
+    private final int dumpIndex;
 
     public SessionSnapshot(long timestamp, HrvCalculator.Metrics metrics) {
         this.timestamp = timestamp;
@@ -14,6 +15,7 @@ public class SessionSnapshot {
         this.modulationSec = 10.0f; // Значение по умолчанию
         this.isPstiPhase = false;
         this.isDumpSnapshot = false;
+        this.dumpIndex = 0;
     }
 
     public SessionSnapshot(long timestamp, HrvCalculator.Metrics metrics, float modulationSec) {
@@ -22,6 +24,7 @@ public class SessionSnapshot {
         this.modulationSec = modulationSec;
         this.isPstiPhase = false;
         this.isDumpSnapshot = false;
+        this.dumpIndex = 0;
     }
 
     public SessionSnapshot(long timestamp, HrvCalculator.Metrics metrics, float modulationSec, boolean isPstiPhase) {
@@ -30,6 +33,7 @@ public class SessionSnapshot {
         this.modulationSec = modulationSec;
         this.isPstiPhase = isPstiPhase;
         this.isDumpSnapshot = false;
+        this.dumpIndex = 0;
     }
 
     public SessionSnapshot(long timestamp, HrvCalculator.Metrics metrics, float modulationSec, boolean isPstiPhase, boolean isDumpSnapshot) {
@@ -38,6 +42,16 @@ public class SessionSnapshot {
         this.modulationSec = modulationSec;
         this.isPstiPhase = isPstiPhase;
         this.isDumpSnapshot = isDumpSnapshot;
+        this.dumpIndex = 0;
+    }
+
+    public SessionSnapshot(long timestamp, HrvCalculator.Metrics metrics, float modulationSec, boolean isPstiPhase, boolean isDumpSnapshot, int dumpIndex) {
+        this.timestamp = timestamp;
+        this.metrics = metrics;
+        this.modulationSec = modulationSec;
+        this.isPstiPhase = isPstiPhase;
+        this.isDumpSnapshot = isDumpSnapshot;
+        this.dumpIndex = dumpIndex;
     }
 
     /**
@@ -73,6 +87,13 @@ public class SessionSnapshot {
      */
     public boolean isDumpSnapshot() {
         return isDumpSnapshot;
+    }
+
+    /**
+     * Сквозной порядковый номер дампа сессии
+     */
+    public int getDumpIndex() {
+        return dumpIndex;
     }
 
     /**
