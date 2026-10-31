@@ -46,7 +46,7 @@ public class HrvForegroundService extends Service {
     private int rsaCycleAccumulatedMs = 0;
     private static final int TARGET_CYCLE_MS = 10000;
 
-    // --- МАКРО-НАКОПЛЕНИЕ И АВТОМАТ СОСТОЯНИЙ (300 RR) ---
+    // --- МАКРО-СЛОЙ И АВТОМАТ СОСТОЯНИЙ (300 RR) ---
     private static final int TARGET_MACRO_RR_COUNT = 300;
     private final List<Integer> macroRrBuffer = Collections.synchronizedList(new ArrayList<>());
     private final List<Integer> macroHrWindow = Collections.synchronizedList(new ArrayList<>());
@@ -358,7 +358,7 @@ public class HrvForegroundService extends Service {
             trainingSessionManager.addRrInterval(rrMs);
             
             if (rrMs > 300 && rrMs < 2000) {
-                // 1. Микро-слой: Скользящее окно (150/50 RR) для живых графиков
+                // 1. МИКРО-УРОВЕНЬ: Скользящее окно (150/50 RR) -> isDumpSnapshot = false
                 synchronized (slidingWindowList) {
                     slidingWindowList.add(rrMs);
                     while (slidingWindowList.size() > WINDOW_SIZE) {
@@ -386,7 +386,7 @@ public class HrvForegroundService extends Service {
                     }
                 }
 
-                // 3. Макро-слой: Накопление 300 RR для формирования атомарных дампов
+                // 3. МАКРО-УРОВЕНЬ: Накопление 300 RR через TrainingPresetStateMachine -> isDumpSnapshot = true
                 synchronized (macroRrBuffer) {
                     macroRrBuffer.add(rrMs);
                     int instantHr = Math.round(60000.0f / rrMs);
@@ -419,6 +419,7 @@ public class HrvForegroundService extends Service {
         try {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(dumpData);
             if (metrics != null && metrics.isValid) {
+                // Безопасный инкремент и получение квантового контекста из автомата состояний
                 TrainingPresetStateMachine.QuantumContext quantum = stateMachine.advanceAndGetNext();
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
 
@@ -427,7 +428,7 @@ public class HrvForegroundService extends Service {
                         metrics,
                         currentModulationSec,
                         quantum.isPstiPhase(),
-                        true, // isDumpSnapshot = true
+                        true, // isDumpSnapshot = true для макро-дампов
                         quantum.getDumpIndex()
                 );
 
@@ -436,7 +437,7 @@ public class HrvForegroundService extends Service {
                 }
 
                 if (DEBUG) {
-                    Log.d(TAG, String.format("[HRV_SERVICE] Сформирован макро-дамп #%d | Блок %d | PSTI: %b | RMSSD: %.1f ms",
+                    Log.d(TAG, String.format("[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп #%d | Блок %d | PSTI: %b | RMSSD: %.1f ms",
                             quantum.getDumpIndex(), quantum.getBlockNumber(), quantum.isPstiPhase(), metrics.rmssd));
                 }
 
@@ -466,9 +467,14 @@ public class HrvForegroundService extends Service {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(windowData);
             if (metrics != null && metrics.isValid) {
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
+                // Микро-слой: оперативные снимки с isDumpSnapshot = false
                 SessionSnapshot snapshot = new SessionSnapshot(System.currentTimeMillis(), metrics, currentModulationSec, isPostiTraceActive);
                 synchronized (snapshotBuffer) {
                     snapshotBuffer.add(snapshot);
+                }
+                if (DEBUG) {
+                    // Отладочное логирование микро-окон (опционально/скромно, чтобы не засорять Logcat)
+                    // Log.d(TAG, "[HRV_SERVICE] [МИКРО-ОКНО] Снимок добавлен, RMSSD: " + metrics.rmssd);
                 }
             }
         } catch (Exception e) {
