@@ -25,9 +25,9 @@ data class HrvSnapshotEntity(
     val modulationSec: Float = 10.0f, // Сохранение периода модуляции в секундах
     val artifactsDetected: Int,
     val artifactPct: Double,
-    val isPstiPhase: Boolean = false,  // Флаг принадлежности к фазе теста PSTI[span_1](start_span)[span_1](end_span)
-    val isDumpSnapshot: Boolean = false, // Флаг итогового снимка по завершении 300-ударного дампа[span_2](start_span)[span_2](end_span)
-    val dumpIndex: Int = 0 // Сквозной порядковый номер дампа сессии[span_3](start_span)[span_3](end_span)
+    val isPstiPhase: Boolean = false,  // Флаг принадлежности к фазе теста PSTI
+    val isDumpSnapshot: Boolean = false, // Флаг итогового снимка по завершении 300-ударного дампа
+    val dumpIndex: Int = 0 // Сквозной порядковый номер дампа сессии
 ) {
     constructor(timestamp: Long, m: HrvCalculator.Metrics, modulationSec: Float, isPstiPhase: Boolean, isDumpSnapshot: Boolean, dumpIndex: Int) : this(
         timestamp = timestamp,
@@ -50,19 +50,19 @@ data class HrvSnapshotEntity(
         isPstiPhase = isPstiPhase,
         isDumpSnapshot = isDumpSnapshot,
         dumpIndex = dumpIndex
-    )[span_4](start_span)[span_4](end_span)
+    )
 
     constructor(timestamp: Long, m: HrvCalculator.Metrics, modulationSec: Float, isPstiPhase: Boolean, isDumpSnapshot: Boolean) : this(
         timestamp, m, modulationSec, isPstiPhase, isDumpSnapshot, 0
-    )[span_5](start_span)[span_5](end_span)
+    )
 
     constructor(timestamp: Long, m: HrvCalculator.Metrics, modulationSec: Float, isPstiPhase: Boolean) : this(
         timestamp, m, modulationSec, isPstiPhase, false, 0
-    )[span_6](start_span)[span_6](end_span)
+    )
 
     constructor(timestamp: Long, m: HrvCalculator.Metrics, modulationSec: Float) : this(
         timestamp, m, modulationSec, false, false, 0
-    )[span_7](start_span)[span_7](end_span)
+    )
 
-    constructor(timestamp: Long, m: HrvCalculator.Metrics) : this(timestamp, m, 10.0f, false, false, 0)[span_8](start_span)[span_8](end_span)
+    constructor(timestamp: Long, m: HrvCalculator.Metrics) : this(timestamp, m, 10.0f, false, false, 0)
 }
