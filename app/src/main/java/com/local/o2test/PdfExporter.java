@@ -21,6 +21,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -277,12 +279,9 @@ public class PdfExporter {
             }
 
             // ==========================================
-            // ПОПАРНЫЕ ГРАФИКИ ОКСИГЕНАЦИИ И ПУЛЬСА (По дампам = 300 RR)
+            // ПОПАРНЫЕ ГРАФИКИ ОКСИГЕНАЦИИ И ПУЛЬСА (Строго по dumpIndex)
             // ==========================================
-            int dumpTotal = (int) Math.ceil((double) rawRrList.size() / DUMP_RR_SIZE);
-            if (dumpTotal < 1) dumpTotal = 1;
-
-            // Выборка строго ИТОГОВЫХ снимков дампов для подписей под графиками
+            // Выборка и сортировка только ИТОГОВЫХ снимков дампов по сквозному dumpIndex
             List<HrvSnapshotEntity> dumpSnapshots = new ArrayList<>();
             if (snapshots != null) {
                 for (HrvSnapshotEntity s : snapshots) {
@@ -290,6 +289,13 @@ public class PdfExporter {
                         dumpSnapshots.add(s);
                     }
                 }
+                Collections.sort(dumpSnapshots, Comparator.comparingInt(HrvSnapshotEntity::getDumpIndex));
+            }
+
+            int dumpTotal = dumpSnapshots.size();
+            if (dumpTotal == 0) {
+                dumpTotal = (int) Math.ceil((double) rawRrList.size() / DUMP_RR_SIZE);
+                if (dumpTotal < 1) dumpTotal = 1;
             }
 
             int totalPatternBlocks = 3;
@@ -324,12 +330,15 @@ public class PdfExporter {
                     currentYCharts = 45;
                 }
 
-                int blockNumber = (d % totalPatternBlocks) + 1;
-                boolean isPstiPhase = (d >= totalPatternBlocks);
+                HrvSnapshotEntity snapshot = (d < dumpSnapshots.size()) ? dumpSnapshots.get(d) : null;
+                boolean isPstiPhase = (snapshot != null) ? snapshot.isPstiPhase() : (d >= totalPatternBlocks);
+                int dumpIdx = (snapshot != null) ? snapshot.getDumpIndex() : d;
+
+                int blockNumber = (dumpIdx % totalPatternBlocks) + 1;
                 String phaseStr = isPstiPhase ? "Тест PSTI" : "Тренировка";
 
-                String headerTitle = String.format(Locale.US, "Блок %d/%d | %s | Фаза: %s",
-                        blockNumber, isPstiPhase ? 1 : totalPatternBlocks, workoutMode, phaseStr);
+                String headerTitle = String.format(Locale.US, "Дамп #%d | Блок %d/%d | %s | Фаза: %s",
+                        dumpIdx, blockNumber, isPstiPhase ? 1 : totalPatternBlocks, workoutMode, phaseStr);
 
                 int pStart = d * pointsPerDump;
                 int pEnd = Math.min(pStart + pointsPerDump, dataPoints.size());
@@ -343,8 +352,6 @@ public class PdfExporter {
                 drawHeartRateChart(canvas2, dumpPoints, MARGIN, currentYCharts, PAGE_WIDTH - 2 * MARGIN, 90, Color.parseColor("#10B981"), "ЧСС (HR, уд/мин)");
                 currentYCharts += 95;
 
-                // Берем строгий итоговый снимок соответствующего дампа по простому индексу d
-                HrvSnapshotEntity snapshot = (d < dumpSnapshots.size()) ? dumpSnapshots.get(d) : null;
                 if (snapshot != null) {
                     SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.US);
                     double lf = snapshot.getLfPower();
