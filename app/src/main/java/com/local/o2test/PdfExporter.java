@@ -301,8 +301,8 @@ public class PdfExporter {
                 dumpTotal = (rawRrList != null && !rawRrList.isEmpty()) ? (int) Math.ceil((double) rawRrList.size() / 300.0) : 1;
             }
 
-            // Прямая детерминированная установка через переданный параметр trainingTargetX
-            int totalPatternBlocks = trainingTargetX;
+            // Детерминированный расчет длины периода: K = trainingTargetX + 1
+            int totalPeriodSteps = trainingTargetX + 1;
 
             int currentYCharts = startYPsti + 20;
             if (currentYCharts + 205 > PAGE_HEIGHT - MARGIN) {
@@ -332,7 +332,15 @@ public class PdfExporter {
 
                 HrvSnapshotEntity snapshot = (d < dumpSnapshots.size()) ? dumpSnapshots.get(d) : null;
                 int dumpIdx = (snapshot != null) ? snapshot.getDumpIndex() : (d + 1);
-                boolean isPstiPhase = (snapshot != null) ? snapshot.isPstiPhase() : (d >= totalPatternBlocks);
+
+                // Детерминированный расчет фазы через счетчик по модулю периода
+                int stepIndex = d % totalPeriodSteps;
+                boolean isPstiPhase;
+                if (stepIndex < trainingTargetX) {
+                    isPstiPhase = false; // Тренировка
+                } else {
+                    isPstiPhase = true;  // Тест PSTI
+                }
 
                 long dumpEndTime = (snapshot != null) ? snapshot.getTimestamp() : endTime;
                 long dumpStartTime;
@@ -365,10 +373,10 @@ public class PdfExporter {
                     }
                 }
 
-                int blockNumber = (dumpIdx % totalPatternBlocks) + 1;
+                int blockNumber = (stepIndex % trainingTargetX) + 1;
                 String phaseStr = isPstiPhase ? "Тест PSTI" : "Тренировка";
                 String headerTitle = String.format(Locale.US, "Дамп #%d | Блок %d/%d | %s | Фаза: %s",
-                        dumpIdx, blockNumber, isPstiPhase ? 1 : totalPatternBlocks, workoutMode, phaseStr);
+                        dumpIdx, blockNumber, trainingTargetX, workoutMode, phaseStr);
 
                 drawOxygenationChart(canvas2, dumpPoints, MARGIN, currentYCharts, PAGE_WIDTH - 2 * MARGIN, 45, Color.parseColor("#0284C7"), headerTitle + " — SpO2 (%)", dumpStartTime, dumpEndTime);
                 currentYCharts += 50;
