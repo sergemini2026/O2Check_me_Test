@@ -654,7 +654,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 }
 
                 @Override
-                public void onMacroDumpCompleted(int avgHr, HrvCalculator.Metrics hrv, int rrCount, TrainingPresetStateMachine.QuantumContext context) {
+                public void onMacroDumpCompleted(int avgHr, HrvCalculator.Metrics hrv, int rrCount, HrvForegroundService.QuantumContext context) {
                     boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
                     if (isPostiActive) return;
 
