@@ -68,6 +68,7 @@ public class SessionExportManager {
                                                 final long activeProfileId,
                                                 final String activeProfileName,
                                                 final String workoutMode,
+                                                final int trainingTargetX,
                                                 final long sessionStartTime,
                                                 final int currentPolarHr,
                                                 final int currentSpo2,
@@ -123,7 +124,7 @@ public class SessionExportManager {
                             callback.onLog("Тестовый CSV (PSTI) успешно сохранен: " + testFileName);
                         }
                         proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, trainingFilePath, testFilePath, 
-                                activeProfileId, activeProfileName, finalWorkoutMode, sessionStartTime, currentPolarHr, currentSpo2, 
+                                activeProfileId, activeProfileName, finalWorkoutMode, trainingTargetX, sessionStartTime, currentPolarHr, currentSpo2, 
                                 lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, dbExecutor, hrvService, isBound, callback);
                     }
 
@@ -133,7 +134,7 @@ public class SessionExportManager {
                             callback.onLog("Ошибка сохранения тестового CSV: " + errorMessage);
                         }
                         proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, trainingFilePath, "", 
-                                activeProfileId, activeProfileName, finalWorkoutMode, sessionStartTime, currentPolarHr, currentSpo2, 
+                                activeProfileId, activeProfileName, finalWorkoutMode, trainingTargetX, sessionStartTime, currentPolarHr, currentSpo2, 
                                 lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, dbExecutor, hrvService, isBound, callback);
                     }
                 });
@@ -145,7 +146,7 @@ public class SessionExportManager {
                     callback.onLog("Ошибка сохранения тренировочного CSV: " + errorMessage);
                 }
                 proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, "", "", 
-                        activeProfileId, activeProfileName, finalWorkoutMode, sessionStartTime, currentPolarHr, currentSpo2, 
+                        activeProfileId, activeProfileName, finalWorkoutMode, trainingTargetX, sessionStartTime, currentPolarHr, currentSpo2, 
                         lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, dbExecutor, hrvService, isBound, callback);
             }
         });
@@ -159,6 +160,7 @@ public class SessionExportManager {
                                                   final long activeProfileId,
                                                   final String activeProfileName,
                                                   final String workoutMode,
+                                                  final int trainingTargetX,
                                                   final long sessionStartTime,
                                                   final int currentPolarHr,
                                                   final int currentSpo2,
@@ -219,7 +221,6 @@ public class SessionExportManager {
 
                 if (!capturedSnapshots.isEmpty()) {
                     for (SessionSnapshot snapshot : capturedSnapshots) {
-                        // Каскадное исправление Шага 7: передаем полный набор полей, включая isDumpSnapshot и dumpIndex
                         HrvSnapshotEntity entity = new HrvSnapshotEntity(
                                 snapshot.getTimestamp(), 
                                 snapshot.getMetrics(), 
@@ -277,6 +278,7 @@ public class SessionExportManager {
                         context,
                         activeProfileName,
                         workoutMode,
+                        trainingTargetX,
                         sessionStartTime,
                         endTime,
                         entityList,
