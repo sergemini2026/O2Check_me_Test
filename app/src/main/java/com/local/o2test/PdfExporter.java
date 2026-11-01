@@ -46,6 +46,7 @@ public class PdfExporter {
             Context context,
             String profileName,
             String workoutMode,
+            int trainingTargetX,
             long startTime,
             long endTime,
             List<HrvSnapshotEntity> snapshots,
@@ -300,9 +301,8 @@ public class PdfExporter {
                 dumpTotal = (rawRrList != null && !rawRrList.isEmpty()) ? (int) Math.ceil((double) rawRrList.size() / 300.0) : 1;
             }
 
-            int totalPatternBlocks = 3;
-            if (workoutMode.contains("2-1")) totalPatternBlocks = 2;
-            else if (workoutMode.contains("1-1")) totalPatternBlocks = 1;
+            // Прямая детерминированная установка через переданный параметр trainingTargetX
+            int totalPatternBlocks = trainingTargetX;
 
             int currentYCharts = startYPsti + 20;
             if (currentYCharts + 205 > PAGE_HEIGHT - MARGIN) {
