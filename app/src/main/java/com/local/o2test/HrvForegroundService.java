@@ -18,6 +18,7 @@ import androidx.core.app.NotificationCompat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 public class HrvForegroundService extends Service {
 
@@ -46,11 +47,16 @@ public class HrvForegroundService extends Service {
     private int rsaCycleAccumulatedMs = 0;
     private static final int TARGET_CYCLE_MS = 10000;
 
-    // --- МАКРО-СЛОЙ И АВТОМАТ СОСТОЯНИЙ (300 RR) ---
+    // --- МАКРО-СЛОЙ И ЦИКЛИЧЕСКИЙ СЧЕТЧИК (300 RR) ---
     private static final int TARGET_MACRO_RR_COUNT = 300;
     private final List<Integer> macroRrBuffer = Collections.synchronizedList(new ArrayList<>());
     private final List<Integer> macroHrWindow = Collections.synchronizedList(new ArrayList<>());
-    private TrainingPresetStateMachine stateMachine;
+    
+    // Простая циклическая логика пресетов (x = количество тренировочных дампов перед тестом)
+    private int trainingTargetX = 1;
+    private int currentTrainingCount = 0;
+    private boolean isPstiPhaseFlag = false;
+    private int globalDumpIndex = 1;
 
     private boolean isRecording = false;
     private ServiceCallback callback;
@@ -67,12 +73,28 @@ public class HrvForegroundService extends Service {
     private int currentAudioResId = R.raw.o2test_01;
     private long currentModulationPeriodMs = 10000;
 
+    public static class QuantumContext {
+        private final int dumpIndex;
+        private final int blockNumber;
+        private final boolean isPstiPhase;
+
+        public QuantumContext(int dumpIndex, int blockNumber, boolean isPstiPhase) {
+            this.dumpIndex = dumpIndex;
+            this.blockNumber = blockNumber;
+            this.isPstiPhase = isPstiPhase;
+        }
+
+        public int getDumpIndex() { return dumpIndex; }
+        public int getBlockNumber() { return blockNumber; }
+        public boolean isPstiPhase() { return isPstiPhase; }
+    }
+
     public interface ServiceCallback {
         void onRrDataReceived(int rrMs, int hr);
         void onO2DataReceived(int spo2, int hr);
         void onConnectionStatusChanged(String deviceType, boolean isConnected);
         default void onPhaseCorrectionCalculated(float correctionDelta) {}
-        default void onMacroDumpCompleted(int avgHr, HrvCalculator.Metrics hrv, int rrCount, TrainingPresetStateMachine.QuantumContext context) {}
+        default void onMacroDumpCompleted(int avgHr, HrvCalculator.Metrics hrv, int rrCount, QuantumContext context) {}
     }
 
     public class LocalBinder extends Binder {
@@ -85,9 +107,6 @@ public class HrvForegroundService extends Service {
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
-
-        // Инициализация автомата состояний по умолчанию (пресет 3-1)
-        stateMachine = new TrainingPresetStateMachine(3);
 
         PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
         if (powerManager != null) {
@@ -186,7 +205,10 @@ public class HrvForegroundService extends Service {
     }
 
     public void setPresetPattern(int dumpsCount) {
-        this.stateMachine = new TrainingPresetStateMachine(dumpsCount);
+        this.trainingTargetX = Math.max(1, dumpsCount);
+        if (DEBUG) {
+            Log.d(TAG, "[PRESET] Установлен целевой параметр тренировочных дампов x = " + trainingTargetX);
+        }
     }
 
     public void setAudioResource(int resId) {
@@ -267,9 +289,9 @@ public class HrvForegroundService extends Service {
         synchronized (macroRrBuffer) { macroRrBuffer.clear(); }
         synchronized (macroHrWindow) { macroHrWindow.clear(); }
         
-        if (stateMachine != null) {
-            stateMachine.reset();
-        }
+        currentTrainingCount = 0;
+        isPstiPhaseFlag = false;
+        globalDumpIndex = 1;
 
         rsaCycleAccumulatedMs = 0;
         isPostiTraceActive = false;
@@ -386,7 +408,7 @@ public class HrvForegroundService extends Service {
                     }
                 }
 
-                // 3. МАКРО-УРОВЕНЬ: Накопление 300 RR через TrainingPresetStateMachine -> isDumpSnapshot = true
+                // 3. МАКРО-УРОВЕНЬ: Накопление 300 RR с циклическим счетчиком дампов -> isDumpSnapshot = true
                 synchronized (macroRrBuffer) {
                     macroRrBuffer.add(rrMs);
                     int instantHr = Math.round(60000.0f / rrMs);
@@ -419,26 +441,42 @@ public class HrvForegroundService extends Service {
         try {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(dumpData);
             if (metrics != null && metrics.isValid) {
-                // Безопасный инкремент и получение квантового контекста из автомата состояний
-                TrainingPresetStateMachine.QuantumContext quantum = stateMachine.advanceAndGetNext();
+                boolean currentIsPsti = isPstiPhaseFlag;
+                int currentDumpIndex = globalDumpIndex++;
+                
+                int currentBlockNum = currentIsPsti ? 1 : (currentTrainingCount + 1);
+
+                QuantumContext quantum = new QuantumContext(currentDumpIndex, currentBlockNum, currentIsPsti);
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
 
                 SessionSnapshot dumpSnapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
                         metrics,
                         currentModulationSec,
-                        quantum.isPstiPhase(),
+                        currentIsPsti,
                         true, // isDumpSnapshot = true для макро-дампов
-                        quantum.getDumpIndex()
+                        currentDumpIndex
                 );
 
                 synchronized (snapshotBuffer) {
                     snapshotBuffer.add(dumpSnapshot);
                 }
 
+                // Логика простого циклического счетчика по x
+                if (!isPstiPhaseFlag) {
+                    currentTrainingCount++;
+                    if (currentTrainingCount >= trainingTargetX) {
+                        isPstiPhaseFlag = true; // Следующий макро-дамп будет тестом PSTI
+                    }
+                } else {
+                    // После теста PSTI сбрасываем счетчик тренировки и возвращаемся к тренировочной фазе
+                    currentTrainingCount = 0;
+                    isPstiPhaseFlag = false;
+                }
+
                 if (DEBUG) {
-                    Log.d(TAG, String.format("[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп #%d | Блок %d | PSTI: %b | RMSSD: %.1f ms",
-                            quantum.getDumpIndex(), quantum.getBlockNumber(), quantum.isPstiPhase(), metrics.rmssd));
+                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп #%d | Блок %d | PSTI: %b | RMSSD: %.1f ms",
+                            currentDumpIndex, currentBlockNum, currentIsPsti, metrics.rmssd));
                 }
 
                 if (callback != null) {
@@ -467,14 +505,9 @@ public class HrvForegroundService extends Service {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(windowData);
             if (metrics != null && metrics.isValid) {
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
-                // Микро-слой: оперативные снимки с isDumpSnapshot = false
                 SessionSnapshot snapshot = new SessionSnapshot(System.currentTimeMillis(), metrics, currentModulationSec, isPostiTraceActive);
                 synchronized (snapshotBuffer) {
                     snapshotBuffer.add(snapshot);
-                }
-                if (DEBUG) {
-                    // Отладочное логирование микро-окон (опционально/скромно, чтобы не засорять Logcat)
-                    // Log.d(TAG, "[HRV_SERVICE] [МИКРО-ОКНО] Снимок добавлен, RMSSD: " + metrics.rmssd);
                 }
             }
         } catch (Exception e) {
