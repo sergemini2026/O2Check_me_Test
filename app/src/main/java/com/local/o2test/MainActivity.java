@@ -59,12 +59,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private boolean isRecording = false;
     private boolean isTrainingModeActive = false;
-    private boolean isTrainingSelected = false; // Флаг готовности сеанса через меню Тренировки
-    private int[] currentTrainingPattern = {3, 3, 3}; // Текущий паттерн дампов
+    private boolean isTrainingSelected = false; 
+    private int trainingTargetX = 1; // Целевой параметр x (1, 2 или 3) вместо массива
 
     private boolean isCalibrationCompleted = false;
     private int sessionDumpCount = 0;
-    private int globalDumpIndexCounter = 0; // Сквозной счетчик дампов (dumpIndex) для сессии
+    private int globalDumpIndexCounter = 1; // Сквозной счетчик дампов стартует строго с 1
     private long sessionStartTime = 0;
     private long postiStartTime = 0;
 
@@ -84,7 +84,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private double lastPstiScore = 0.0;
     private double lastPstiRmssdRatio = 0.0;
 
-    // Поля для иерархической диагностики LF/HF
     private double baselineLfHf = 0.0;
     private final List<Double> cycleLfHfValuesList = new ArrayList<>();
     private String currentLfHfDisplayStr = "--";
@@ -315,11 +314,18 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     public void onTrainingSelected(String trainingType, String modeName, int[] pattern) {
                         Runnable applySelection = () -> {
                             currentWorkoutMode = trainingType + " " + modeName;
-                            currentTrainingPattern = pattern;
                             isTrainingSelected = true;
 
+                            int targetX = 1;
+                            if (modeName != null) {
+                                if (modeName.contains("1")) targetX = 1;
+                                else if (modeName.contains("2")) targetX = 2;
+                                else if (modeName.contains("3")) targetX = 3;
+                            }
+                            trainingTargetX = targetX;
+
                             if (hrvService != null) {
-                                hrvService.setPresetPattern(pattern.length);
+                                hrvService.setPresetPattern(trainingTargetX);
                             }
 
                             if (ui.btnHeart != null) {
@@ -329,7 +335,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                             updateRightPanelStatus();
                             
                             if (DEBUG) {
-                                onLog(String.format(Locale.US, "[ТРЕНИРОВКА ВЫБРАНА] %s | Паттерн блоков: length=%d", currentWorkoutMode, pattern.length));
+                                onLog(String.format(Locale.US, "[ТРЕНИРОВКА ВЫБРАНА] %s | Целевой x = %d", currentWorkoutMode, trainingTargetX));
                             } else {
                                 onLog("[ТРЕНИРОВКА ВЫБРАНА] " + currentWorkoutMode);
                             }
@@ -467,7 +473,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             if (isPostiActive) {
                 ui.tvStatusValue.setText(String.format(Locale.US, "Статус: Замер следа (PSTI) - Блок 1/1%s", pstiSuffix));
             } else if (isTrainingModeActive) {
-                int totalBlocks = (currentTrainingPattern != null && currentTrainingPattern.length > 0) ? currentTrainingPattern.length : 3;
+                int totalBlocks = trainingTargetX;
                 int currentBlockNum = (sessionDumpCount % totalBlocks) + 1;
                 String blockInfo = String.format(Locale.US, "Блок %d/%d", currentBlockNum, totalBlocks);
                 ui.tvStatusValue.setText(String.format(Locale.US, "Статус: %s - %s%s", currentWorkoutMode, blockInfo, pstiSuffix));
@@ -615,7 +621,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = true;
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
-        globalDumpIndexCounter = 0;
+        globalDumpIndexCounter = 1; // Старт сквозного счетчика строго с 1
         completedCyclesInCurrentDump = 0;
         lastPstiScore = 0.0;
         lastPstiRmssdRatio = 0.0;
@@ -631,7 +637,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         if (isBound && hrvService != null) {
             hrvService.stopPostiRecording();
-            hrvService.setPresetPattern(currentTrainingPattern.length);
+            hrvService.setPresetPattern(trainingTargetX);
             hrvService.startSessionRecording();
             
             modulationManager.applyModulation(hrvService, isBound);
@@ -658,7 +664,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
                     if (isPostiActive) return;
 
-                    int totalBlocks = (currentTrainingPattern != null && currentTrainingPattern.length > 0) ? currentTrainingPattern.length : 3;
+                    int totalBlocks = trainingTargetX;
                     int currentBlockNum = context != null ? context.getBlockNumber() : ((sessionDumpCount % totalBlocks) + 1);
                     String blockInfo = String.format(Locale.US, "Блок %d/%d", currentBlockNum, totalBlocks);
 
@@ -733,8 +739,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
         
         if (DEBUG) {
-            onLog(String.format(Locale.US, "[MONITORING] Активен профиль: %s | Режим: %s | Период T=%.1fс | Паттерн len=%d",
-                    activeProfileName, currentWorkoutMode, fixedModulationPeriodMs / 1000.0f, currentTrainingPattern.length));
+            onLog(String.format(Locale.US, "[MONITORING] Активен профиль: %s | Режим: %s | Период T=%.1fс | Целевой x = %d",
+                    activeProfileName, currentWorkoutMode, fixedModulationPeriodMs / 1000.0f, trainingTargetX));
         } else {
             onLog("Мониторинг активен для профиля: " + activeProfileName + ", режим: " + currentWorkoutMode);
         }
@@ -882,7 +888,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isTrainingModeActive = false;
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
-        globalDumpIndexCounter = 0;
+        globalDumpIndexCounter = 1;
         completedCyclesInCurrentDump = 0;
         pstiHandler.removeCallbacks(pstiCountdownRunnable);
         
