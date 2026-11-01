@@ -52,11 +52,11 @@ public class HrvForegroundService extends Service {
     private final List<Integer> macroRrBuffer = Collections.synchronizedList(new ArrayList<>());
     private final List<Integer> macroHrWindow = Collections.synchronizedList(new ArrayList<>());
     
-    // Простая циклическая логика пресетов (x = количество тренировочных дампов перед тестом)
+    // Циклическая логика (x = количество тренировочных дампов перед тестом: 1, 2 или 3)
     private int trainingTargetX = 1;
     private int currentTrainingCount = 0;
     private boolean isPstiPhaseFlag = false;
-    private int globalDumpIndex = 1;
+    private int globalDumpIndex = 1; // Сквозной индекс дампов начинается строго с 1
 
     private boolean isRecording = false;
     private ServiceCallback callback;
@@ -77,16 +77,19 @@ public class HrvForegroundService extends Service {
         private final int dumpIndex;
         private final int blockNumber;
         private final boolean isPstiPhase;
+        private final int targetX;
 
-        public QuantumContext(int dumpIndex, int blockNumber, boolean isPstiPhase) {
+        public QuantumContext(int dumpIndex, int blockNumber, boolean isPstiPhase, int targetX) {
             this.dumpIndex = dumpIndex;
             this.blockNumber = blockNumber;
             this.isPstiPhase = isPstiPhase;
+            this.targetX = targetX;
         }
 
         public int getDumpIndex() { return dumpIndex; }
         public int getBlockNumber() { return blockNumber; }
         public boolean isPstiPhase() { return isPstiPhase; }
+        public int getTargetX() { return targetX; }
     }
 
     public interface ServiceCallback {
@@ -204,8 +207,8 @@ public class HrvForegroundService extends Service {
         return callback;
     }
 
-    public void setPresetPattern(int dumpsCount) {
-        this.trainingTargetX = Math.max(1, dumpsCount);
+    public void setPresetPattern(int targetX) {
+        this.trainingTargetX = Math.max(1, targetX);
         if (DEBUG) {
             Log.d(TAG, "[PRESET] Установлен целевой параметр тренировочных дампов x = " + trainingTargetX);
         }
@@ -291,7 +294,7 @@ public class HrvForegroundService extends Service {
         
         currentTrainingCount = 0;
         isPstiPhaseFlag = false;
-        globalDumpIndex = 1;
+        globalDumpIndex = 1; // Первичный запуск сессии всегда устанавливает индекс в 1
 
         rsaCycleAccumulatedMs = 0;
         isPostiTraceActive = false;
@@ -408,7 +411,7 @@ public class HrvForegroundService extends Service {
                     }
                 }
 
-                // 3. МАКРО-УРОВЕНЬ: Накопление 300 RR с циклическим счетчиком дампов -> isDumpSnapshot = true
+                // 3. МАКРО-УРОВЕНЬ: Накопление 300 RR с циклической логикой по trainingTargetX
                 synchronized (macroRrBuffer) {
                     macroRrBuffer.add(rrMs);
                     int instantHr = Math.round(60000.0f / rrMs);
@@ -444,9 +447,10 @@ public class HrvForegroundService extends Service {
                 boolean currentIsPsti = isPstiPhaseFlag;
                 int currentDumpIndex = globalDumpIndex++;
                 
-                int currentBlockNum = currentIsPsti ? 1 : (currentTrainingCount + 1);
+                // Человеческий номер тренировочного блока (1..x)
+                int currentBlockNum = currentIsPsti ? trainingTargetX : (currentTrainingCount + 1);
 
-                QuantumContext quantum = new QuantumContext(currentDumpIndex, currentBlockNum, currentIsPsti);
+                QuantumContext quantum = new QuantumContext(currentDumpIndex, currentBlockNum, currentIsPsti, trainingTargetX);
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
 
                 SessionSnapshot dumpSnapshot = new SessionSnapshot(
@@ -462,21 +466,21 @@ public class HrvForegroundService extends Service {
                     snapshotBuffer.add(dumpSnapshot);
                 }
 
-                // Логика простого циклического счетчика по x
+                // Переключение состояния сессии
                 if (!isPstiPhaseFlag) {
                     currentTrainingCount++;
                     if (currentTrainingCount >= trainingTargetX) {
-                        isPstiPhaseFlag = true; // Следующий макро-дамп будет тестом PSTI
+                        isPstiPhaseFlag = true; // Спец-флаг: следующий макро-дамп будет тестом PSTI
                     }
                 } else {
-                    // После теста PSTI сбрасываем счетчик тренировки и возвращаемся к тренировочной фазе
+                    // После проведения теста PSTI сбрасываем счетчик и возвращаемся к тренировке
                     currentTrainingCount = 0;
                     isPstiPhaseFlag = false;
                 }
 
                 if (DEBUG) {
-                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп #%d | Блок %d | PSTI: %b | RMSSD: %.1f ms",
-                            currentDumpIndex, currentBlockNum, currentIsPsti, metrics.rmssd));
+                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп #%d | Блок %d/%d | PSTI: %b | RMSSD: %.1f ms",
+                            currentDumpIndex, currentBlockNum, trainingTargetX, currentIsPsti, metrics.rmssd));
                 }
 
                 if (callback != null) {
