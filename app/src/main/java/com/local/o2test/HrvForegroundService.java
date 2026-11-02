@@ -454,11 +454,12 @@ public class HrvForegroundService extends Service {
                 QuantumContext quantum = new QuantumContext(currentDumpIndex, currentBlockNum, isCycleComplete, trainingTargetX);
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
 
+                // Исправление: тренировочный макро-дамп всегда относится к фазе тренировки (isPstiPhase = false)
                 SessionSnapshot dumpSnapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
                         metrics,
                         currentModulationSec,
-                        isCycleComplete,
+                        false,
                         true,
                         currentDumpIndex
                 );
