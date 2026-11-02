@@ -51,7 +51,8 @@ public class PdfExporter {
             long endTime,
             List<HrvSnapshotEntity> snapshots,
             List<Integer> rawRrList,
-            List<DataPoint> dataPoints,
+            List<DataPoint> trainingDataPoints,
+            List<DataPoint> testDataPoints,
             String customDirPath,
             double pstiScore,
             double pstiRmssdRatio,
@@ -354,9 +355,11 @@ public class PdfExporter {
                     dumpStartTime = startTime > 0 ? startTime : (dumpEndTime - 300000L);
                 }
 
+                // Раздельные контуры данных: для Тренировки используем trainingDataPoints, для Теста PSTI — testDataPoints
+                List<DataPoint> activeSourcePoints = isPstiPhase ? testDataPoints : trainingDataPoints;
                 List<DataPoint> dumpPoints = new ArrayList<>();
-                if (dataPoints != null) {
-                    for (DataPoint dp : dataPoints) {
+                if (activeSourcePoints != null) {
+                    for (DataPoint dp : activeSourcePoints) {
                         long dpTime = startTime + (dp.elapsedSec * 1000L);
                         if (dpTime >= dumpStartTime && dpTime <= dumpEndTime) {
                             dumpPoints.add(dp);
@@ -364,12 +367,12 @@ public class PdfExporter {
                     }
                 }
 
-                if (dumpPoints.isEmpty() && dataPoints != null && !dataPoints.isEmpty()) {
-                    int pointsPerDump = Math.max(1, dataPoints.size() / dumpTotal);
+                if (dumpPoints.isEmpty() && activeSourcePoints != null && !activeSourcePoints.isEmpty()) {
+                    int pointsPerDump = Math.max(1, activeSourcePoints.size() / dumpTotal);
                     int pStart = d * pointsPerDump;
-                    int pEnd = Math.min(pStart + pointsPerDump, dataPoints.size());
-                    if (pStart < dataPoints.size()) {
-                        dumpPoints = dataPoints.subList(pStart, pEnd);
+                    int pEnd = Math.min(pStart + pointsPerDump, activeSourcePoints.size());
+                    if (pStart < activeSourcePoints.size()) {
+                        dumpPoints = activeSourcePoints.subList(pStart, pEnd);
                     }
                 }
 
