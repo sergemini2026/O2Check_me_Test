@@ -60,11 +60,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private boolean isRecording = false;
     private boolean isTrainingModeActive = false;
     private boolean isTrainingSelected = false; 
-    private int trainingTargetX = 1; // Целевой параметр x (1, 2 или 3) вместо массива
+    private int trainingTargetX = 1;
 
     private boolean isCalibrationCompleted = false;
     private int sessionDumpCount = 0;
-    private int globalDumpIndexCounter = 1; // Сквозной счетчик дампов стартует строго с 1
+    private int globalDumpIndexCounter = 1;
     private long sessionStartTime = 0;
     private long postiStartTime = 0;
 
@@ -622,7 +622,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = true;
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
-        globalDumpIndexCounter = 1; // Старт сквозного счетчика строго с 1
+        globalDumpIndexCounter = 1;
         completedCyclesInCurrentDump = 0;
         lastPstiScore = 0.0;
         lastPstiRmssdRatio = 0.0;
@@ -814,12 +814,13 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
             HrvCalculator.Metrics postiMetrics = HrvCalculator.calculate(snapshotRr);
             if (postiMetrics != null && postiMetrics.isValid) {
-                float currentModulationSec = fixedModulationPeriodMs / 1000.0f;
+                // Исправление: берем актуальный период модуляции из сервиса, а не старый кэш
+                float actualModulationSec = (isBound && hrvService != null) ? (hrvService.getModulationPeriodMs() / 1000.0f) : (fixedModulationPeriodMs / 1000.0f);
                 int currentDumpIndex = globalDumpIndexCounter++;
                 SessionSnapshot postiSummarySnapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
                         postiMetrics,
-                        currentModulationSec,
+                        actualModulationSec,
                         true,
                         true,
                         currentDumpIndex
