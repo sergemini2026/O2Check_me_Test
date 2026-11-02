@@ -123,7 +123,7 @@ public class SessionExportManager {
                         if (callback != null) {
                             callback.onLog("Тестовый CSV (PSTI) успешно сохранен: " + testFileName);
                         }
-                        proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, trainingFilePath, testFilePath, 
+                        proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, finalTestPoints, trainingFilePath, testFilePath, 
                                 activeProfileId, activeProfileName, finalWorkoutMode, trainingTargetX, sessionStartTime, currentPolarHr, currentSpo2, 
                                 lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, dbExecutor, hrvService, isBound, callback);
                     }
@@ -133,7 +133,7 @@ public class SessionExportManager {
                         if (callback != null) {
                             callback.onLog("Ошибка сохранения тестового CSV: " + errorMessage);
                         }
-                        proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, trainingFilePath, "", 
+                        proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, finalTestPoints, trainingFilePath, "", 
                                 activeProfileId, activeProfileName, finalWorkoutMode, trainingTargetX, sessionStartTime, currentPolarHr, currentSpo2, 
                                 lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, dbExecutor, hrvService, isBound, callback);
                     }
@@ -145,7 +145,7 @@ public class SessionExportManager {
                 if (callback != null) {
                     callback.onLog("Ошибка сохранения тренировочного CSV: " + errorMessage);
                 }
-                proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, "", "", 
+                proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, finalTestPoints, "", "", 
                         activeProfileId, activeProfileName, finalWorkoutMode, trainingTargetX, sessionStartTime, currentPolarHr, currentSpo2, 
                         lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, dbExecutor, hrvService, isBound, callback);
             }
@@ -154,7 +154,8 @@ public class SessionExportManager {
 
     private static void proceedWithDatabaseAndPdf(final Context context,
                                                   final SharedPreferences prefs,
-                                                  final List<DataPoint> points,
+                                                  final List<DataPoint> trainingPoints,
+                                                  final List<DataPoint> testPoints,
                                                   final String trainingCsvPath,
                                                   final String testCsvPath,
                                                   final long activeProfileId,
@@ -251,7 +252,12 @@ public class SessionExportManager {
                 }
 
                 List<Integer> sessionRrList = new ArrayList<>();
-                for (DataPoint dp : points) {
+                for (DataPoint dp : trainingPoints) {
+                    if (dp.rrMs > 0) {
+                        sessionRrList.add(dp.rrMs);
+                    }
+                }
+                for (DataPoint dp : testPoints) {
                     if (dp.rrMs > 0) {
                         sessionRrList.add(dp.rrMs);
                     }
@@ -283,7 +289,8 @@ public class SessionExportManager {
                         endTime,
                         entityList,
                         sessionRrList,
-                        points,
+                        trainingPoints,
+                        testPoints,
                         customPath,
                         lastPstiScore,
                         lastPstiRmssdRatio,
