@@ -302,9 +302,6 @@ public class PdfExporter {
                 dumpTotal = (rawRrList != null && !rawRrList.isEmpty()) ? (int) Math.ceil((double) rawRrList.size() / 300.0) : 1;
             }
 
-            // Детерминированный расчет длины периода: K = trainingTargetX + 1
-            int totalPeriodSteps = trainingTargetX + 1;
-
             int currentYCharts = startYPsti + 20;
             if (currentYCharts + 205 > PAGE_HEIGHT - MARGIN) {
                 document.finishPage(page2);
@@ -332,16 +329,12 @@ public class PdfExporter {
                 }
 
                 HrvSnapshotEntity snapshot = (d < dumpSnapshots.size()) ? dumpSnapshots.get(d) : null;
+                
+                // Чтение готовых метаданных напрямую из сущности БД без вычислений по модулю
                 int dumpIdx = (snapshot != null) ? snapshot.getDumpIndex() : (d + 1);
-
-                // Детерминированный расчет фазы через счетчик по модулю периода
-                int stepIndex = d % totalPeriodSteps;
-                boolean isPstiPhase;
-                if (stepIndex < trainingTargetX) {
-                    isPstiPhase = false; // Тренировка
-                } else {
-                    isPstiPhase = true;  // Тест PSTI
-                }
+                boolean isPstiPhase = (snapshot != null) && snapshot.isPstiPhase();
+                int blockNumber = (snapshot != null) ? snapshot.getBlockNumber() : 1;
+                String phaseStr = isPstiPhase ? "Тест PSTI" : "Тренировка";
 
                 long dumpEndTime = (snapshot != null) ? snapshot.getTimestamp() : endTime;
                 long dumpStartTime;
@@ -376,8 +369,6 @@ public class PdfExporter {
                     }
                 }
 
-                int blockNumber = (stepIndex % trainingTargetX) + 1;
-                String phaseStr = isPstiPhase ? "Тест PSTI" : "Тренировка";
                 String headerTitle = String.format(Locale.US, "Дамп #%d | Блок %d/%d | %s | Фаза: %s",
                         dumpIdx, blockNumber, trainingTargetX, workoutMode, phaseStr);
 
