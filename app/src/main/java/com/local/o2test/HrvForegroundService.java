@@ -444,24 +444,22 @@ public class HrvForegroundService extends Service {
             if (metrics != null && metrics.isValid) {
                 int currentDumpIndex = globalDumpIndex++;
                 
-                // Увеличиваем счетчик текущего тренировочного дампа
                 currentTrainingCount++;
-                
-                // Четкий момент: если отсчитали ровно trainingTargetX дампов, текущий завершающий дамп сразу запускает PSTI
                 boolean isCycleComplete = (currentTrainingCount >= trainingTargetX);
                 int currentBlockNum = currentTrainingCount;
 
                 QuantumContext quantum = new QuantumContext(currentDumpIndex, currentBlockNum, isCycleComplete, trainingTargetX);
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
 
-                // Исправление: тренировочный макро-дамп всегда относится к фазе тренировки (isPstiPhase = false)
+                // Создаем макро-дамп с передачей blockNumber
                 SessionSnapshot dumpSnapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
                         metrics,
                         currentModulationSec,
                         false,
                         true,
-                        currentDumpIndex
+                        currentDumpIndex,
+                        currentBlockNum
                 );
 
                 synchronized (snapshotBuffer) {
@@ -477,7 +475,6 @@ public class HrvForegroundService extends Service {
                     callback.onMacroDumpCompleted(avgHr, metrics, TARGET_MACRO_RR_COUNT, quantum);
                 }
 
-                // Сбрасываем счетчик для следующего цикла тренировок после завершения PSTI
                 if (isCycleComplete) {
                     currentTrainingCount = 0;
                 }
@@ -504,7 +501,17 @@ public class HrvForegroundService extends Service {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(windowData);
             if (metrics != null && metrics.isValid) {
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
-                SessionSnapshot snapshot = new SessionSnapshot(System.currentTimeMillis(), metrics, currentModulationSec, isPostiTraceActive);
+                // Для фоновых микро-срезов передаем текущий blockNumber (currentTrainingCount > 0 ? currentTrainingCount : 1)
+                int currentBlockNum = Math.max(1, currentTrainingCount);
+                SessionSnapshot snapshot = new SessionSnapshot(
+                        System.currentTimeMillis(),
+                        metrics,
+                        currentModulationSec,
+                        isPostiTraceActive,
+                        false,
+                        0,
+                        currentBlockNum
+                );
                 synchronized (snapshotBuffer) {
                     snapshotBuffer.add(snapshot);
                 }
