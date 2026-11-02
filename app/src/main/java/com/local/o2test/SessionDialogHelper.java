@@ -10,6 +10,7 @@ import android.text.Layout;
 import android.text.SpannableString;
 import android.text.TextUtils;
 import android.text.style.AlignmentSpan;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
@@ -208,49 +209,26 @@ public class SessionDialogHelper {
                                 }
                             }
 
+                            File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
+                            File o2TestDir = new File(baseDir, "O2Test");
+
                             for (SessionEntity session : toDelete) {
                                 db.sessionDao().deleteSessionSync(session.getId());
 
-                                // 1. Удаление PDF-отчета
-                                if (!TextUtils.isEmpty(session.getPdfPath())) {
-                                    try {
-                                        File f = new File(session.getPdfPath());
-                                        String fileName = f.getName();
-                                        context.getContentResolver().delete(
-                                            MediaStore.Files.getContentUri("external"),
-                                            MediaStore.MediaColumns.DISPLAY_NAME + "=?",
-                                            new String[]{fileName}
-                                        );
-                                        if (f.exists()) f.delete();
-                                    } catch (Exception ignored) {}
-                                }
+                                // 1. Удаление по прямому пути из сущности
+                                deleteFileAtPath(session.getPdfPath());
+                                deleteFileAtPath(session.getCsvPath());
+                                deleteFileAtPath(session.getTestCsvPath());
 
-                                // 2. Удаление тренировочного CSV
-                                if (!TextUtils.isEmpty(session.getCsvPath())) {
-                                    try {
-                                        File f = new File(session.getCsvPath());
-                                        String fileName = f.getName();
-                                        context.getContentResolver().delete(
-                                            MediaStore.Files.getContentUri("external"),
-                                            MediaStore.MediaColumns.DISPLAY_NAME + "=?",
-                                            new String[]{fileName}
-                                        );
-                                        if (f.exists()) f.delete();
-                                    } catch (Exception ignored) {}
-                                }
-
-                                // 3. Удаление тестового CSV (PSTI)
-                                if (!TextUtils.isEmpty(session.getTestCsvPath())) {
-                                    try {
-                                        File f = new File(session.getTestCsvPath());
-                                        String fileName = f.getName();
-                                        context.getContentResolver().delete(
-                                            MediaStore.Files.getContentUri("external"),
-                                            MediaStore.MediaColumns.DISPLAY_NAME + "=?",
-                                            new String[]{fileName}
-                                        );
-                                        if (f.exists()) f.delete();
-                                    } catch (Exception ignored) {}
+                                // 2. Страховка для сессий из бэкапа: поиск и удаление файлов по имени во всех подпапках O2Test
+                                try {
+                                    if (o2TestDir.exists() && o2TestDir.isDirectory()) {
+                                        deleteFileByNameInDirectory(o2TestDir, session.getPdfPath());
+                                        deleteFileByNameInDirectory(o2TestDir, session.getCsvPath());
+                                        deleteFileByNameInDirectory(o2TestDir, session.getTestCsvPath());
+                                    }
+                                } catch (Exception e) {
+                                    Log.e("SessionDelete", "Ошибка поиска файлов по имени: " + e.getMessage());
                                 }
                             }
 
@@ -275,6 +253,34 @@ public class SessionDialogHelper {
         if (dialog.getWindow() != null) {
             int width = (int) (context.getResources().getDisplayMetrics().widthPixels * 0.85);
             dialog.getWindow().setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+    }
+
+    private static void deleteFileAtPath(String path) {
+        if (TextUtils.isEmpty(path)) return;
+        try {
+            File f = new File(path);
+            if (f.exists()) {
+                f.delete();
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private static void deleteFileByNameInDirectory(File rootDir, String fullPath) {
+        if (TextUtils.isEmpty(fullPath)) return;
+        int lastSlash = fullPath.lastIndexOf('/');
+        if (lastSlash == -1 || lastSlash >= fullPath.length() - 1) return;
+        String fileName = fullPath.substring(lastSlash + 1);
+
+        File[] profileDirs = rootDir.listFiles(File::isDirectory);
+        if (profileDirs != null) {
+            for (File profileDir : profileDirs) {
+                File targetFile = new File(profileDir, fileName);
+                if (targetFile.exists()) {
+                    boolean success = targetFile.delete();
+                    Log.d("SessionDelete", "Файл '" + fileName + "' успешно удален по страховочному поиску: " + success);
+                }
+            }
         }
     }
 
