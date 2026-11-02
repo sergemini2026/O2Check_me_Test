@@ -8,14 +8,16 @@ public class SessionSnapshot {
     private final boolean isPstiPhase;
     private final boolean isDumpSnapshot;
     private final int dumpIndex;
+    private final int blockNumber;
 
     public SessionSnapshot(long timestamp, HrvCalculator.Metrics metrics) {
         this.timestamp = timestamp;
         this.metrics = metrics;
-        this.modulationSec = 10.0f; // Значение по умолчанию
+        this.modulationSec = 10.0f;
         this.isPstiPhase = false;
         this.isDumpSnapshot = false;
         this.dumpIndex = 0;
+        this.blockNumber = 1;
     }
 
     public SessionSnapshot(long timestamp, HrvCalculator.Metrics metrics, float modulationSec) {
@@ -25,6 +27,7 @@ public class SessionSnapshot {
         this.isPstiPhase = false;
         this.isDumpSnapshot = false;
         this.dumpIndex = 0;
+        this.blockNumber = 1;
     }
 
     public SessionSnapshot(long timestamp, HrvCalculator.Metrics metrics, float modulationSec, boolean isPstiPhase) {
@@ -34,6 +37,7 @@ public class SessionSnapshot {
         this.isPstiPhase = isPstiPhase;
         this.isDumpSnapshot = false;
         this.dumpIndex = 0;
+        this.blockNumber = 1;
     }
 
     public SessionSnapshot(long timestamp, HrvCalculator.Metrics metrics, float modulationSec, boolean isPstiPhase, boolean isDumpSnapshot) {
@@ -43,6 +47,7 @@ public class SessionSnapshot {
         this.isPstiPhase = isPstiPhase;
         this.isDumpSnapshot = isDumpSnapshot;
         this.dumpIndex = 0;
+        this.blockNumber = 1;
     }
 
     public SessionSnapshot(long timestamp, HrvCalculator.Metrics metrics, float modulationSec, boolean isPstiPhase, boolean isDumpSnapshot, int dumpIndex) {
@@ -52,6 +57,17 @@ public class SessionSnapshot {
         this.isPstiPhase = isPstiPhase;
         this.isDumpSnapshot = isDumpSnapshot;
         this.dumpIndex = dumpIndex;
+        this.blockNumber = 1;
+    }
+
+    public SessionSnapshot(long timestamp, HrvCalculator.Metrics metrics, float modulationSec, boolean isPstiPhase, boolean isDumpSnapshot, int dumpIndex, int blockNumber) {
+        this.timestamp = timestamp;
+        this.metrics = metrics;
+        this.modulationSec = modulationSec;
+        this.isPstiPhase = isPstiPhase;
+        this.isDumpSnapshot = isDumpSnapshot;
+        this.dumpIndex = dumpIndex;
+        this.blockNumber = blockNumber;
     }
 
     /**
@@ -94,6 +110,13 @@ public class SessionSnapshot {
      */
     public int getDumpIndex() {
         return dumpIndex;
+    }
+
+    /**
+     * Порядковый номер блока внутри тренировочного цикла
+     */
+    public int getBlockNumber() {
+        return blockNumber;
     }
 
     /**
