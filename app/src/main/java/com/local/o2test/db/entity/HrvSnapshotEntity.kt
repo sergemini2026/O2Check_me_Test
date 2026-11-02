@@ -22,14 +22,23 @@ data class HrvSnapshotEntity(
     val baevskySi: Double,
     val sampleEntropy: Double = 0.0,
     val dfaAlpha1: Double = 1.0,
-    val modulationSec: Float = 10.0f, // Сохранение периода модуляции в секундах
+    val modulationSec: Float = 10.0f,
     val artifactsDetected: Int,
     val artifactPct: Double,
-    val isPstiPhase: Boolean = false,  // Флаг принадлежности к фазе теста PSTI
-    val isDumpSnapshot: Boolean = false, // Флаг итогового снимка по завершении 300-ударного дампа
-    val dumpIndex: Int = 0 // Сквозной порядковый номер дампа сессии
+    val isPstiPhase: Boolean = false,
+    val isDumpSnapshot: Boolean = false,
+    val dumpIndex: Int = 0,
+    val blockNumber: Int = 1 // Порядковый номер блока внутри цикла тренировки
 ) {
-    constructor(timestamp: Long, m: HrvCalculator.Metrics, modulationSec: Float, isPstiPhase: Boolean, isDumpSnapshot: Boolean, dumpIndex: Int) : this(
+    constructor(
+        timestamp: Long,
+        m: HrvCalculator.Metrics,
+        modulationSec: Float,
+        isPstiPhase: Boolean,
+        isDumpSnapshot: Boolean,
+        dumpIndex: Int,
+        blockNumber: Int
+    ) : this(
         timestamp = timestamp,
         rmssd = m.rmssd,
         sdnn = m.sdnn,
@@ -49,20 +58,7 @@ data class HrvSnapshotEntity(
         artifactPct = m.artifactPct,
         isPstiPhase = isPstiPhase,
         isDumpSnapshot = isDumpSnapshot,
-        dumpIndex = dumpIndex
+        dumpIndex = dumpIndex,
+        blockNumber = blockNumber
     )
-
-    constructor(timestamp: Long, m: HrvCalculator.Metrics, modulationSec: Float, isPstiPhase: Boolean, isDumpSnapshot: Boolean) : this(
-        timestamp, m, modulationSec, isPstiPhase, isDumpSnapshot, 0
-    )
-
-    constructor(timestamp: Long, m: HrvCalculator.Metrics, modulationSec: Float, isPstiPhase: Boolean) : this(
-        timestamp, m, modulationSec, isPstiPhase, false, 0
-    )
-
-    constructor(timestamp: Long, m: HrvCalculator.Metrics, modulationSec: Float) : this(
-        timestamp, m, modulationSec, false, false, 0
-    )
-
-    constructor(timestamp: Long, m: HrvCalculator.Metrics) : this(timestamp, m, 10.0f, false, false, 0)
 }
