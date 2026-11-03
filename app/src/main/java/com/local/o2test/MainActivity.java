@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.location.LocationManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -99,6 +100,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private long activeProfileId = -1L;
     private boolean isProfileAuthorized = false;
     private String activeProfileName = "Не выбран";
+
+    // Флаг отслеживания текущей физической ориентации экрана для безопасной перестройки UI на лету
+    private boolean wasLandscape = false;
 
     private final ExecutorService dbExecutor = Executors.newSingleThreadExecutor();
 
@@ -200,6 +204,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         polarManager = new PolarH10Manager(this, polarCallback);
         modulationManager = new SessionModulationManager(this);
 
+        wasLandscape = getResources().getDisplayMetrics().widthPixels > getResources().getDisplayMetrics().heightPixels;
+
         ui = UiBuilder.buildUi(this);
         oxygenSensorManager = new OxygenSensorManager(ui);
         progressManager = new BreatheProgressManager(ui.pacerView);
@@ -211,6 +217,51 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateAttractorIndexDisplay("--");
         updateRightPanelStatus();
 
+        rebindUiListeners();
+
+        setContentView(ui.mainLayout);
+        PasswordAuthManager.checkMasterPasswordOnStart(this, getSharedPreferences(PREF_NAME, MODE_PRIVATE), authCallback);
+    }
+
+    /**
+     * Перехват изменения конфигурации без перезапуска Activity (сохраняет BLE-соединение и фоновую сессию).
+     */
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+
+        boolean currentLandscape = getResources().getDisplayMetrics().widthPixels > getResources().getDisplayMetrics().heightPixels;
+        if (currentLandscape != wasLandscape) {
+            wasLandscape = currentLandscape;
+
+            // Сохраняем накопленный лог перед пересозданием визуальных элементов
+            String savedLogText = (ui != null && ui.tvLog != null) ? ui.tvLog.getText().toString() : "";
+
+            // Пересоздаем UI под новую ориентацию (соотношение 3:1 для landscape)
+            ui = UiBuilder.buildUi(this);
+            oxygenSensorManager = new OxygenSensorManager(ui);
+            progressManager = new BreatheProgressManager(ui.pacerView);
+
+            setContentView(ui.mainLayout);
+
+            // Перепривязываем слушатели к новым элементам UI
+            rebindUiListeners();
+
+            // Восстанавливаем состояние интерфейса (логи, статус, метрики)
+            restoreUiState(savedLogText);
+
+            if (DEBUG) {
+                onLog("[UI] Интерфейс успешно перестроен под ориентацию: " + (currentLandscape ? "Альбомная (Landscape)" : "Книжная (Portrait)"));
+            }
+        }
+    }
+
+    /**
+     * Привязка обработчиков нажатий и слушателей к элементам управления интерфейса
+     */
+    private void rebindUiListeners() {
+        if (ui == null) return;
+
         if (ui.pacerView != null) {
             ui.pacerView.setOnPointerChangeListener(value -> {
                 long newDurationMs = (long) (value * 1000.0);
@@ -220,73 +271,83 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             });
         }
 
-        ui.btnHeart.setOnClickListener(v -> {
-            if (!isProfileAuthorized) {
-                Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
-                openProfilesManager();
-                return;
-            }
-            if (!isTrainingSelected) {
-                Toast.makeText(this, "Сначала выберите тип тренировки в меню!", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            
-            boolean isPolarConnected = polarManager != null && polarManager.isConnected();
-            if (!isRecording && !isPolarConnected) {
-                showSensorNotConnectedAlert();
-                return;
-            }
-
-            if (!isRecording) {
-                isTrainingModeActive = true;
-                startMonitoringPanel();
-            } else {
-                stopMonitoring();
-            }
-        });
-
-        ui.btnReconnect.setOnClickListener(v -> {
-            if (!isProfileAuthorized) {
-                Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
-                openProfilesManager();
-                return;
-            }
-            
-            if (!isLocationEnabled(this)) {
-                Toast.makeText(this, "Для работы Bluetooth необходимо включить геолокацию!", Toast.LENGTH_LONG).show();
-                try {
-                    startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS));
-                } catch (Exception e) {
-                    e.printStackTrace();
+        if (ui.btnHeart != null) {
+            ui.btnHeart.setOnClickListener(v -> {
+                if (!isProfileAuthorized) {
+                    Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
+                    openProfilesManager();
+                    return;
                 }
-                return;
-            }
+                if (!isTrainingSelected) {
+                    Toast.makeText(this, "Сначала выберите тип тренировки в меню!", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                
+                boolean isPolarConnected = polarManager != null && polarManager.isConnected();
+                if (!isRecording && !isPolarConnected) {
+                    showSensorNotConnectedAlert();
+                    return;
+                }
 
-            onLog("Подключение BLE устройств и запрос прав...");
-            checkAndRequestBlePermissions();
-        });
+                if (!isRecording) {
+                    isTrainingModeActive = true;
+                    startMonitoringPanel();
+                } else {
+                    stopMonitoring();
+                }
+            });
+        }
 
-        ui.btnSave.setOnClickListener(v -> {
-            if (!isProfileAuthorized) {
-                Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
-                openProfilesManager();
-                return;
-            }
-            saveSessionAutomatically();
-        });
+        if (ui.btnReconnect != null) {
+            ui.btnReconnect.setOnClickListener(v -> {
+                if (!isProfileAuthorized) {
+                    Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
+                    openProfilesManager();
+                    return;
+                }
+                
+                if (!isLocationEnabled(this)) {
+                    Toast.makeText(this, "Для работы Bluetooth необходимо включить геолокацию!", Toast.LENGTH_LONG).show();
+                    try {
+                        startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS));
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                    return;
+                }
 
-        ui.btnSettings.setOnClickListener(v -> {
-            SettingsDialogManager.showSettingsDialog(this, getSharedPreferences(PREF_NAME, MODE_PRIVATE), settingsCallback);
-        });
+                onLog("Подключение BLE устройств и запрос прав...");
+                checkAndRequestBlePermissions();
+            });
+        }
 
-        ui.btnExit.setOnClickListener(v -> {
-            stopAudioAndClockInService();
-            if (ui != null && ui.pacerView != null) {
-                ui.pacerView.stopMonitoring();
-            }
-            isRecording = false;
-            finish();
-        });
+        if (ui.btnSave != null) {
+            ui.btnSave.setOnClickListener(v -> {
+                if (!isProfileAuthorized) {
+                    Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
+                    openProfilesManager();
+                    return;
+                }
+                saveSessionAutomatically();
+            });
+        }
+
+        if (ui.btnSettings != null) {
+            ui.btnSettings.setOnClickListener(v -> {
+                SettingsDialogManager.showSettingsDialog(this, getSharedPreferences(PREF_NAME, MODE_PRIVATE), settingsCallback);
+            });
+        }
+
+        if (ui.btnExit != null) {
+            ui.btnExit.setOnClickListener(v -> {
+                stopAudioAndClockInService();
+                if (ui != null && ui.pacerView != null) {
+                    ui.pacerView.stopMonitoring();
+                }
+                isRecording = false;
+                finish();
+            });
+        }
 
         if (ui.btnWorkout != null) {
             ui.btnWorkout.setOnClickListener(v -> openTrainingSelectionDialog());
@@ -301,9 +362,36 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (ui.btnProfiles != null) {
             ui.btnProfiles.setOnClickListener(v -> openProfilesManager());
         }
+    }
 
-        setContentView(ui.mainLayout);
-        PasswordAuthManager.checkMasterPasswordOnStart(this, getSharedPreferences(PREF_NAME, MODE_PRIVATE), authCallback);
+    /**
+     * Восстановление визуального состояния интерфейса после перестройки UI на лету
+     */
+    private void restoreUiState(String previousLogText) {
+        if (ui == null) return;
+
+        // Восстановление истории логов
+        if (ui.tvLog != null && previousLogText != null && !previousLogText.isEmpty()) {
+            ui.tvLog.setText(previousLogText);
+            if (ui.logScrollView != null) {
+                ui.logScrollView.post(() -> ui.logScrollView.fullScroll(ScrollView.FOCUS_DOWN));
+            }
+        }
+
+        // Восстановление статуса авторизации и кнопок
+        setInterfaceAuthorizedState(isProfileAuthorized);
+
+        // Обновление заголовков и панели статуса
+        int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
+        boolean isPolarActive = polarManager != null && polarManager.isConnected();
+        int hrToDisplay = isPolarActive ? currentPolarHr : 0;
+        UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery, polarBatt);
+
+        updateRightPanelStatus();
+
+        if (isRecording && ui.btnHeart != null) {
+            ui.btnHeart.setAlpha(1.0f);
+        }
     }
 
     private void openTrainingSelectionDialog() {
@@ -814,7 +902,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
             HrvCalculator.Metrics postiMetrics = HrvCalculator.calculate(snapshotRr);
             if (postiMetrics != null && postiMetrics.isValid) {
-                // Исправление: берем актуальный период модуляции из сервиса, а не старый кэш
                 float actualModulationSec = (isBound && hrvService != null) ? (hrvService.getModulationPeriodMs() / 1000.0f) : (fixedModulationPeriodMs / 1000.0f);
                 int currentDumpIndex = globalDumpIndexCounter++;
                 SessionSnapshot postiSummarySnapshot = new SessionSnapshot(
