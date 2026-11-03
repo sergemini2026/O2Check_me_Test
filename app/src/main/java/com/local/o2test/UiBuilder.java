@@ -103,9 +103,10 @@ public class UiBuilder {
         btnBar.addView(v.btnExit);
         v.mainLayout.addView(btnBar);
 
+        // --- БЛОК ГРАФИКОВ (высота приведена к исходной) ---
         v.chartView = new TrendChartView(context);
         LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 2.0f);
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.4f);
         v.chartView.setLayoutParams(chartParams);
         v.mainLayout.addView(v.chartView);
 
@@ -268,7 +269,7 @@ public class UiBuilder {
         v.pacerView.setLayoutParams(pacerParams);
         v.rightPanel.addView(v.pacerView);
 
-        // Кнопка ТЕСТ в форме шеврона-сердечка между 6 и 14 внутри пейсера
+        // Кнопка ТЕСТ в форме шеврона между 6 и 14 внутри пейсера
         v.btnTest = new Button(context);
         v.btnTest.setText("ТЕСТ");
         v.btnTest.setTextSize(11);
