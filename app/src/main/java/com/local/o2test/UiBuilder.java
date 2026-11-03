@@ -229,7 +229,7 @@ public class UiBuilder {
         rightParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
         rightVerticalLayout.setLayoutParams(rightParams);
 
-        // Заголовки над пейсером: PhM:[--]%  IA:[--]% (опущено ниже на 2 строки для центрирования)
+        // Заголовки над пейсером: PhM:[--]%  IA:[--]%
         LinearLayout pacerHeaderLayout = new LinearLayout(context);
         pacerHeaderLayout.setOrientation(LinearLayout.HORIZONTAL);
         pacerHeaderLayout.setGravity(Gravity.CENTER);
@@ -269,19 +269,22 @@ public class UiBuilder {
         v.pacerView.setLayoutParams(pacerParams);
         v.rightPanel.addView(v.pacerView);
 
-        // Кнопка ТЕСТ внутри циферблата между 6 и 14 с увеличенной в 2 раза высотой
+        // Кнопка ТЕСТ внутри циферблата между 6 и 14
         v.btnTest = new Button(context);
         v.btnTest.setText("ТЕСТ");
         v.btnTest.setTextSize(11);
         v.btnTest.setTextColor(Color.WHITE);
         v.btnTest.setBackgroundResource(R.drawable.bg_test_button_chevron);
         v.btnTest.setGravity(Gravity.CENTER);
+        // Смещение текста внутри кнопки вниз на 4 dp
+        int textPaddingTopPx = (int) (4 * context.getResources().getDisplayMetrics().density);
+        v.btnTest.setPadding(0, textPaddingTopPx, 0, 0);
 
         int btnWidthPx = (int) (64 * context.getResources().getDisplayMetrics().density);
         int btnHeightPx = (int) (64 * context.getResources().getDisplayMetrics().density);
         FrameLayout.LayoutParams testBtnParams = new FrameLayout.LayoutParams(btnWidthPx, btnHeightPx);
         testBtnParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-        testBtnParams.bottomMargin = (int) (32 * context.getResources().getDisplayMetrics().density);
+        testBtnParams.bottomMargin = (int) (30 * context.getResources().getDisplayMetrics().density); // Смещение вниз на 2 dp (32 - 2)
         v.btnTest.setLayoutParams(testBtnParams);
 
         v.rightPanel.addView(v.btnTest);
