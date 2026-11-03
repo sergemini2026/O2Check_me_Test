@@ -276,8 +276,8 @@ public class UiBuilder {
         v.btnTest.setTextColor(Color.WHITE);
         v.btnTest.setBackgroundResource(R.drawable.bg_test_button_chevron);
         v.btnTest.setGravity(Gravity.CENTER);
-        // Смещение текста внутри кнопки вниз на 10 dp
-        int textPaddingTopPx = (int) (10 * context.getResources().getDisplayMetrics().density);
+        // Смещение текста внутри кнопки вниз на 11 dp
+        int textPaddingTopPx = (int) (11 * context.getResources().getDisplayMetrics().density);
         v.btnTest.setPadding(0, textPaddingTopPx, 0, 0);
 
         int btnWidthPx = (int) (64 * context.getResources().getDisplayMetrics().density);
