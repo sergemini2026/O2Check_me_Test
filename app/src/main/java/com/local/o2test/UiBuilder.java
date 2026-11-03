@@ -2,6 +2,7 @@ package com.local.o2test;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -103,22 +104,26 @@ public class UiBuilder {
         btnBar.addView(v.btnExit);
         v.mainLayout.addView(btnBar);
 
-        // --- БЛОК ГРАФИКОВ (высота приведена к исходной) ---
+        // --- БЛОК ГРАФИКОВ ---
         v.chartView = new TrendChartView(context);
         LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.4f);
         v.chartView.setLayoutParams(chartParams);
         v.mainLayout.addView(v.chartView);
 
-        // --- ОБЩИЙ НИЖНИЙ КОНТЕЙНЕР (Адаптивный для книжной/альбомной ориентации) ---
+        // --- ОПРЕДЕЛЕНИЕ ОРИЕНТАЦИИ ЭКРАНА ---
+        int orientation = context.getResources().getConfiguration().orientation;
+        boolean isLandscape = (orientation == Configuration.ORIENTATION_LANDSCAPE);
+
+        // --- ОБЩИЙ НИЖНИЙ КОНТЕЙНЕР (Адаптивный по ориентации) ---
         LinearLayout bottomRootLayout = new LinearLayout(context);
-        bottomRootLayout.setOrientation(LinearLayout.VERTICAL);
+        bottomRootLayout.setOrientation(isLandscape ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
         LinearLayout.LayoutParams bottomRootParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
         bottomRootParams.topMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
         bottomRootLayout.setLayoutParams(bottomRootParams);
 
-        // --- БЛОК 1: ВЕРХНЯЯ ЧАСТЬ НИЖНЕГО КОНТЕЙНЕРА (ВСР, Статус, Меню) ---
+        // --- БЛОК 1: ВЕРХНЯЯ ЧАСТЬ (ВСР, Статус, Меню) ---
         LinearLayout topControlBlock = new LinearLayout(context);
         topControlBlock.setOrientation(LinearLayout.VERTICAL);
         topControlBlock.setLayoutParams(new LinearLayout.LayoutParams(
@@ -161,7 +166,6 @@ public class UiBuilder {
 
         int iconSizePx = (int) (48 * context.getResources().getDisplayMetrics().density);
 
-        // 1. Кнопка "Тренировки"
         v.btnWorkout = new ImageButton(context);
         v.btnWorkout.setBackgroundColor(Color.TRANSPARENT);
         v.btnWorkout.setImageResource(R.drawable.ic_workout);
@@ -169,7 +173,6 @@ public class UiBuilder {
         v.btnWorkout.setLayoutParams(new LinearLayout.LayoutParams(iconSizePx, iconSizePx));
         actionPanel.addView(createActionItem(context, v.btnWorkout, "Тренировки"));
 
-        // 2. Кнопка "Сессии"
         v.btnSessions = new ImageButton(context);
         v.btnSessions.setBackgroundColor(Color.TRANSPARENT);
         v.btnSessions.setImageResource(R.drawable.ic_sessions);
@@ -177,7 +180,6 @@ public class UiBuilder {
         v.btnSessions.setLayoutParams(new LinearLayout.LayoutParams(iconSizePx, iconSizePx));
         actionPanel.addView(createActionItem(context, v.btnSessions, "Сессии"));
 
-        // 3. Кнопка "Профили"
         v.btnProfiles = new ImageButton(context);
         v.btnProfiles.setBackgroundColor(Color.TRANSPARENT);
         v.btnProfiles.setImageResource(R.drawable.ic_profile);
@@ -185,7 +187,6 @@ public class UiBuilder {
         v.btnProfiles.setLayoutParams(new LinearLayout.LayoutParams(iconSizePx, iconSizePx));
         actionPanel.addView(createActionItem(context, v.btnProfiles, "Профили"));
 
-        // 4. Кнопка "Монитор" (Сердце)
         v.btnHeart = new ImageButton(context);
         v.btnHeart.setBackgroundColor(Color.TRANSPARENT);
         v.btnHeart.setImageResource(R.drawable.ic_heart_pulse);
@@ -195,39 +196,18 @@ public class UiBuilder {
         actionPanel.addView(createActionItem(context, v.btnHeart, "Монитор"));
 
         topControlBlock.addView(actionPanel);
-        bottomRootLayout.addView(topControlBlock);
 
-        // --- БЛОК 2 & 3: ДВУХКОЛОНЧАТЫЙ СПЛИТ ПОД БЛОКОМ 1 ---
-        LinearLayout bottomSplitLayout = new LinearLayout(context);
-        bottomSplitLayout.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams splitParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        bottomSplitLayout.setLayoutParams(splitParams);
-
-        // Левая половина: Лог
+        // --- ЛОГ И ПЕЙСЕР ---
         v.tvLog = new TextView(context);
         v.tvLog.setTextSize(11);
 
         v.logScrollView = new ScrollView(context);
-        LinearLayout.LayoutParams leftParams = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 3.0f);
-        v.logScrollView.setLayoutParams(leftParams);
-
         ScrollView.LayoutParams tvLogParams = new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT,
                 ScrollView.LayoutParams.WRAP_CONTENT
         );
         v.tvLog.setLayoutParams(tvLogParams);
         v.logScrollView.addView(v.tvLog);
-
-        // Правая половина: вертикальный контейнер для заголовков и пейсера
-        LinearLayout rightVerticalLayout = new LinearLayout(context);
-        rightVerticalLayout.setOrientation(LinearLayout.VERTICAL);
-        rightVerticalLayout.setGravity(Gravity.CENTER_HORIZONTAL);
-        LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 2.0f);
-        rightParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
-        rightVerticalLayout.setLayoutParams(rightParams);
 
         // Заголовки над пейсером: PhM:[--]%  IA:[--]%
         LinearLayout pacerHeaderLayout = new LinearLayout(context);
@@ -251,15 +231,12 @@ public class UiBuilder {
         v.tvAttractorIndex.setTextColor(0xFFFF6D00);
         pacerHeaderLayout.addView(v.tvAttractorIndex);
 
-        rightVerticalLayout.addView(pacerHeaderLayout);
-
-        // Правая половина (обертка для центрирования пейсера и встроенной кнопки ТЕСТ)
+        // Правая панель (обертка для центрирования пейсера и встроенной кнопки ТЕСТ)
         v.rightPanel = new FrameLayout(context);
         LinearLayout.LayoutParams rightPanelParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
         v.rightPanel.setLayoutParams(rightPanelParams);
 
-        // Создаем BreatheAnimationView
         v.pacerView = new BreatheAnimationView(context);
         FrameLayout.LayoutParams pacerParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -269,14 +246,12 @@ public class UiBuilder {
         v.pacerView.setLayoutParams(pacerParams);
         v.rightPanel.addView(v.pacerView);
 
-        // Кнопка ТЕСТ внутри циферблата между 6 и 14
         v.btnTest = new Button(context);
         v.btnTest.setText("ТЕСТ");
         v.btnTest.setTextSize(11);
         v.btnTest.setTextColor(Color.WHITE);
         v.btnTest.setBackgroundResource(R.drawable.bg_test_button_chevron);
         v.btnTest.setGravity(Gravity.CENTER);
-        // Смещение текста внутри кнопки вниз на 11 dp
         int textPaddingTopPx = (int) (11 * context.getResources().getDisplayMetrics().density);
         v.btnTest.setPadding(0, textPaddingTopPx, 0, 0);
 
@@ -284,16 +259,67 @@ public class UiBuilder {
         int btnHeightPx = (int) (64 * context.getResources().getDisplayMetrics().density);
         FrameLayout.LayoutParams testBtnParams = new FrameLayout.LayoutParams(btnWidthPx, btnHeightPx);
         testBtnParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-        testBtnParams.bottomMargin = (int) (26 * context.getResources().getDisplayMetrics().density); // Смещение вниз на 2 dp (32 - 2)
+        testBtnParams.bottomMargin = (int) (26 * context.getResources().getDisplayMetrics().density);
         v.btnTest.setLayoutParams(testBtnParams);
-
         v.rightPanel.addView(v.btnTest);
+
+        LinearLayout rightVerticalLayout = new LinearLayout(context);
+        rightVerticalLayout.setOrientation(LinearLayout.VERTICAL);
+        rightVerticalLayout.setGravity(Gravity.CENTER_HORIZONTAL);
+        rightVerticalLayout.addView(pacerHeaderLayout);
         rightVerticalLayout.addView(v.rightPanel);
 
-        bottomSplitLayout.addView(v.logScrollView);
-        bottomSplitLayout.addView(rightVerticalLayout);
+        // --- СБОРКА В ЗАВИСИМОСТИ ОТ ОРИЕНТАЦИИ ---
+        if (!isLandscape) {
+            // ВАРИАНТ 1: КНИЖНАЯ ОРИЕНТАЦИЯ
+            bottomRootLayout.addView(topControlBlock);
 
-        bottomRootLayout.addView(bottomSplitLayout);
+            LinearLayout bottomSplitLayout = new LinearLayout(context);
+            bottomSplitLayout.setOrientation(LinearLayout.HORIZONTAL);
+            LinearLayout.LayoutParams splitParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
+            bottomSplitLayout.setLayoutParams(splitParams);
+
+            LinearLayout.LayoutParams leftParams = new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.MATCH_PARENT, 3.0f);
+            v.logScrollView.setLayoutParams(leftParams);
+
+            LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.MATCH_PARENT, 2.0f);
+            rightParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
+            rightVerticalLayout.setLayoutParams(rightParams);
+
+            bottomSplitLayout.addView(v.logScrollView);
+            bottomSplitLayout.addView(rightVerticalLayout);
+            bottomRootLayout.addView(bottomSplitLayout);
+
+        } else {
+            // ВАРИАНТ 2: АЛЬБОМНАЯ ОРИЕНТАЦИЯ (соотношение 3:1)
+            // Левая колонка (вес 3.0f), содержащая topControlBlock и logScrollView друг под другом
+            LinearLayout leftColumnLayout = new LinearLayout(context);
+            leftColumnLayout.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout.LayoutParams leftColParams = new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.MATCH_PARENT, 3.0f);
+            leftColumnLayout.setLayoutParams(leftColParams);
+
+            leftColumnLayout.addView(topControlBlock);
+
+            LinearLayout.LayoutParams logParamsLandscape = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
+            logParamsLandscape.topMargin = (int) (4 * context.getResources().getDisplayMetrics().density);
+            v.logScrollView.setLayoutParams(logParamsLandscape);
+            leftColumnLayout.addView(v.logScrollView);
+
+            // Правая колонка (вес 1.0f), содержащая только модуль пейсера во всю высоту экрана
+            LinearLayout.LayoutParams rightColParams = new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f);
+            rightColParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
+            rightVerticalLayout.setLayoutParams(rightColParams);
+
+            bottomRootLayout.addView(leftColumnLayout);
+            bottomRootLayout.addView(rightVerticalLayout);
+        }
+
         v.mainLayout.addView(bottomRootLayout);
 
         return v;
