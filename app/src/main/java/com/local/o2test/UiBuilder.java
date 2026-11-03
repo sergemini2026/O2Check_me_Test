@@ -50,7 +50,9 @@ public class UiBuilder {
         public TrendChartView chartView;
         public TextView tvHrvMetrics;
         public TextView tvStatusValue;
+        public TextView tvPhimIndex;      // Индекс PhM над пейсером
         public TextView tvAttractorIndex; // Индекс Аттрактора (IA) над пейсером
+        public Button btnTest;            // Кнопка ТЕСТ внутри пейсера (между 6 и 14)
         public TextView tvLog;
         public ScrollView logScrollView;
         public ImageButton btnHeart;
@@ -107,7 +109,21 @@ public class UiBuilder {
         v.chartView.setLayoutParams(chartParams);
         v.mainLayout.addView(v.chartView);
 
-        // --- БЛОК ВСР (с поддержкой LF/HF) ---
+        // --- ОБЩИЙ НИЖНИЙ КОНТЕЙНЕР (Адаптивный для книжной/альбомной ориентации) ---
+        LinearLayout bottomRootLayout = new LinearLayout(context);
+        bottomRootLayout.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams bottomRootParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
+        bottomRootParams.topMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
+        bottomRootLayout.setLayoutParams(bottomRootParams);
+
+        // --- БЛОК 1: ВЕРХНЯЯ ЧАСТЬ НИЖНЕГО КОНТЕЙНЕРА (ВСР, Статус, Меню) ---
+        LinearLayout topControlBlock = new LinearLayout(context);
+        topControlBlock.setOrientation(LinearLayout.VERTICAL);
+        topControlBlock.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        // БЛОК ВСР (с поддержкой LF/HF)
         v.tvHrvMetrics = new TextView(context);
         v.tvHrvMetrics.setTextSize(16);
         v.tvHrvMetrics.setTextColor(Color.WHITE);
@@ -115,12 +131,12 @@ public class UiBuilder {
 
         LinearLayout.LayoutParams hrvParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        hrvParams.setMargins(0, 8, 0, 2);
+        hrvParams.setMargins(0, 4, 0, 2);
         v.tvHrvMetrics.setLayoutParams(hrvParams);
         v.tvHrvMetrics.setText("Профиль: Не выбран  |  RMSSD: --  |  pNN50: --  |  LF/HF: --  |  TP: --");
-        v.mainLayout.addView(v.tvHrvMetrics);
+        topControlBlock.addView(v.tvHrvMetrics);
 
-        // --- СТРОКА СТАТУСА ---
+        // СТРОКА СТАТУСА
         v.tvStatusValue = new TextView(context);
         v.tvStatusValue.setText("");
         v.tvStatusValue.setTextSize(13);
@@ -129,11 +145,11 @@ public class UiBuilder {
 
         LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        statusParams.setMargins(0, 0, 0, 4);
+        statusParams.setMargins(0, 0, 0, 2);
         v.tvStatusValue.setLayoutParams(statusParams);
-        v.mainLayout.addView(v.tvStatusValue);
+        topControlBlock.addView(v.tvStatusValue);
 
-        // --- БЛОК УПРАВЛЕНИЯ МОНИТОРИНГОМ И ТРЕНИРОВКАМИ (4 КНОПКИ) ---
+        // БЛОК УПРАВЛЕНИЯ МОНИТОРИНГОМ И ТРЕНИРОВКАМИ (4 КНОПКИ)
         LinearLayout actionPanel = new LinearLayout(context);
         actionPanel.setOrientation(LinearLayout.HORIZONTAL);
         actionPanel.setGravity(Gravity.CENTER_VERTICAL);
@@ -177,14 +193,14 @@ public class UiBuilder {
         v.btnHeart.setLayoutParams(new LinearLayout.LayoutParams(iconSizePx, iconSizePx));
         actionPanel.addView(createActionItem(context, v.btnHeart, "Монитор"));
 
-        v.mainLayout.addView(actionPanel);
+        topControlBlock.addView(actionPanel);
+        bottomRootLayout.addView(topControlBlock);
 
-        // --- НИЖНЯЯ ПАНЕЛЬ: 60% (ЛОГ) И 40% (ПРАВАЯ ПАНЕЛЬ С ФРАКТАЛЬНЫМ ПЕЙСЕРОМ) ---
+        // --- БЛОК 2 & 3: ДВУХКОЛОНЧАТЫЙ СПЛИТ ПОД БЛОКОМ 1 ---
         LinearLayout bottomSplitLayout = new LinearLayout(context);
         bottomSplitLayout.setOrientation(LinearLayout.HORIZONTAL);
         LinearLayout.LayoutParams splitParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        splitParams.topMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
         bottomSplitLayout.setLayoutParams(splitParams);
 
         // Левая половина: Лог
@@ -203,7 +219,7 @@ public class UiBuilder {
         v.tvLog.setLayoutParams(tvLogParams);
         v.logScrollView.addView(v.tvLog);
 
-        // Правая половина: вертикальный контейнер для Индекса Аттрактора и пейсера
+        // Правая половина: вертикальный контейнер для заголовков и пейсера
         LinearLayout rightVerticalLayout = new LinearLayout(context);
         rightVerticalLayout.setOrientation(LinearLayout.VERTICAL);
         rightVerticalLayout.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -212,20 +228,31 @@ public class UiBuilder {
         rightParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
         rightVerticalLayout.setLayoutParams(rightParams);
 
-        // Индекс Аттрактора (IA) сверху над модулем визуализации
-        v.tvAttractorIndex = new TextView(context);
-        v.tvAttractorIndex.setText("IA: [--%]");
-        v.tvAttractorIndex.setTextSize(15);
-        v.tvAttractorIndex.setTextColor(0xFFFF6D00); // Оранжевый цвет
-        v.tvAttractorIndex.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams iaParams = new LinearLayout.LayoutParams(
+        // Заголовки над пейсером: PhM:[--]%  IA:[--]%
+        LinearLayout pacerHeaderLayout = new LinearLayout(context);
+        pacerHeaderLayout.setOrientation(LinearLayout.HORIZONTAL);
+        pacerHeaderLayout.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams headerParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        iaParams.topMargin = (int) (4 * context.getResources().getDisplayMetrics().density);
-        iaParams.bottomMargin = (int) (4 * context.getResources().getDisplayMetrics().density);
-        v.tvAttractorIndex.setLayoutParams(iaParams);
-        rightVerticalLayout.addView(v.tvAttractorIndex);
+        headerParams.topMargin = (int) (2 * context.getResources().getDisplayMetrics().density);
+        headerParams.bottomMargin = (int) (2 * context.getResources().getDisplayMetrics().density);
+        pacerHeaderLayout.setLayoutParams(headerParams);
 
-        // Правая половина (обертка для центрирования пейсера)
+        v.tvPhimIndex = new TextView(context);
+        v.tvPhimIndex.setText("PhM:[--]%  ");
+        v.tvPhimIndex.setTextSize(15);
+        v.tvPhimIndex.setTextColor(0xFFFF6D00);
+        pacerHeaderLayout.addView(v.tvPhimIndex);
+
+        v.tvAttractorIndex = new TextView(context);
+        v.tvAttractorIndex.setText("IA:[--]%");
+        v.tvAttractorIndex.setTextSize(15);
+        v.tvAttractorIndex.setTextColor(0xFFFF6D00);
+        pacerHeaderLayout.addView(v.tvAttractorIndex);
+
+        rightVerticalLayout.addView(pacerHeaderLayout);
+
+        // Правая половина (обертка для центрирования пейсера и встроенной кнопки ТЕСТ)
         v.rightPanel = new FrameLayout(context);
         LinearLayout.LayoutParams rightPanelParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
@@ -241,12 +268,29 @@ public class UiBuilder {
         v.pacerView.setLayoutParams(pacerParams);
         v.rightPanel.addView(v.pacerView);
 
+        // Кнопка ТЕСТ в форме шеврона-сердечка между 6 и 14 внутри пейсера
+        v.btnTest = new Button(context);
+        v.btnTest.setText("ТЕСТ");
+        v.btnTest.setTextSize(11);
+        v.btnTest.setTextColor(Color.WHITE);
+        v.btnTest.setBackgroundResource(R.drawable.bg_test_button_chevron);
+        v.btnTest.setGravity(Gravity.CENTER);
+
+        int btnWidthPx = (int) (64 * context.getResources().getDisplayMetrics().density);
+        int btnHeightPx = (int) (32 * context.getResources().getDisplayMetrics().density);
+        FrameLayout.LayoutParams testBtnParams = new FrameLayout.LayoutParams(btnWidthPx, btnHeightPx);
+        testBtnParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        testBtnParams.bottomMargin = (int) (12 * context.getResources().getDisplayMetrics().density);
+        v.btnTest.setLayoutParams(testBtnParams);
+
+        v.rightPanel.addView(v.btnTest);
         rightVerticalLayout.addView(v.rightPanel);
 
         bottomSplitLayout.addView(v.logScrollView);
         bottomSplitLayout.addView(rightVerticalLayout);
 
-        v.mainLayout.addView(bottomSplitLayout);
+        bottomRootLayout.addView(bottomSplitLayout);
+        v.mainLayout.addView(bottomRootLayout);
 
         return v;
     }
