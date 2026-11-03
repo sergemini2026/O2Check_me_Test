@@ -2,7 +2,6 @@ package com.local.o2test;
 
 import android.content.Context;
 import android.content.Intent;
-import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -13,6 +12,7 @@ import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.TextUtils;
 import android.text.style.ForegroundColorSpan;
+import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.widget.ArrayAdapter;
@@ -111,16 +111,16 @@ public class UiBuilder {
         v.chartView.setLayoutParams(chartParams);
         v.mainLayout.addView(v.chartView);
 
-        // --- ОПРЕДЕЛЕНИЕ ОРИЕНТАЦИИ ЭКРАНА ---
-        int orientation = context.getResources().getConfiguration().orientation;
-        boolean isLandscape = (orientation == Configuration.ORIENTATION_LANDSCAPE);
+        // --- ОПРЕДЕЛЕНИЕ ОРИЕНТАЦИИ ПО ФИЗИЧЕСКИМ РАЗМЕРАМ ДИСПЛЕЯ ---
+        DisplayMetrics dm = context.getResources().getDisplayMetrics();
+        boolean isLandscape = dm.widthPixels > dm.heightPixels;
 
         // --- ОБЩИЙ НИЖНИЙ КОНТЕЙНЕР (Адаптивный по ориентации) ---
         LinearLayout bottomRootLayout = new LinearLayout(context);
         bottomRootLayout.setOrientation(isLandscape ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
         LinearLayout.LayoutParams bottomRootParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-        bottomRootParams.topMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
+        bottomRootParams.topMargin = (int) (8 * dm.density);
         bottomRootLayout.setLayoutParams(bottomRootParams);
 
         // --- БЛОК 1: ВЕРХНЯЯ ЧАСТЬ (ВСР, Статус, Меню) ---
@@ -164,7 +164,7 @@ public class UiBuilder {
         actionPanelParams.setMargins(0, 2, 0, 4);
         actionPanel.setLayoutParams(actionPanelParams);
 
-        int iconSizePx = (int) (48 * context.getResources().getDisplayMetrics().density);
+        int iconSizePx = (int) (48 * dm.density);
 
         v.btnWorkout = new ImageButton(context);
         v.btnWorkout.setBackgroundColor(Color.TRANSPARENT);
@@ -215,8 +215,8 @@ public class UiBuilder {
         pacerHeaderLayout.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams headerParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        headerParams.topMargin = (int) (16 * context.getResources().getDisplayMetrics().density);
-        headerParams.bottomMargin = (int) (6 * context.getResources().getDisplayMetrics().density);
+        headerParams.topMargin = (int) (16 * dm.density);
+        headerParams.bottomMargin = (int) (6 * dm.density);
         pacerHeaderLayout.setLayoutParams(headerParams);
 
         v.tvPhimIndex = new TextView(context);
@@ -252,14 +252,14 @@ public class UiBuilder {
         v.btnTest.setTextColor(Color.WHITE);
         v.btnTest.setBackgroundResource(R.drawable.bg_test_button_chevron);
         v.btnTest.setGravity(Gravity.CENTER);
-        int textPaddingTopPx = (int) (11 * context.getResources().getDisplayMetrics().density);
+        int textPaddingTopPx = (int) (11 * dm.density);
         v.btnTest.setPadding(0, textPaddingTopPx, 0, 0);
 
-        int btnWidthPx = (int) (64 * context.getResources().getDisplayMetrics().density);
-        int btnHeightPx = (int) (64 * context.getResources().getDisplayMetrics().density);
+        int btnWidthPx = (int) (64 * dm.density);
+        int btnHeightPx = (int) (64 * dm.density);
         FrameLayout.LayoutParams testBtnParams = new FrameLayout.LayoutParams(btnWidthPx, btnHeightPx);
         testBtnParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-        testBtnParams.bottomMargin = (int) (26 * context.getResources().getDisplayMetrics().density);
+        testBtnParams.bottomMargin = (int) (26 * dm.density);
         v.btnTest.setLayoutParams(testBtnParams);
         v.rightPanel.addView(v.btnTest);
 
@@ -286,7 +286,7 @@ public class UiBuilder {
 
             LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(
                     0, LinearLayout.LayoutParams.MATCH_PARENT, 2.0f);
-            rightParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
+            rightParams.leftMargin = (int) (8 * dm.density);
             rightVerticalLayout.setLayoutParams(rightParams);
 
             bottomSplitLayout.addView(v.logScrollView);
@@ -306,14 +306,14 @@ public class UiBuilder {
 
             LinearLayout.LayoutParams logParamsLandscape = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
-            logParamsLandscape.topMargin = (int) (4 * context.getResources().getDisplayMetrics().density);
+            logParamsLandscape.topMargin = (int) (4 * dm.density);
             v.logScrollView.setLayoutParams(logParamsLandscape);
             leftColumnLayout.addView(v.logScrollView);
 
             // Правая колонка (вес 1.0f), содержащая только модуль пейсера во всю высоту экрана
             LinearLayout.LayoutParams rightColParams = new LinearLayout.LayoutParams(
                     0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f);
-            rightColParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
+            rightColParams.leftMargin = (int) (8 * dm.density);
             rightVerticalLayout.setLayoutParams(rightColParams);
 
             bottomRootLayout.addView(leftColumnLayout);
