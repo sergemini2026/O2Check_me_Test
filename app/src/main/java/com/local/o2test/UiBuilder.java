@@ -229,14 +229,14 @@ public class UiBuilder {
         rightParams.leftMargin = (int) (8 * context.getResources().getDisplayMetrics().density);
         rightVerticalLayout.setLayoutParams(rightParams);
 
-        // Заголовки над пейсером: PhM:[--]%  IA:[--]% (оптимальные отступы для идеального вертикального центрирования)
+        // Заголовки над пейсером: PhM:[--]%  IA:[--]% (опущено ниже на 2 строки для центрирования)
         LinearLayout pacerHeaderLayout = new LinearLayout(context);
         pacerHeaderLayout.setOrientation(LinearLayout.HORIZONTAL);
         pacerHeaderLayout.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams headerParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        headerParams.topMargin = (int) (2 * context.getResources().getDisplayMetrics().density);
-        headerParams.bottomMargin = (int) (2 * context.getResources().getDisplayMetrics().density);
+        headerParams.topMargin = (int) (16 * context.getResources().getDisplayMetrics().density);
+        headerParams.bottomMargin = (int) (6 * context.getResources().getDisplayMetrics().density);
         pacerHeaderLayout.setLayoutParams(headerParams);
 
         v.tvPhimIndex = new TextView(context);
@@ -269,7 +269,7 @@ public class UiBuilder {
         v.pacerView.setLayoutParams(pacerParams);
         v.rightPanel.addView(v.pacerView);
 
-        // Кнопка ТЕСТ внутри циферблата между 6 и 14 с точным вертикальным центрированием
+        // Кнопка ТЕСТ внутри циферблата между 6 и 14 с увеличенной в 2 раза высотой
         v.btnTest = new Button(context);
         v.btnTest.setText("ТЕСТ");
         v.btnTest.setTextSize(11);
@@ -278,10 +278,10 @@ public class UiBuilder {
         v.btnTest.setGravity(Gravity.CENTER);
 
         int btnWidthPx = (int) (64 * context.getResources().getDisplayMetrics().density);
-        int btnHeightPx = (int) (32 * context.getResources().getDisplayMetrics().density);
+        int btnHeightPx = (int) (64 * context.getResources().getDisplayMetrics().density);
         FrameLayout.LayoutParams testBtnParams = new FrameLayout.LayoutParams(btnWidthPx, btnHeightPx);
         testBtnParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-        testBtnParams.bottomMargin = (int) (24 * context.getResources().getDisplayMetrics().density);
+        testBtnParams.bottomMargin = (int) (32 * context.getResources().getDisplayMetrics().density);
         v.btnTest.setLayoutParams(testBtnParams);
 
         v.rightPanel.addView(v.btnTest);
