@@ -89,7 +89,10 @@ public class UiBuilder {
         btnBar.setOrientation(LinearLayout.HORIZONTAL);
         btnBar.setPadding(0, 2, 0, 2);
 
-        int btnBarHeightPx = (int) (52 * context.getResources().getDisplayMetrics().density);
+        DisplayMetrics dm = context.getResources().getDisplayMetrics();
+        boolean isLandscape = dm.widthPixels > dm.heightPixels;
+
+        int btnBarHeightPx = (int) (52 * dm.density);
         btnBar.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, btnBarHeightPx));
 
@@ -104,16 +107,12 @@ public class UiBuilder {
         btnBar.addView(v.btnExit);
         v.mainLayout.addView(btnBar);
 
-        // --- БЛОК ГРАФИКОВ ---
+        // --- БЛОК ГРАФИКОВ (в альбомном режиме вес 1.0f = 50% высоты) ---
         v.chartView = new TrendChartView(context);
         LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.4f);
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, isLandscape ? 1.0f : 1.4f);
         v.chartView.setLayoutParams(chartParams);
         v.mainLayout.addView(v.chartView);
-
-        // --- ОПРЕДЕЛЕНИЕ ОРИЕНТАЦИИ ПО ФИЗИЧЕСКИМ РАЗМЕРАМ ДИСПЛЕЯ ---
-        DisplayMetrics dm = context.getResources().getDisplayMetrics();
-        boolean isLandscape = dm.widthPixels > dm.heightPixels;
 
         // --- ОБЩИЙ НИЖНИЙ КОНТЕЙНЕР (Адаптивный по ориентации) ---
         LinearLayout bottomRootLayout = new LinearLayout(context);
