@@ -89,6 +89,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private final List<Double> cycleLfHfValuesList = new ArrayList<>();
     private String currentLfHfDisplayStr = "--";
 
+    // Поля-кэши для сохранения состояния метрик при повороте экрана
+    private String cachedRmssd = "--";
+    private String cachedPnn50 = "--";
+    private String cachedLfHf = "--";
+    private String cachedTp = "--";
+    private String cachedIa = "--";
+    private String cachedPhim = "--";
+
     private int currentSpo2 = 0;
     private float currentPi = 0.0f;
     private int currentBattery = 0;
@@ -248,7 +256,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             // Перепривязываем слушатели к новым элементам UI
             rebindUiListeners();
 
-            // Восстанавливаем состояние интерфейса (логи, статус, метрики)
+            // Восстанавливаем состояние интерфейса (логи, статус, метрики, график, профиль)
             restoreUiState(savedLogText);
 
             if (DEBUG) {
@@ -371,7 +379,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private void restoreUiState(String previousLogText) {
         if (ui == null) return;
 
-        // Восстановление истории логов
+        // 1. Восстановление истории логов
         if (ui.tvLog != null && previousLogText != null && !previousLogText.isEmpty()) {
             ui.tvLog.setText(previousLogText);
             if (ui.logScrollView != null) {
@@ -379,10 +387,25 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             }
         }
 
-        // Восстановление статуса авторизации и кнопок
+        // 2. Восстановление статуса авторизации и кнопок
         setInterfaceAuthorizedState(isProfileAuthorized);
 
-        // Обновление заголовков и панели статуса
+        // 3. Восстановление метрик ВСР, имени профиля, PhM и IA из кэшей
+        updateMetricsDisplay(cachedRmssd, cachedPnn50, cachedLfHf, cachedTp);
+        updateAttractorIndexDisplay(cachedIa);
+        updatePhimIndexDisplay(cachedPhim);
+
+        // 4. Восстановление графика из накопленного массива sessionData
+        if (ui.chartView != null) {
+            ui.chartView.clearData();
+            synchronized (sessionData) {
+                for (DataPoint dp : sessionData) {
+                    ui.chartView.addDataPoint(dp);
+                }
+            }
+        }
+
+        // 5. Обновление заголовков и панели статуса
         int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
         boolean isPolarActive = polarManager != null && polarManager.isConnected();
         int hrToDisplay = isPolarActive ? currentPolarHr : 0;
@@ -574,24 +597,31 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     private void updateMetricsDisplay(String rmssd, String pnn50, String lfHfStr, String tp) {
+        cachedRmssd = rmssd;
+        cachedPnn50 = pnn50;
+        cachedLfHf = lfHfStr;
+        cachedTp = tp;
         UiBuilder.updateHrvDisplay(ui.tvHrvMetrics, activeProfileName, rmssd, pnn50, lfHfStr, tp);
     }
 
     private void updateAttractorIndexDisplay(String iaValue) {
+        cachedIa = iaValue;
         if (ui.tvAttractorIndex != null) {
             ui.tvAttractorIndex.setText(String.format(Locale.US, "IA: [%s]%%", iaValue));
         }
     }
 
     private void updatePhimIndexDisplay(String phimValue) {
+        cachedPhim = phimValue;
         if (ui.tvPhimIndex != null) {
             ui.tvPhimIndex.setText(String.format(Locale.US, "PhM:[%s]%%  ", phimValue));
         }
     }
 
     private void updatePhimIndexDisplay(float phimValue) {
+        int pct = Math.round(phimValue * 100.0f);
+        cachedPhim = String.valueOf(pct);
         if (ui.tvPhimIndex != null) {
-            int pct = Math.round(phimValue * 100.0f);
             ui.tvPhimIndex.setText(String.format(Locale.US, "PhM:[%d]%%  ", pct));
         }
     }
