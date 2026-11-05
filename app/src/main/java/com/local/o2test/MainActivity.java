@@ -760,7 +760,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     runOnUiThread(() -> {
                         if (isBound && hrvService != null && isRecording) {
                             hrvService.adjustServicePhase(correctionDelta);
-                            updatePhimIndexDisplay(correctionDelta);
                         }
                     });
                 }
@@ -773,6 +772,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     int totalBlocks = trainingTargetX;
                     int currentBlockNum = context != null ? context.getBlockNumber() : ((sessionDumpCount % totalBlocks) + 1);
                     String blockInfo = String.format(Locale.US, "Блок %d/%d", currentBlockNum, totalBlocks);
+
+                    // Получаем вычисленную фазу Майера для завершенного макро-дампа из QuantumContext
+                    if (context != null) {
+                        float macroPhase = context.getMacroPhase();
+                        runOnUiThread(() -> updatePhimIndexDisplay(macroPhase));
+                    }
 
                     String logMsg = String.format(Locale.US,
                             "[Дамп ГОТОВ 100%%] %s | HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %s | TP: %.0f ms²",
