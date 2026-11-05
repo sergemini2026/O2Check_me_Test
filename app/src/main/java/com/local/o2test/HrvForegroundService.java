@@ -77,18 +77,21 @@ public class HrvForegroundService extends Service {
         private final int blockNumber;
         private final boolean isPstiPhase;
         private final int targetX;
+        private final float macroPhase;
 
-        public QuantumContext(int dumpIndex, int blockNumber, boolean isPstiPhase, int targetX) {
+        public QuantumContext(int dumpIndex, int blockNumber, boolean isPstiPhase, int targetX, float macroPhase) {
             this.dumpIndex = dumpIndex;
             this.blockNumber = blockNumber;
             this.isPstiPhase = isPstiPhase;
             this.targetX = targetX;
+            this.macroPhase = macroPhase;
         }
 
         public int getDumpIndex() { return dumpIndex; }
         public int getBlockNumber() { return blockNumber; }
         public boolean isPstiPhase() { return isPstiPhase; }
         public int getTargetX() { return targetX; }
+        public float getMacroPhase() { return macroPhase; }
     }
 
     public interface ServiceCallback {
@@ -448,7 +451,10 @@ public class HrvForegroundService extends Service {
                 boolean isCycleComplete = (currentTrainingCount >= trainingTargetX);
                 int currentBlockNum = currentTrainingCount;
 
-                QuantumContext quantum = new QuantumContext(currentDumpIndex, currentBlockNum, isCycleComplete, trainingTargetX);
+                // Вычисляем фазу Майера по завершенному макро-дампу (300 RR)
+                float macroPhase = MayerWaveAnalyzer.calculateInitialPhase(dumpData, currentModulationPeriodMs);
+
+                QuantumContext quantum = new QuantumContext(currentDumpIndex, currentBlockNum, isCycleComplete, trainingTargetX, macroPhase);
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
 
                 // Создаем макро-дамп с передачей blockNumber
@@ -467,8 +473,8 @@ public class HrvForegroundService extends Service {
                 }
 
                 if (DEBUG) {
-                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп #%d | Блок %d/%d | Переход к PSTI: %b | RMSSD: %.1f ms",
-                            currentDumpIndex, currentBlockNum, trainingTargetX, isCycleComplete, metrics.rmssd));
+                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп #%d | Блок %d/%d | Переход к PSTI: %b | RMSSD: %.1f ms | Фаза Майера: %.2f",
+                            currentDumpIndex, currentBlockNum, trainingTargetX, isCycleComplete, metrics.rmssd, macroPhase));
                 }
 
                 if (callback != null) {
