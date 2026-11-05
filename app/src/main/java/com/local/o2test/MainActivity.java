@@ -215,6 +215,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         setInterfaceAuthorizedState(false);
         updateMetricsDisplay("--", "--", "--", "--");
         updateAttractorIndexDisplay("--");
+        updatePhimIndexDisplay("--");
         updateRightPanelStatus();
 
         rebindUiListeners();
@@ -582,6 +583,19 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     }
 
+    private void updatePhimIndexDisplay(String phimValue) {
+        if (ui.tvPhimIndex != null) {
+            ui.tvPhimIndex.setText(String.format(Locale.US, "PhM:[%s]%%  ", phimValue));
+        }
+    }
+
+    private void updatePhimIndexDisplay(float phimValue) {
+        if (ui.tvPhimIndex != null) {
+            int pct = Math.round(phimValue * 100.0f);
+            ui.tvPhimIndex.setText(String.format(Locale.US, "PhM:[%d]%%  ", pct));
+        }
+    }
+
     private void setInterfaceAuthorizedState(boolean authorized) {
         float alphaVal = authorized ? 1.0f : 0.5f;
 
@@ -619,6 +633,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 setInterfaceAuthorizedState(true);
                 updateMetricsDisplay("--", "--", "--", "--");
                 updateAttractorIndexDisplay("--");
+                updatePhimIndexDisplay("--");
                 if (DEBUG) {
                     onLog("[GATEKEEPER] Активный профиль авторизован: " + profileName + " (ID: " + profileId + ")");
                 } else {
@@ -643,6 +658,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     setInterfaceAuthorizedState(false);
                     updateMetricsDisplay("--", "--", "--", "--");
                     updateAttractorIndexDisplay("--");
+                    updatePhimIndexDisplay("--");
                     onLog("[GATEKEEPER] Активный профиль удален. Сессия завершена.");
                     Toast.makeText(MainActivity.this, "Активный профиль был удален. Сессия остановлена.", Toast.LENGTH_LONG).show();
                 }
@@ -744,6 +760,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     runOnUiThread(() -> {
                         if (isBound && hrvService != null && isRecording) {
                             hrvService.adjustServicePhase(correctionDelta);
+                            updatePhimIndexDisplay(correctionDelta);
                         }
                     });
                 }
@@ -824,6 +841,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         
         updateMetricsDisplay("--", "--", "--", "--");
         updateAttractorIndexDisplay("--");
+        updatePhimIndexDisplay("--");
         updateRightPanelStatus();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
         
@@ -1003,6 +1021,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         updateRightPanelStatus();
+        updateMetricsDisplay("--", "--", "--", "--");
+        updateAttractorIndexDisplay("--");
+        updatePhimIndexDisplay("--");
+
         if (ui.btnHeart != null) {
             ui.btnHeart.setAlpha(isProfileAuthorized && isTrainingSelected ? 1.0f : 0.5f);
         }
@@ -1149,6 +1171,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                     }
                                     
                                     updateMetricsDisplay("--", "--", currentLfHfDisplayStr, "--");
+                                    updatePhimIndexDisplay(initialPhase);
 
                                     if (isBound && hrvService != null) {
                                         hrvService.adjustServicePhase(initialPhase);
