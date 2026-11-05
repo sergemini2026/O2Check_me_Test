@@ -253,7 +253,7 @@ public class UiBuilder {
         v.btnTest.setGravity(Gravity.CENTER);
 
         // Адаптивный отступ текста внутри кнопки ТЕСТ в зависимости от ориентации
-        int textPaddingTopPx = (int) ((isLandscape ? 21 : 11) * dm.density);
+        int textPaddingTopPx = (int) ((isLandscape ? 26 : 11) * dm.density);
         v.btnTest.setPadding(0, textPaddingTopPx, 0, 0);
 
         int btnWidthPx = (int) (64 * dm.density);
@@ -262,7 +262,7 @@ public class UiBuilder {
         testBtnParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
 
         // Адаптивный нижний отступ кнопки ТЕСТ в зависимости от ориентации
-        testBtnParams.bottomMargin = (int) ((isLandscape ? 16 : 26) * dm.density);
+        testBtnParams.bottomMargin = (int) ((isLandscape ? 6 : 26) * dm.density);
         v.btnTest.setLayoutParams(testBtnParams);
         v.rightPanel.addView(v.btnTest);
 
