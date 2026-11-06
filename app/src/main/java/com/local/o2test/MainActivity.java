@@ -430,9 +430,20 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
                             int targetX = 1;
                             if (modeName != null) {
-                                if (modeName.contains("1")) targetX = 1;
-                                else if (modeName.contains("2")) targetX = 2;
-                                else if (modeName.contains("3")) targetX = 3;
+                                switch (modeName.trim()) {
+                                    case "1-1":
+                                        targetX = 1;
+                                        break;
+                                    case "2-1":
+                                        targetX = 2;
+                                        break;
+                                    case "3-1":
+                                        targetX = 3;
+                                        break;
+                                    default:
+                                        targetX = 1;
+                                        break;
+                                }
                             }
                             trainingTargetX = targetX;
 
