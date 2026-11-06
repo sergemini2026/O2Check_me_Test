@@ -290,7 +290,10 @@ public class PdfExporter {
                         dumpSnapshots.add(s);
                     }
                 }
-                Collections.sort(dumpSnapshots, Comparator.comparingInt(HrvSnapshotEntity::getDumpIndex));
+                // Двухуровневая сортировка по полям базы: dumpIndex (первичный) + blockNumber (вторичный, где Тест PSTI имеет 999)
+                Collections.sort(dumpSnapshots, Comparator
+                        .comparingInt(HrvSnapshotEntity::getDumpIndex)
+                        .thenComparingInt(HrvSnapshotEntity::getBlockNumber));
             }
 
             if (DEBUG) {
@@ -369,8 +372,15 @@ public class PdfExporter {
                     }
                 }
 
-                String headerTitle = String.format(Locale.US, "Дамп #%d | Блок %d/%d | %s | Фаза: %s",
-                        dumpIdx, blockNumber, trainingTargetX, workoutMode, phaseStr);
+                // Чистый заголовок без вывода технического маркера 999 для тестов PSTI
+                String headerTitle;
+                if (isPstiPhase) {
+                    headerTitle = String.format(Locale.US, "Дамп #%d | %s | Фаза: %s",
+                            dumpIdx, workoutMode, phaseStr);
+                } else {
+                    headerTitle = String.format(Locale.US, "Дамп #%d | Блок %d/%d | %s | Фаза: %s",
+                            dumpIdx, blockNumber, trainingTargetX, workoutMode, phaseStr);
+                }
 
                 drawOxygenationChart(canvas2, dumpPoints, MARGIN, currentYCharts, PAGE_WIDTH - 2 * MARGIN, 45, Color.parseColor("#0284C7"), headerTitle + " — SpO2 (%)", dumpStartTime, dumpEndTime);
                 currentYCharts += 50;
