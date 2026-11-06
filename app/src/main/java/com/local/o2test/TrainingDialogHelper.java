@@ -12,7 +12,7 @@ import java.util.concurrent.ExecutorService;
 public class TrainingDialogHelper {
 
     public interface TrainingStartCallback {
-        void onTrainingSelected(String trainingType, String modeName, int[] pattern);
+        void onTrainingSelected(String trainingType, String modeName, int targetX, int[] pattern);
         void onRequireProfileAuth();
     }
 
@@ -76,15 +76,15 @@ public class TrainingDialogHelper {
         builder.setItems(pranayamaModes, (dialog, which) -> {
             if (which == 0) {
                 int[] pattern = {3, 3, 3};
-                callback.onTrainingSelected("Пранаяма", "3-1 Стандарт", pattern);
+                callback.onTrainingSelected("Пранаяма", "3-1 Стандарт", 3, pattern);
                 Toast.makeText(context, "Выбран режим: Пранаяма 3-1 (Стандарт)", Toast.LENGTH_SHORT).show();
             } else if (which == 1) {
                 int[] pattern = {2, 2};
-                callback.onTrainingSelected("Пранаяма", "2-1 Краткий", pattern);
+                callback.onTrainingSelected("Пранаяма", "2-1 Краткий", 2, pattern);
                 Toast.makeText(context, "Выбран режим: Пранаяма 2-1 (Краткий)", Toast.LENGTH_SHORT).show();
             } else if (which == 2) {
                 int[] pattern = {1};
-                callback.onTrainingSelected("Пранаяма", "1-1 Экспресс", pattern);
+                callback.onTrainingSelected("Пранаяма", "1-1 Экспресс", 1, pattern);
                 Toast.makeText(context, "Выбран режим: Пранаяма 1-1 (Экспресс)", Toast.LENGTH_SHORT).show();
             }
         });
