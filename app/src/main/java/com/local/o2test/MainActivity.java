@@ -423,28 +423,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 this, dbExecutor, activeProfileId, activeProfileName, isProfileAuthorized,
                 new TrainingDialogHelper.TrainingStartCallback() {
                     @Override
-                    public void onTrainingSelected(String trainingType, String modeName, int[] pattern) {
+                    public void onTrainingSelected(String trainingType, String modeName, int targetX, int[] pattern) {
                         Runnable applySelection = () -> {
                             currentWorkoutMode = trainingType + " " + modeName;
                             isTrainingSelected = true;
 
-                            int targetX = 1;
-                            if (modeName != null) {
-                                switch (modeName.trim()) {
-                                    case "1-1":
-                                        targetX = 1;
-                                        break;
-                                    case "2-1":
-                                        targetX = 2;
-                                        break;
-                                    case "3-1":
-                                        targetX = 3;
-                                        break;
-                                    default:
-                                        targetX = 1;
-                                        break;
-                                }
-                            }
+                            // Прямое присвоение численного параметра из структуры без строковых зависимостей
                             trainingTargetX = targetX;
 
                             if (hrvService != null) {
