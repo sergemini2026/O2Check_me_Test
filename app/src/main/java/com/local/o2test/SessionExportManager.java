@@ -228,8 +228,10 @@ public class SessionExportManager {
                                 snapshot.getModulationSec(),
                                 snapshot.isPstiPhase(),
                                 snapshot.isDumpSnapshot(),
-                                snapshot.getDumpIndex(),
-                                snapshot.getBlockNumber() // Проброс blockNumber в сущность БД
+                                snapshot.getGlobalUniqueIndex(),
+                                snapshot.getTrainingDumpIndex(),
+                                snapshot.getTestDumpIndex(),
+                                snapshot.getBlockNumber()
                         );
                         if (entity.getBaevskySi() > 0 && entity.getBaevskySi() <= 300) {
                             entityList.add(entity);
