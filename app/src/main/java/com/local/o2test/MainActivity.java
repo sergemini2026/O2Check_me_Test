@@ -801,7 +801,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     String blockInfo = String.format(Locale.US, "Блок %d/%d", currentBlockNum, totalBlocks);
 
                     // Синхронизируем глобальный уникальный индекс из контекста сервиса
-                    if (context != {
+                    if (context != null) {
                         lastGlobalUniqueIndex = context.getGlobalUniqueIndex();
                         float macroPhase = context.getMacroPhase();
                         runOnUiThread(() -> updatePhimIndexDisplay(macroPhase));
