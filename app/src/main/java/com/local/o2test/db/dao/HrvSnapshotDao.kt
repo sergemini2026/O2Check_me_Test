@@ -12,7 +12,7 @@ interface HrvSnapshotDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun insertAll(snapshots: List<HrvSnapshotEntity>)
 
-    @Query("SELECT * FROM hrv_snapshots ORDER BY timestamp ASC")
+    @Query("SELECT * FROM hrv_snapshots ORDER BY globalUniqueIndex ASC")
     fun getAllSnapshots(): List<HrvSnapshotEntity>
 
     @Query("DELETE FROM hrv_snapshots")
