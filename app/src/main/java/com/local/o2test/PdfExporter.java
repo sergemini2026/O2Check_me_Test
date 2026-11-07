@@ -290,10 +290,9 @@ public class PdfExporter {
                         dumpSnapshots.add(s);
                     }
                 }
-                // Двухуровневая сортировка по полям базы: dumpIndex (первичный) + blockNumber (вторичный, где Тест PSTI имеет 999)
+                // Железобетонная и простая сортировка по глобальному сквозному индексу
                 Collections.sort(dumpSnapshots, Comparator
-                        .comparingInt(HrvSnapshotEntity::getDumpIndex)
-                        .thenComparingInt(HrvSnapshotEntity::getBlockNumber));
+                        .comparingInt(HrvSnapshotEntity::getGlobalUniqueIndex));
             }
 
             if (DEBUG) {
@@ -333,10 +332,12 @@ public class PdfExporter {
 
                 HrvSnapshotEntity snapshot = (d < dumpSnapshots.size()) ? dumpSnapshots.get(d) : null;
                 
-                // Чтение готовых метаданных напрямую из сущности БД без вычислений по модулю
-                int dumpIdx = (snapshot != null) ? snapshot.getDumpIndex() : (d + 1);
+                // Чтение новых глобальных и локальных индексов напрямую из сущности БД
+                int dumpIdx = (snapshot != null) ? snapshot.getGlobalUniqueIndex() : (d + 1);
                 boolean isPstiPhase = (snapshot != null) && snapshot.isPstiPhase();
                 int blockNumber = (snapshot != null) ? snapshot.getBlockNumber() : 1;
+                int trainingIdx = (snapshot != null) ? snapshot.getTrainingDumpIndex() : 0;
+                int testIdx = (snapshot != null) ? snapshot.getTestDumpIndex() : 0;
                 String phaseStr = isPstiPhase ? "Тест PSTI" : "Тренировка";
 
                 long dumpEndTime = (snapshot != null) ? snapshot.getTimestamp() : endTime;
@@ -372,14 +373,14 @@ public class PdfExporter {
                     }
                 }
 
-                // Чистый заголовок без вывода технического маркера 999 для тестов PSTI
+                // Чистый заголовок с использованием локальных индексов тренировок и тестов PSTI
                 String headerTitle;
                 if (isPstiPhase) {
-                    headerTitle = String.format(Locale.US, "Дамп #%d | %s | Фаза: %s",
-                            dumpIdx, workoutMode, phaseStr);
+                    headerTitle = String.format(Locale.US, "Дамп #%d (Тест PSTI #%d) | %s | Фаза: %s",
+                            dumpIdx, testIdx, workoutMode, phaseStr);
                 } else {
-                    headerTitle = String.format(Locale.US, "Дамп #%d | Блок %d/%d | %s | Фаза: %s",
-                            dumpIdx, blockNumber, trainingTargetX, workoutMode, phaseStr);
+                    headerTitle = String.format(Locale.US, "Дамп #%d (Тренировка #%d) | Блок %d/%d | %s | Фаза: %s",
+                            dumpIdx, trainingIdx, blockNumber, trainingTargetX, workoutMode, phaseStr);
                 }
 
                 drawOxygenationChart(canvas2, dumpPoints, MARGIN, currentYCharts, PAGE_WIDTH - 2 * MARGIN, 45, Color.parseColor("#0284C7"), headerTitle + " — SpO2 (%)", dumpStartTime, dumpEndTime);
