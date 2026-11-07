@@ -65,7 +65,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private boolean isCalibrationCompleted = false;
     private int sessionDumpCount = 0;
-    private int globalDumpIndexCounter = 1;
+    private int lastGlobalUniqueIndex = 0;
+    private int testDumpCounter = 0;
     private long sessionStartTime = 0;
     private long postiStartTime = 0;
 
@@ -751,7 +752,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = true;
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
-        globalDumpIndexCounter = 1;
+        lastGlobalUniqueIndex = 0;
+        testDumpCounter = 0;
         completedCyclesInCurrentDump = 0;
         lastPstiScore = 0.0;
         lastPstiRmssdRatio = 0.0;
@@ -798,8 +800,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     int currentBlockNum = context != null ? context.getBlockNumber() : ((sessionDumpCount % totalBlocks) + 1);
                     String blockInfo = String.format(Locale.US, "Блок %d/%d", currentBlockNum, totalBlocks);
 
-                    // Получаем вычисленную фазу Майера для завершенного макро-дампа из QuantumContext
-                    if (context != null) {
+                    // Синхронизируем глобальный уникальный индекс из контекста сервиса
+                    if (context != {
+                        lastGlobalUniqueIndex = context.getGlobalUniqueIndex();
                         float macroPhase = context.getMacroPhase();
                         runOnUiThread(() -> updatePhimIndexDisplay(macroPhase));
                     }
@@ -812,7 +815,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     sessionDumpCount++;
                     completedCyclesInCurrentDump = 0;
 
-                    int currentDumpIndex = context != null ? context.getDumpIndex() : globalDumpIndexCounter++;
+                    int currentDumpIndex = lastGlobalUniqueIndex;
                     if (DEBUG) {
                         onLog(String.format(Locale.US, "[STATE_MACHINE] Дамп #%d завершен (Блок %d/%d)", currentDumpIndex, currentBlockNum, totalBlocks));
                     } else {
@@ -951,19 +954,25 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             HrvCalculator.Metrics postiMetrics = HrvCalculator.calculate(snapshotRr);
             if (postiMetrics != null && postiMetrics.isValid) {
                 float actualModulationSec = (isBound && hrvService != null) ? (hrvService.getModulationPeriodMs() / 1000.0f) : (fixedModulationPeriodMs / 1000.0f);
-                int currentDumpIndex = globalDumpIndexCounter++;
+                
+                int globalIdx = ++lastGlobalUniqueIndex;
+                int testIdx = ++testDumpCounter;
+                
                 SessionSnapshot postiSummarySnapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
                         postiMetrics,
                         actualModulationSec,
-                        true,
-                        true,
-                        currentDumpIndex
+                        true,  // isPstiPhase
+                        true,  // isDumpSnapshot
+                        globalIdx,
+                        0,     // trainingDumpIndex
+                        testIdx,
+                        1      // blockNumber
                 );
                 if (isBound && hrvService != null) {
                     hrvService.addSnapshot(postiSummarySnapshot);
                 }
-                onLog(String.format(Locale.US, "[Дамп #%d (PSTI) завершен]", currentDumpIndex));
+                onLog(String.format(Locale.US, "[Дамп #%d (Тест PSTI #%d) завершен]", globalIdx, testIdx));
             }
 
             HrvCalculator.PstiResult pstiResult = HrvCalculator.calculatePsti(baselineRr, snapshotRr);
@@ -1025,7 +1034,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isTrainingModeActive = false;
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
-        globalDumpIndexCounter = 1;
+        lastGlobalUniqueIndex = 0;
+        testDumpCounter = 0;
         completedCyclesInCurrentDump = 0;
         pstiHandler.removeCallbacks(pstiCountdownRunnable);
         
