@@ -47,15 +47,17 @@ public class HrvForegroundService extends Service {
     private int rsaCycleAccumulatedMs = 0;
     private static final int TARGET_CYCLE_MS = 10000;
 
-    // --- МАКРО-СЛОЙ И ЦИКЛИЧЕСКИЙ СЧЕТЧИК (300 RR) ---
+    // --- МАКРО-СЛОЙ И НЕЗАВИСИМЫЕ СЧЕТЧИКИ ИНДЕКСОВ ---
     private static final int TARGET_MACRO_RR_COUNT = 300;
     private final List<Integer> macroRrBuffer = Collections.synchronizedList(new ArrayList<>());
     private final List<Integer> macroHrWindow = Collections.synchronizedList(new ArrayList<>());
     
-    // Целевой параметр x (1, 2 или 3) и текущий счетчик выполненных тренировочных дампов
+    // Целевой параметр x (1, 2 или 3) и независимые счетчики сессии
     private int trainingTargetX = 1;
-    private int currentTrainingCount = 0;
-    private int globalDumpIndex = 1; // Сквозной индекс дампов начинается строго с 1
+    private int globalUniqueCounter = 0;
+    private int trainingDumpCounter = 0;
+    private int testDumpCounter = 0;
+    private int currentBlockNumber = 0;
 
     private boolean isRecording = false;
     private ServiceCallback callback;
@@ -73,21 +75,24 @@ public class HrvForegroundService extends Service {
     private long currentModulationPeriodMs = 10000;
 
     public static class QuantumContext {
-        private final int dumpIndex;
+        private final int globalUniqueIndex;
+        private final int trainingDumpIndex;
         private final int blockNumber;
         private final boolean isPstiPhase;
         private final int targetX;
         private final float macroPhase;
 
-        public QuantumContext(int dumpIndex, int blockNumber, boolean isPstiPhase, int targetX, float macroPhase) {
-            this.dumpIndex = dumpIndex;
+        public QuantumContext(int globalUniqueIndex, int trainingDumpIndex, int blockNumber, boolean isPstiPhase, int targetX, float macroPhase) {
+            this.globalUniqueIndex = globalUniqueIndex;
+            this.trainingDumpIndex = trainingDumpIndex;
             this.blockNumber = blockNumber;
             this.isPstiPhase = isPstiPhase;
             this.targetX = targetX;
             this.macroPhase = macroPhase;
         }
 
-        public int getDumpIndex() { return dumpIndex; }
+        public int getGlobalUniqueIndex() { return globalUniqueIndex; }
+        public int getTrainingDumpIndex() { return trainingDumpIndex; }
         public int getBlockNumber() { return blockNumber; }
         public boolean isPstiPhase() { return isPstiPhase; }
         public int getTargetX() { return targetX; }
@@ -294,8 +299,10 @@ public class HrvForegroundService extends Service {
         synchronized (macroRrBuffer) { macroRrBuffer.clear(); }
         synchronized (macroHrWindow) { macroHrWindow.clear(); }
         
-        currentTrainingCount = 0;
-        globalDumpIndex = 1;
+        globalUniqueCounter = 0;
+        trainingDumpCounter = 0;
+        testDumpCounter = 0;
+        currentBlockNumber = 0;
 
         rsaCycleAccumulatedMs = 0;
         isPostiTraceActive = false;
@@ -445,27 +452,29 @@ public class HrvForegroundService extends Service {
         try {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(dumpData);
             if (metrics != null && metrics.isValid) {
-                int currentDumpIndex = globalDumpIndex++;
-                
-                currentTrainingCount++;
-                boolean isCycleComplete = (currentTrainingCount >= trainingTargetX);
-                int currentBlockNum = currentTrainingCount;
+                globalUniqueCounter++;
+                trainingDumpCounter++;
+                currentBlockNumber++;
+
+                boolean isCycleComplete = (currentBlockNumber >= trainingTargetX);
 
                 // Вычисляем фазу Майера по завершенному макро-дампу (300 RR)
                 float macroPhase = MayerWaveAnalyzer.calculateInitialPhase(dumpData, currentModulationPeriodMs);
 
-                QuantumContext quantum = new QuantumContext(currentDumpIndex, currentBlockNum, isCycleComplete, trainingTargetX, macroPhase);
+                QuantumContext quantum = new QuantumContext(globalUniqueCounter, trainingDumpCounter, currentBlockNumber, isCycleComplete, trainingTargetX, macroPhase);
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
 
-                // Создаем макро-дамп с передачей blockNumber
+                // Создаем макро-дамп с использованием нового строгого конструктора
                 SessionSnapshot dumpSnapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
                         metrics,
                         currentModulationSec,
-                        false,
-                        true,
-                        currentDumpIndex,
-                        currentBlockNum
+                        false, // isPstiPhase
+                        true,  // isDumpSnapshot
+                        globalUniqueCounter,
+                        trainingDumpCounter,
+                        0,     // testDumpIndex
+                        currentBlockNumber
                 );
 
                 synchronized (snapshotBuffer) {
@@ -473,8 +482,8 @@ public class HrvForegroundService extends Service {
                 }
 
                 if (DEBUG) {
-                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп #%d | Блок %d/%d | Переход к PSTI: %b | RMSSD: %.1f ms | Фаза Майера: %.2f",
-                            currentDumpIndex, currentBlockNum, trainingTargetX, isCycleComplete, metrics.rmssd, macroPhase));
+                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Global #%d, Training #%d) | Блок %d/%d | Переход к PSTI: %b | RMSSD: %.1f ms | Фаза Майера: %.2f",
+                            globalUniqueCounter, trainingDumpCounter, currentBlockNumber, trainingTargetX, isCycleComplete, metrics.rmssd, macroPhase));
                 }
 
                 if (callback != null) {
@@ -482,7 +491,7 @@ public class HrvForegroundService extends Service {
                 }
 
                 if (isCycleComplete) {
-                    currentTrainingCount = 0;
+                    currentBlockNumber = 0;
                 }
             }
         } catch (Exception e) {
@@ -507,16 +516,19 @@ public class HrvForegroundService extends Service {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(windowData);
             if (metrics != null && metrics.isValid) {
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
-                // Для фоновых микро-срезов передаем текущий blockNumber (currentTrainingCount > 0 ? currentTrainingCount : 1)
-                int currentBlockNum = Math.max(1, currentTrainingCount);
+                int activeBlockNum = Math.max(1, currentBlockNumber);
+
+                // Для микро-срезов сквозные индексы равны 0, а blockNumber отражает текущую фазу
                 SessionSnapshot snapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
                         metrics,
                         currentModulationSec,
                         isPostiTraceActive,
-                        false,
-                        0,
-                        currentBlockNum
+                        false, // isDumpSnapshot
+                        0,     // globalUniqueIndex
+                        0,     // trainingDumpIndex
+                        0,     // testDumpIndex
+                        activeBlockNum
                 );
                 synchronized (snapshotBuffer) {
                     snapshotBuffer.add(snapshot);
