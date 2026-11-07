@@ -27,7 +27,9 @@ data class HrvSnapshotEntity(
     val artifactPct: Double,
     val isPstiPhase: Boolean = false,
     val isDumpSnapshot: Boolean = false,
-    val dumpIndex: Int = 0,
+    val globalUniqueIndex: Int = 0,
+    val trainingDumpIndex: Int = 0,
+    val testDumpIndex: Int = 0,
     val blockNumber: Int = 1 // Порядковый номер блока внутри цикла тренировки
 ) {
     constructor(
@@ -36,7 +38,9 @@ data class HrvSnapshotEntity(
         modulationSec: Float,
         isPstiPhase: Boolean,
         isDumpSnapshot: Boolean,
-        dumpIndex: Int,
+        globalUniqueIndex: Int,
+        trainingDumpIndex: Int,
+        testDumpIndex: Int,
         blockNumber: Int
     ) : this(
         timestamp = timestamp,
@@ -58,7 +62,9 @@ data class HrvSnapshotEntity(
         artifactPct = m.artifactPct,
         isPstiPhase = isPstiPhase,
         isDumpSnapshot = isDumpSnapshot,
-        dumpIndex = dumpIndex,
+        globalUniqueIndex = globalUniqueIndex,
+        trainingDumpIndex = trainingDumpIndex,
+        testDumpIndex = testDumpIndex,
         blockNumber = blockNumber
     )
 }
