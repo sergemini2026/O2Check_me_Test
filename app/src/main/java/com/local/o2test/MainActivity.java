@@ -972,7 +972,29 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 if (isBound && hrvService != null) {
                     hrvService.addSnapshot(postiSummarySnapshot);
                 }
+
+                // === ВОССТАНОВЛЕННЫЙ ПОЛНЫЙ ЛОГ И ОБНОВЛЕНИЕ UI ДЛЯ ТЕСТА PSTI ===
+                String logMsg = String.format(Locale.US,
+                        "[Дамп ГОТОВ 100%%] Тест PSTI #%d | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %s | TP: %.0f ms²",
+                        testIdx, postiMetrics.rmssd, postiMetrics.pnn50, currentLfHfDisplayStr, postiMetrics.totalPower);
+                onLog(logMsg);
+                
                 onLog(String.format(Locale.US, "[Дамп #%d (Тест PSTI #%d) завершен]", globalIdx, testIdx));
+
+                String rmssdStr = String.format(Locale.US, "%.1f ms", postiMetrics.rmssd);
+                String pnn50Str = String.format(Locale.US, "%.1f%%", postiMetrics.pnn50);
+                
+                double iaNorm = (postiMetrics.lfPower + postiMetrics.hfPower > 0) ? (2.0 * postiMetrics.lfPower / (postiMetrics.lfPower + postiMetrics.hfPower)) : 1.0;
+                double iaPct = Math.max(0.0, Math.min(100.0, (iaNorm - 1.0) * 100.0));
+                String iaStr = String.format(Locale.US, "%.0f", iaPct);
+                
+                String tpStr = String.format(Locale.US, "%.0f ms²", postiMetrics.totalPower);
+                final String finalLfHfStr = currentLfHfDisplayStr;
+
+                runOnUiThread(() -> {
+                    updateMetricsDisplay(rmssdStr, pnn50Str, finalLfHfStr, tpStr);
+                    updateAttractorIndexDisplay(iaStr);
+                });
             }
 
             HrvCalculator.PstiResult pstiResult = HrvCalculator.calculatePsti(baselineRr, snapshotRr);
