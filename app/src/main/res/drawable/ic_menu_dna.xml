@@ -4,42 +4,20 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Первая нить спирали -->
+    <!-- Связи молекулярной структуры -->
     <path
-        android:pathData="M 6,4 C 14,2 19,8 14,13 C 9,18 6,22 18,20"
+        android:pathData="M12,6 L12,13 M6,16 L12,13 M18,16 L12,13 M6,16 L18,16"
         android:strokeWidth="1.8"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round">
-        <aapt:attr name="android:strokeColor">
-            <gradient android:type="linear" android:startX="6" android:startY="4" android:endX="18" android:endY="20">
-                <item android:color="#E0E0E0" android:offset="0.0" />
-                <item android:color="#606060" android:offset="1.0" />
-            </gradient>
-        </aapt:attr>
-    </path>
-    <!-- Вторая нить спирали -->
-    <path
-        android:pathData="M 18,4 C 10,6 5,12 10,17 C 15,22 18,2 6,20"
-        android:strokeWidth="1.8"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round">
-        <aapt:attr name="android:strokeColor">
-            <gradient android:type="linear" android:startX="18" android:startY="4" android:endX="6" android:endY="20">
-                <item android:color="#E0E0E0" android:offset="0.0" />
-                <item android:color="#606060" android:offset="1.0" />
-            </gradient>
-        </aapt:attr>
-    </path>
-    <!-- Соединительные перемычки -->
-    <path
-        android:pathData="M 9,8 L 15,10 M 10,13 L 14,15 M 10,17 L 14,19"
-        android:strokeWidth="1.4"
         android:strokeLineCap="round">
         <aapt:attr name="android:strokeColor">
-            <gradient android:type="linear" android:startX="9" android:startY="8" android:endX="15" android:endY="19">
-                <item android:color="#D0D0D0" android:offset="0.0" />
-                <item android:color="#707070" android:offset="1.0" />
+            <gradient android:type="linear" android:startX="6" android:startY="6" android:endX="18" android:endY="16">
+                <item android:color="#E0E0E0" android:offset="0.0" />
+                <item android:color="#606060" android:offset="1.0" />
             </gradient>
         </aapt:attr>
     </path>
+    <!-- Узлы атомов -->
+    <path
+        android:pathData="M12,8 C10.9,8 10,7.1 10,6 C10,4.9 10.9,4 12,4 C13.1,4 14,4.9 14,6 C14,7.1 13.1,8 12,8 Z M6,18 C4.9,18 4,17.1 4,16 C4,14.9 4.9,14 6,14 C7.1,14 8,14.9 8,16 C8,17.1 7.1,18 6,18 Z M18,18 C16.9,18 16,17.1 16,16 C16,14.9 16.9,14 18,14 C19.1,14 20,14.9 20,16 C20,17.1 19.1,18 18,18 Z M12,15 C11.4,15 11,14.6 11,14 C11,13.4 11.4,13 12,13 C12.6,13 13,13.4 13,14 C13,14.6 12.6,15 12,15 Z"
+        android:fillColor="#B0B0B0" />
 </vector>
