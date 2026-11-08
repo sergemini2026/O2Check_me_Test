@@ -4,15 +4,31 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Силуэт человека в практике / медитации -->
+    <!-- Кнопка таймера сверху -->
     <path
-        android:pathData="M12,4C13.1,4 14,3.1 14,2C14,0.9 13.1,0 12,0C10.9,0 10,0.9 10,2C10,3.1 10.9,4 12,4ZM18.5,15C18,14.5 17.3,14 16.5,13.8L15,13C14.5,12.7 14,12.3 13.6,11.8C13.2,11.3 12.8,10.7 12.5,10C12.3,9.5 12.1,9 12,8.5C11.9,9 11.7,9.5 11.5,10C11.2,10.7 10.8,11.3 10.4,11.8C10,12.3 9.5,12.7 9,13L7.5,13.8C6.7,14 6,14.5 5.5,15C5.2,15.3 5,15.7 5,16.2C5,17.2 5.8,18 6.8,18H8.2C8.5,18 8.8,17.8 9,17.5C9.5,16.8 10.2,16.2 11,15.8V19.5C11,20.3 11.6,21 12.4,21H12.6C13.4,21 14,20.3 14,19.5V15.8C14.8,16.2 15.5,16.8 16,17.5C16.2,17.8 16.5,18 16.8,18H18.2C19.2,18 20,17.2 20,16.2C20,15.7 19.8,15.3 18.5,15Z"
-        android:strokeWidth="1.2"
+        android:pathData="M10,2 h4 v2 h-4 z"
+        android:fillColor="#C0C0C0" />
+    <!-- Корпус часов -->
+    <path
+        android:pathData="M12,5 C16.42,5 20,8.58 20,13 C20,17.42 16.42,21 12,21 C7.58,21 4,17.42 4,13 C4,8.58 7.58,5 12,5 Z"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient android:type="linear" android:startX="4" android:startY="5" android:endX="20" android:endY="21">
+                <item android:color="#E0E0E0" android:offset="0.0" />
+                <item android:color="#606060" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Стрелки -->
+    <path
+        android:pathData="M12,9 v4 l3,2"
+        android:strokeWidth="1.8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round">
         <aapt:attr name="android:strokeColor">
-            <gradient android:type="linear" android:startX="5" android:startY="0" android:endX="20" android:endY="21">
-                <item android:color="#E0E0E0" android:offset="0.0" />
+            <gradient android:type="linear" android:startX="12" android:startY="9" android:endX="15" android:endY="15">
+                <item android:color="#D0D0D0" android:offset="0.0" />
                 <item android:color="#606060" android:offset="1.0" />
             </gradient>
         </aapt:attr>
