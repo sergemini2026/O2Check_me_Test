@@ -10,7 +10,6 @@ import android.os.Looper;
 import android.text.Layout;
 import android.text.SpannableString;
 import android.text.style.AlignmentSpan;
-import android.util.TypedValue;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.widget.LinearLayout;
@@ -52,10 +51,14 @@ public class TrainingDialogHelper {
         void onItemClick(int position);
     }
 
+    private static void showCustomMenuDialog(Context context, String titleText, CharSequence[] items, int selectedIndex, OnItemClickCallback callback, String negativeButtonText, Runnable onNegative) {
+        showCustomMenuDialog(context, titleText, items, null, selectedIndex, callback, negativeButtonText, onNegative);
+    }
+
     /**
      * Универсальный метод построения кастомного диалогового окна на базе View с шириной 300 dp и отступом 36 dp
      */
-    private static void showCustomMenuDialog(Context context, String titleText, CharSequence[] items, int selectedIndex, OnItemClickCallback callback, String negativeButtonText, Runnable onNegative) {
+    private static void showCustomMenuDialog(Context context, String titleText, CharSequence[] items, int[] iconResIds, int selectedIndex, OnItemClickCallback callback, String negativeButtonText, Runnable onNegative) {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
 
         LinearLayout rootLayout = new LinearLayout(context);
@@ -83,6 +86,13 @@ public class TrainingDialogHelper {
             itemTv.setText(items[i]);
             itemTv.setTextSize(16);
             itemTv.setTextColor(Color.WHITE);
+
+            // Подключение векторной иконки с градиентом через Compound Drawables при наличии
+            if (iconResIds != null && i < iconResIds.length && iconResIds[i] != 0) {
+                itemTv.setCompoundDrawablesWithIntrinsicBounds(iconResIds[i], 0, 0, 0);
+                int drawablePad = (int) (12 * context.getResources().getDisplayMetrics().density);
+                itemTv.setCompoundDrawablePadding(drawablePad);
+            }
 
             // Фиксированный отступ слева 36 dp
             int indentPx = (int) (ITEM_LEFT_INDENT_DP * context.getResources().getDisplayMetrics().density);
@@ -143,11 +153,16 @@ public class TrainingDialogHelper {
         }
 
         CharSequence[] categories = {
-            "🧬    ИГГТ (рандомная)",
-            "🌬️    Пранаяма (тайминг)"
+            "ИГГТ (рандомная)",
+            "Пранаяма (тайминг)"
         };
 
-        showCustomMenuDialog(context, "Выбор тренировки", categories, -1, position -> {
+        int[] categoryIcons = {
+            R.drawable.ic_menu_dna,
+            R.drawable.ic_menu_wind
+        };
+
+        showCustomMenuDialog(context, "Выбор тренировки", categories, categoryIcons, -1, position -> {
             if (position == 0) {
                 showIgztSubMenu(context, callback);
             } else {
