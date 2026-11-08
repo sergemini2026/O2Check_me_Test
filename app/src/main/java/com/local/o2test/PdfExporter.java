@@ -410,7 +410,7 @@ public class PdfExporter {
             document.finishPage(page1);
 
             // ==========================================
-            // ОТДЕЛЬНАЯ СТРАНИЦА: Раздел 5 (Две скатертограммы Пуанкаре с заполненной высотой и центрированными заголовками)
+            // ОТДЕЛЬНАЯ СТРАНИЦА: Раздел 5 (Две скатертограммы Пуанкаре)
             // ==========================================
             PdfDocument.PageInfo pageInfoPoincare = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
             PdfDocument.Page pagePoincare = document.startPage(pageInfoPoincare);
@@ -466,7 +466,7 @@ public class PdfExporter {
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvasPoincare);
             canvasPoincare.restore();
 
-            document.finishPage(pageInfoPoincare);
+            document.finishPage(pagePoincare); // ИСПРАВЛЕНО: передан объект pagePoincare вместо pageInfoPoincare
 
             // ==========================================
             // ХРОНОЛОГИЧЕСКИЙ ЛОГ (Раздел 6): Двухуровневый формат
