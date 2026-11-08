@@ -1,0 +1,36 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Кнопка таймера сверху -->
+    <path
+        android:pathData="M10,2 h4 v2 h-4 z"
+        android:fillColor="#C0C0C0" />
+    <!-- Корпус часов -->
+    <path
+        android:pathData="M12,5 C16.42,5 20,8.58 20,13 C20,17.42 16.42,21 12,21 C7.58,21 4,17.42 4,13 C4,8.58 7.58,5 12,5 Z"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient android:type="linear" android:startX="4" android:startY="5" android:endX="20" android:endY="21">
+                <item android:color="#E0E0E0" android:offset="0.0" />
+                <item android:color="#606060" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Стрелки -->
+    <path
+        android:pathData="M12,9 v4 l3,2"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient android:type="linear" android:startX="12" android:startY="9" android:endX="15" android:endY="15">
+                <item android:color="#D0D0D0" android:offset="0.0" />
+                <item android:color="#606060" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>
