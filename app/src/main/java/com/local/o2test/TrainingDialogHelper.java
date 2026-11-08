@@ -141,8 +141,8 @@ public class TrainingDialogHelper {
         }
 
         CharSequence[] categories = {
-            "🧬      ИГГТ (рандомная)",
-            "🌬️      Пранаяма (тайминг)"
+            "🧬    ИГГТ (рандомная)",
+            "🌬️    Пранаяма (тайминг)"
         };
 
         showCustomMenuDialog(context, "Выбор тренировки", categories, -1, position -> {
