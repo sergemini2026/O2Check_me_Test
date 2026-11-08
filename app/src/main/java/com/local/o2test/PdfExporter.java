@@ -243,7 +243,7 @@ public class PdfExporter {
             }
 
             textPaint.setColor(Color.parseColor("#0F172A"));
-            textPaint.setTextSize(13f);
+            textPaint.setTextSize(11f);
             textPaint.setFakeBoldText(true);
             canvas1.drawText("3. Динамика индекса PSTI по сессиям", MARGIN, currentY, textPaint);
             currentY += 20;
@@ -309,7 +309,7 @@ public class PdfExporter {
             }
 
             textPaint.setColor(Color.parseColor("#0F172A"));
-            textPaint.setTextSize(13f);
+            textPaint.setTextSize(11f);
             textPaint.setFakeBoldText(true);
             canvas1.drawText("4. Динамика SpO2 и ЧСС по дампам сессии (макро-уровень)", MARGIN, currentY, textPaint);
             currentY += 15;
@@ -418,7 +418,7 @@ public class PdfExporter {
             canvasPoincare.drawColor(Color.WHITE);
 
             textPaint.setColor(Color.parseColor("#0F172A"));
-            textPaint.setTextSize(13f);
+            textPaint.setTextSize(11f);
             textPaint.setFakeBoldText(true);
             canvasPoincare.drawText("5. Скатертограмма Пуанкаре и анализ геометрии", MARGIN, 36, textPaint);
 
@@ -505,7 +505,7 @@ public class PdfExporter {
                 canvasN.drawColor(Color.WHITE);
 
                 textPaint.setColor(Color.parseColor("#0F172A"));
-                textPaint.setTextSize(13f);
+                textPaint.setTextSize(11f);
                 textPaint.setFakeBoldText(true);
                 canvasN.drawText("6. Хронологический лог сессии (Микро-срезы и макро-дампы)", MARGIN, 42, textPaint);
 
