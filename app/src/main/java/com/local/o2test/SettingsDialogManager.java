@@ -256,12 +256,12 @@ public class SettingsDialogManager {
         CharSequence[] backupOptions;
         if (hasBackup) {
             backupOptions = new CharSequence[]{
-                "Экспорт базы данных (Создать бэкап)",
-                "Импорт базы данных (Восстановить бэкап)"
+                "Экспорт базы данных (Создать)",
+                "Импорт базы данных (Восстановить)"
             };
         } else {
             backupOptions = new CharSequence[]{
-                "Экспорт базы данных (Создать бэкап)",
+                "Экспорт базы данных (Создать)",
                 "Импорт базы данных (Недоступно: нет файла)"
             };
         }
