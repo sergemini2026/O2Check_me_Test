@@ -23,6 +23,8 @@ import java.util.concurrent.ExecutorService;
 public class TrainingDialogHelper {
 
     private static final long CLICK_DELAY_MS = 500; // Задержка 0.5 сек для визуального отклика
+    private static final int DIALOG_WIDTH_DP = 300;
+    private static final int ITEM_LEFT_INDENT_DP = 36;
 
     public interface TrainingStartCallback {
         void onTrainingSelected(String trainingType, String modeName, int targetX, int[] pattern);
@@ -51,7 +53,7 @@ public class TrainingDialogHelper {
     }
 
     /**
-     * Универсальный метод построения кастомного диалогового окна на базе View с шириной 75% и отступом 1 см
+     * Универсальный метод построения кастомного диалогового окна на базе View с шириной 300 dp и отступом 36 dp
      */
     private static void showCustomMenuDialog(Context context, String titleText, CharSequence[] items, int selectedIndex, OnItemClickCallback callback, String negativeButtonText, Runnable onNegative) {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
@@ -82,8 +84,8 @@ public class TrainingDialogHelper {
             itemTv.setTextSize(16);
             itemTv.setTextColor(Color.WHITE);
 
-            // Точный перевод 1 см (10 мм) в пиксели для отступа слева
-            int indentPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_MM, 10, context.getResources().getDisplayMetrics());
+            // Фиксированный отступ слева 36 dp
+            int indentPx = (int) (ITEM_LEFT_INDENT_DP * context.getResources().getDisplayMetrics().density);
             int vertPad = (int) (14 * context.getResources().getDisplayMetrics().density);
             itemTv.setPadding(indentPx, vertPad, vertPad, vertPad);
 
@@ -128,7 +130,7 @@ public class TrainingDialogHelper {
         dialog.show();
         Window window = dialog.getWindow();
         if (window != null) {
-            int width = (int) (context.getResources().getDisplayMetrics().widthPixels * 0.75);
+            int width = (int) (DIALOG_WIDTH_DP * context.getResources().getDisplayMetrics().density);
             window.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
     }
