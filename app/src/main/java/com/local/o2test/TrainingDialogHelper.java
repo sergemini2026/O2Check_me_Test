@@ -23,7 +23,7 @@ import java.util.concurrent.ExecutorService;
 public class TrainingDialogHelper {
 
     private static final long CLICK_DELAY_MS = 500; // Задержка 0.5 сек для визуального отклика
-    private static final int DIALOG_WIDTH_DP = 300;
+    private static final int DIALOG_WIDTH_DP = 400;
     private static final int ITEM_LEFT_INDENT_DP = 36;
 
     public interface TrainingStartCallback {
