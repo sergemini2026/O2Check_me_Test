@@ -94,11 +94,30 @@ public class PdfExporter {
             }
         }
 
+        // Подготовка раздельных массивов RR-интервалов для двух скатертограмм
+        List<Integer> trainingRrList = new ArrayList<>();
+        if (trainingDataPoints != null) {
+            for (DataPoint dp : trainingDataPoints) {
+                if (dp.rrMs >= 300 && dp.rrMs <= 2500) {
+                    trainingRrList.add(dp.rrMs);
+                }
+            }
+        }
+
+        List<Integer> testRrList = new ArrayList<>();
+        if (testDataPoints != null) {
+            for (DataPoint dp : testDataPoints) {
+                if (dp.rrMs >= 300 && dp.rrMs <= 2500) {
+                    testRrList.add(dp.rrMs);
+                }
+            }
+        }
+
         try {
             int currentPageNumber = 1;
 
             // ==========================================
-            // СТРАНИЦА 1: Сводка, Заключение, Гистограмма RR, Пуанкаре
+            // СТРАНИЦА 1: Сводка, Заключение, Гистограмма RR
             // ==========================================
             PdfDocument.PageInfo pageInfo1 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
             PdfDocument.Page page1 = document.startPage(pageInfo1);
@@ -210,34 +229,10 @@ public class PdfExporter {
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
             canvas1.restore();
 
-            textPaint.setColor(Color.parseColor("#0F172A"));
-            textPaint.setTextSize(11f);
-            textPaint.setFakeBoldText(true);
-            canvas1.drawText("3. Скатертограмма Пуанкаре и анализ геометрии", MARGIN, 350, textPaint);
-
-            drawPoincarePlot(canvas1, rawRrList, MARGIN, 360, PAGE_WIDTH - 2 * MARGIN, 325);
-
-            textPaint.setTextSize(9.5f);
-            textPaint.setFakeBoldText(true);
-            textPaint.setColor(Color.parseColor("#0F172A"));
-            canvas1.drawText("Расшифровка показателей Пуанкаре:", MARGIN, 701, textPaint);
-
-            TextPaint poincareDescPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-            poincareDescPaint.setTextSize(8.0f);
-            poincareDescPaint.setColor(Color.parseColor("#334155"));
-
-            String singlePoincareDesc = "Каждый удар сердца сравнивается с предыдущим. Точки образуют «облако», показывающее общую стабильность ритма. Цветовой градиент отражает смену фаз от серовато-голубых точек в начале сеанса до насыщенных темно-синих во время активных фаз теста. SD1 (поперечная ось) отвечает за короткие интервалы и парасимпатический тонус, а SD2 (продольная ось) характеризует долгосрочные резервы и общую стабильность регуляции.";
-
-            canvas1.save();
-            canvas1.translate(MARGIN, 711);
-            StaticLayout.Builder.obtain(singlePoincareDesc, 0, singlePoincareDesc.length(), poincareDescPaint, PAGE_WIDTH - 2 * MARGIN)
-                    .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
-            canvas1.restore();
-
             document.finishPage(page1);
 
             // ==========================================
-            // СТРАНИЦА 2+: Динамика PSTI по сессиям (по 15 штук в строке)
+            // СТРАНИЦА 2+: Динамика PSTI по сессиям (Раздел 3) и Графики SpO2/ЧСС (Раздел 4)
             // ==========================================
             PdfDocument.PageInfo pageInfo2 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
             PdfDocument.Page page2 = document.startPage(pageInfo2);
@@ -245,9 +240,9 @@ public class PdfExporter {
             canvas2.drawColor(Color.WHITE);
 
             textPaint.setColor(Color.parseColor("#0F172A"));
-            textPaint.setTextSize(14f);
+            textPaint.setTextSize(13f);
             textPaint.setFakeBoldText(true);
-            canvas2.drawText("4. Динамика индекса PSTI по сессиям", MARGIN, 45, textPaint);
+            canvas2.drawText("3. Динамика индекса PSTI по сессиям", MARGIN, 45, textPaint);
 
             int startYPsti = 65;
             if (pstiHistory == null || pstiHistory.isEmpty()) {
@@ -255,6 +250,7 @@ public class PdfExporter {
                 textPaint.setFakeBoldText(false);
                 textPaint.setColor(Color.parseColor("#64748B"));
                 canvas2.drawText("Нет предшествующих сессий для отображения динамики PSTI.", MARGIN, startYPsti + 20, textPaint);
+                startYPsti += 40;
             } else {
                 int totalPsti = pstiHistory.size();
                 int itemsPerRow = 15;
@@ -281,7 +277,7 @@ public class PdfExporter {
             }
 
             // ==========================================
-            // МАКРО-УРОВЕНЬ ДЛЯ ГРАФИКОВ: СТРОГО ПО МАКРО-ДАМПАМ (isDumpSnapshot = true)
+            // МАКРО-УРОВЕНЬ ДЛЯ ГРАФИКОВ: СТРОГО ПО МАКРО-ДАМПАМ (isDumpSnapshot = true) [Раздел 4]
             // ==========================================
             List<HrvSnapshotEntity> dumpSnapshots = new ArrayList<>();
             if (snapshots != null) {
@@ -290,13 +286,8 @@ public class PdfExporter {
                         dumpSnapshots.add(s);
                     }
                 }
-                // Железобетонная и простая сортировка по глобальному сквозному индексу
                 Collections.sort(dumpSnapshots, Comparator
                         .comparingInt(HrvSnapshotEntity::getGlobalUniqueIndex));
-            }
-
-            if (DEBUG) {
-                Log.d(TAG, String.format(Locale.US, "[PDF_EXPORTER] Отфильтровано макро-дампов для графиков: %d", dumpSnapshots.size()));
             }
 
             int dumpTotal = dumpSnapshots.size();
@@ -317,7 +308,7 @@ public class PdfExporter {
             textPaint.setColor(Color.parseColor("#0F172A"));
             textPaint.setTextSize(13f);
             textPaint.setFakeBoldText(true);
-            canvas2.drawText("5. Динамика SpO2 и ЧСС по дампам сессии (макро-уровень)", MARGIN, currentYCharts, textPaint);
+            canvas2.drawText("4. Динамика SpO2 и ЧСС по дампам сессии (макро-уровень)", MARGIN, currentYCharts, textPaint);
             currentYCharts += 15;
 
             for (int d = 0; d < dumpTotal; d++) {
@@ -332,7 +323,6 @@ public class PdfExporter {
 
                 HrvSnapshotEntity snapshot = (d < dumpSnapshots.size()) ? dumpSnapshots.get(d) : null;
                 
-                // Чтение новых глобальных и локальных индексов напрямую из сущности БД
                 int dumpIdx = (snapshot != null) ? snapshot.getGlobalUniqueIndex() : (d + 1);
                 boolean isPstiPhase = (snapshot != null) && snapshot.isPstiPhase();
                 int blockNumber = (snapshot != null) ? snapshot.getBlockNumber() : 1;
@@ -352,7 +342,6 @@ public class PdfExporter {
                     dumpStartTime = startTime > 0 ? startTime : (dumpEndTime - 300000L);
                 }
 
-                // Раздельные контуры данных: для Тренировки используем trainingDataPoints, для Теста PSTI — testDataPoints
                 List<DataPoint> activeSourcePoints = isPstiPhase ? testDataPoints : trainingDataPoints;
                 List<DataPoint> dumpPoints = new ArrayList<>();
                 if (activeSourcePoints != null) {
@@ -373,7 +362,6 @@ public class PdfExporter {
                     }
                 }
 
-                // Чистый заголовок с использованием локальных индексов тренировок и тестов PSTI
                 String headerTitle;
                 if (isPstiPhase) {
                     headerTitle = String.format(Locale.US, "Дамп #%d (Тест PSTI #%d) | %s | Фаза: %s",
@@ -419,26 +407,68 @@ public class PdfExporter {
             document.finishPage(page2);
 
             // ==========================================
+            // ОТДЕЛЬНАЯ СТРАНИЦА: Раздел 5 (Две скатертограммы Пуанкаре)
+            // ==========================================
+            PdfDocument.PageInfo pageInfoPoincare = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
+            PdfDocument.Page pagePoincare = document.startPage(pageInfoPoincare);
+            Canvas canvasPoincare = pagePoincare.getCanvas();
+            canvasPoincare.drawColor(Color.WHITE);
+
+            textPaint.setColor(Color.parseColor("#0F172A"));
+            textPaint.setTextSize(13f);
+            textPaint.setFakeBoldText(true);
+            canvasPoincare.drawText("5. Скатертограмма Пуанкаре и анализ геометрии", MARGIN, 36, textPaint);
+
+            // Подзаголовок 1
+            textPaint.setTextSize(10f);
+            textPaint.setFakeBoldText(true);
+            textPaint.setColor(Color.parseColor("#0F172A"));
+            canvasPoincare.drawText("Тренировка", MARGIN, 55, textPaint);
+
+            // Первый график (Тренировка)
+            drawPoincarePlot(canvasPoincare, trainingRrList, MARGIN, 62, PAGE_WIDTH - 2 * MARGIN, 270);
+
+            // Подзаголовок 2
+            canvasPoincare.drawText("Тест PSTI", MARGIN, 350, textPaint);
+
+            // Второй график (Тест PSTI)
+            drawPoincarePlot(canvasPoincare, testRrList, MARGIN, 357, PAGE_WIDTH - 2 * MARGIN, 270);
+
+            // Текстовая расшифровка в нижней части листа
+            textPaint.setTextSize(9.5f);
+            textPaint.setFakeBoldText(true);
+            canvasPoincare.drawText("Расшифровка показателей Пуанкаре:", MARGIN, 646, textPaint);
+
+            TextPaint poincareDescPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+            poincareDescPaint.setTextSize(8.0f);
+            poincareDescPaint.setColor(Color.parseColor("#334155"));
+
+            String singlePoincareDesc = "Каждый удар сердца сравнивается с предыдущим. Точки образуют «облако», показывающее общую стабильность ритма. Цветовой градиент отражает смену фаз от серовато-голубых точек в начале сеанса до насыщенных темно-синих во время активных фаз теста. SD1 (поперечная ось) отвечает за короткие интервалы и парасимпатический тонус, а SD2 (продольная ось) характеризует долгосрочные резервы и общую стабильность регуляции.";
+
+            canvasPoincare.save();
+            canvasPoincare.translate(MARGIN, 656);
+            StaticLayout.Builder.obtain(singlePoincareDesc, 0, singlePoincareDesc.length(), poincareDescPaint, PAGE_WIDTH - 2 * MARGIN)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvasPoincare);
+            canvasPoincare.restore();
+
+            document.finishPage(pagePoincare);
+
+            // ==========================================
             // ХРОНОЛОГИЧЕСКИЙ ЛОГ (Раздел 6): Двухуровневый формат
-            // - Тренировка: микро-срезы (скользящие окна по 50 интервалов)
-            // - Тест PSTI: обобщенная строка макро-дампа теста
             // ==========================================
             List<HrvSnapshotEntity> logSnapshots = new ArrayList<>();
             if (snapshots != null) {
                 for (HrvSnapshotEntity s : snapshots) {
                     if (!s.isPstiPhase()) {
-                        // Для тренировки берем оперативные микро-срезы
                         if (!s.isDumpSnapshot()) {
                             logSnapshots.add(s);
                         }
                     } else {
-                        // Для теста PSTI берем только итоговые макро-дампы (обобщенный срез)
                         if (s.isDumpSnapshot()) {
                             logSnapshots.add(s);
                         }
                     }
                 }
-                // Фоллбэк: если микро-снимков не оказалось, берем все доступные по фазам
                 if (logSnapshots.isEmpty()) {
                     for (HrvSnapshotEntity s : snapshots) {
                         if (!s.isPstiPhase() || s.isDumpSnapshot()) {
