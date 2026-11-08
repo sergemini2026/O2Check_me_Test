@@ -147,9 +147,9 @@ public class SettingsDialogManager {
      */
     public static void showSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
         CharSequence[] menuItems = {
-            "🎧      Аудио",
-            "📹      Видео",
-            "💾      Резервирование"
+            "🎧    Аудио",
+            "📹    Видео",
+            "💾    Резервирование"
         };
 
         showCustomMenuDialog(context, "Настройки системы", menuItems, -1, position -> {
