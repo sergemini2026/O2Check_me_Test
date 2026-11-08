@@ -19,7 +19,7 @@ jobs:
 
       - name: Download and Setup Gradle 8.4
         run: |
-          wget https://github.com/gradle/gradle/releases/download/v8.4/gradle-8.4-bin.zip -O gradle.zip
+          wget https://services.gradle.org/distributions/gradle-8.4-bin.zip -O gradle.zip
           unzip -q gradle.zip
           echo "$PWD/gradle-8.4/bin" >> $GITHUB_PATH
 
