@@ -157,10 +157,14 @@ public class TrainingDialogHelper {
             "Пранаяма (тайминг)"
         };
 
+        
         int[] categoryIcons = {
-            R.drawable.ic_menu_dna,
-            R.drawable.ic_menu_wind
+            R.drawable.ic_menu_waves,
+            R.drawable.ic_menu_timer
         };
+
+          
+      
 
         showCustomMenuDialog(context, "Выбор тренировки", categories, categoryIcons, -1, position -> {
             if (position == 0) {
