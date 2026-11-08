@@ -13,10 +13,12 @@ import android.text.Layout;
 import android.text.SpannableString;
 import android.text.style.AlignmentSpan;
 import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
-import android.widget.ArrayAdapter;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -43,18 +45,6 @@ public class SettingsDialogManager {
     }
 
     /**
-     * Установка ширины диалогового окна равной 75% от ширины экрана (уменьшение на 1/4)
-     */
-    private static void setDialogWidth75(AlertDialog dialog, Context context) {
-        dialog.show();
-        Window window = dialog.getWindow();
-        if (window != null) {
-            int width = (int) (context.getResources().getDisplayMetrics().widthPixels * 0.75);
-            window.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
-        }
-    }
-
-    /**
      * Создает Selector с визуальной подсветкой выбранной строки при касании
      */
     private static StateListDrawable createRowSelector() {
@@ -65,38 +55,90 @@ public class SettingsDialogManager {
         return drawable;
     }
 
-    /**
-     * Кастомный адаптер списков с подсветкой и отступом ровно 1 см слева
-     */
-    private static class HighlightArrayAdapter extends ArrayAdapter<CharSequence> {
-        private final int selectedIndex;
-        private final Context context;
+    private interface OnItemClickCallback {
+        void onItemClick(int position);
+    }
 
-        public HighlightArrayAdapter(Context context, CharSequence[] items, int selectedIndex) {
-            super(context, android.R.layout.select_dialog_item, items);
-            this.context = context;
-            this.selectedIndex = selectedIndex;
+    /**
+     * Универсальный метод построения кастомного диалогового окна на базе View с шириной 75% и отступом 1 см
+     */
+    private static void showCustomMenuDialog(Context context, String titleText, CharSequence[] items, int selectedIndex, OnItemClickCallback callback, String negativeButtonText, Runnable onNegative) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(context);
+
+        LinearLayout rootLayout = new LinearLayout(context);
+        rootLayout.setOrientation(LinearLayout.VERTICAL);
+
+        // Заголовок диалога
+        TextView titleView = new TextView(context);
+        titleView.setText(getCenteredTitle(titleText));
+        titleView.setTextSize(18);
+        titleView.setTextColor(Color.WHITE);
+        int pad20 = (int) (20 * context.getResources().getDisplayMetrics().density);
+        titleView.setPadding(pad20, pad20, pad20, (int) (12 * context.getResources().getDisplayMetrics().density));
+        rootLayout.addView(titleView);
+
+        // Контейнер элементов списка с прокруткой
+        ScrollView scrollView = new ScrollView(context);
+        LinearLayout itemsContainer = new LinearLayout(context);
+        itemsContainer.setOrientation(LinearLayout.VERTICAL);
+
+        final AlertDialog[] dialogHolder = new AlertDialog[1];
+
+        for (int i = 0; i < items.length; i++) {
+            final int pos = i;
+            TextView itemTv = new TextView(context);
+            itemTv.setText(items[i]);
+            itemTv.setTextSize(16);
+            itemTv.setTextColor(Color.WHITE);
+
+            // Точный перевод 1 см (10 мм) в пиксели для отступа слева
+            int indentPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_MM, 10, context.getResources().getDisplayMetrics());
+            int vertPad = (int) (14 * context.getResources().getDisplayMetrics().density);
+            itemTv.setPadding(indentPx, vertPad, vertPad, vertPad);
+
+            if (pos == selectedIndex) {
+                itemTv.setBackgroundColor(0x2500F2FE); // Подсветка выбранного пункта
+            } else {
+                itemTv.setBackground(createRowSelector());
+            }
+
+            itemTv.setOnClickListener(v -> {
+                v.setPressed(true);
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    if (dialogHolder[0] != null) {
+                        dialogHolder[0].dismiss();
+                    }
+                    if (callback != null) {
+                        callback.onItemClick(pos);
+                    }
+                }, CLICK_DELAY_MS);
+            });
+
+            itemsContainer.addView(itemTv);
         }
 
-        @Override
-        public View getView(int position, View convertView, ViewGroup parent) {
-            View view = super.getView(position, convertView, parent);
-            
-            if (position == selectedIndex) {
-                view.setBackgroundColor(0x2500F2FE); // Легкая постоянная подсветка выбранного
-            } else {
-                view.setBackground(createRowSelector());
-            }
+        scrollView.addView(itemsContainer);
+        rootLayout.addView(scrollView, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
 
-            if (view instanceof TextView) {
-                TextView tv = (TextView) view;
-                tv.setTextColor(Color.WHITE);
-                tv.setTextSize(16);
-                // Точный перевод 1 см (10 мм) в пиксели для отступа слева
-                int indentPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_MM, 10, context.getResources().getDisplayMetrics());
-                tv.setPadding(indentPx, 28, 32, 28);
-            }
-            return view;
+        builder.setView(rootLayout);
+        if (negativeButtonText != null) {
+            builder.setNegativeButton(negativeButtonText, (d, w) -> {
+                if (onNegative != null) {
+                    onNegative.run();
+                } else {
+                    d.dismiss();
+                }
+            });
+        }
+
+        AlertDialog dialog = builder.create();
+        dialogHolder[0] = dialog;
+
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            int width = (int) (context.getResources().getDisplayMetrics().widthPixels * 0.75);
+            window.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
         }
     }
 
@@ -105,32 +147,20 @@ public class SettingsDialogManager {
      */
     public static void showSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
         CharSequence[] menuItems = {
-            "🎧 Аудио",
-            "📹 Видео",
-            "💾 Резервирование"
+            "🎧      Аудио",
+            "📹      Видео",
+            "💾      Резервирование"
         };
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        builder.setTitle(getCenteredTitle("Настройки системы"));
-
-        HighlightArrayAdapter adapter = new HighlightArrayAdapter(context, menuItems, -1);
-        AlertDialog dialog = builder.setAdapter(adapter, null).setNegativeButton("Закрыть", null).create();
-
-        dialog.getListView().setOnItemClickListener((parent, view, position, id) -> {
-            view.setPressed(true);
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                dialog.dismiss();
-                if (position == 0) {
-                    showAudioSettingsDialog(context, prefs, callback);
-                } else if (position == 1) {
-                    showVideoSettingsDialog(context, prefs, callback);
-                } else if (position == 2) {
-                    showBackupSettingsDialog(context, prefs, callback);
-                }
-            }, CLICK_DELAY_MS);
-        });
-
-        setDialogWidth75(dialog, context);
+        showCustomMenuDialog(context, "Настройки системы", menuItems, -1, position -> {
+            if (position == 0) {
+                showAudioSettingsDialog(context, prefs, callback);
+            } else if (position == 1) {
+                showVideoSettingsDialog(context, prefs, callback);
+            } else if (position == 2) {
+                showBackupSettingsDialog(context, prefs, callback);
+            }
+        }, "Закрыть", null);
     }
 
     /**
@@ -146,53 +176,40 @@ public class SettingsDialogManager {
 
         int currentAudioIndex = prefs.getInt("pref_audio_index", 0);
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        builder.setTitle(getCenteredTitle("Выбор аудио сопровождения"));
+        showCustomMenuDialog(context, "Выбор аудио сопровождения", audioOptions, currentAudioIndex, position -> {
+            int selectedResId = R.raw.o2test_01;
+            String trackName = "Спокойствие";
 
-        HighlightArrayAdapter adapter = new HighlightArrayAdapter(context, audioOptions, currentAudioIndex);
-        AlertDialog dialog = builder.setAdapter(adapter, null).create();
+            switch (position) {
+                case 0:
+                    selectedResId = R.raw.o2test_01;
+                    trackName = "Спокойствие";
+                    break;
+                case 1:
+                    selectedResId = R.raw.o2test_02;
+                    trackName = "Безмятежность";
+                    break;
+                case 2:
+                    selectedResId = R.raw.o2test_03;
+                    trackName = "Мечтательность";
+                    break;
+                case 3:
+                    selectedResId = R.raw.o2test_04;
+                    trackName = "Удовлетворение";
+                    break;
+            }
 
-        dialog.getListView().setOnItemClickListener((parent, view, position, id) -> {
-            view.setPressed(true);
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                dialog.dismiss();
+            prefs.edit().putInt("selected_audio_res", selectedResId)
+                        .putString("selected_audio_name", trackName)
+                        .putInt("pref_audio_index", position)
+                        .apply();
 
-                int selectedResId = R.raw.o2test_01;
-                String trackName = "Спокойствие";
-
-                switch (position) {
-                    case 0:
-                        selectedResId = R.raw.o2test_01;
-                        trackName = "Спокойствие";
-                        break;
-                    case 1:
-                        selectedResId = R.raw.o2test_02;
-                        trackName = "Безмятежность";
-                        break;
-                    case 2:
-                        selectedResId = R.raw.o2test_03;
-                        trackName = "Мечтательность";
-                        break;
-                    case 3:
-                        selectedResId = R.raw.o2test_04;
-                        trackName = "Удовлетворение";
-                        break;
-                }
-
-                prefs.edit().putInt("selected_audio_res", selectedResId)
-                            .putString("selected_audio_name", trackName)
-                            .putInt("pref_audio_index", position)
-                            .apply();
-
-                if (callback != null) {
-                    callback.onAudioResourceChanged(selectedResId, trackName);
-                    callback.onLog("[НАСТРОЙКИ] Выбрана аудиодорожка: " + trackName);
-                }
-                Toast.makeText(context, "Аудио: " + trackName, Toast.LENGTH_SHORT).show();
-            }, CLICK_DELAY_MS);
-        });
-
-        setDialogWidth75(dialog, context);
+            if (callback != null) {
+                callback.onAudioResourceChanged(selectedResId, trackName);
+                callback.onLog("[НАСТРОЙКИ] Выбрана аудиодорожка: " + trackName);
+            }
+            Toast.makeText(context, "Аудио: " + trackName, Toast.LENGTH_SHORT).show();
+        }, "Назад", () -> showSettingsDialog(context, prefs, callback));
     }
 
     /**
@@ -206,31 +223,18 @@ public class SettingsDialogManager {
 
         int currentVideoIndex = prefs.getInt("pref_video_index", 0);
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        builder.setTitle(getCenteredTitle("Режим визуализации"));
+        showCustomMenuDialog(context, "Режим визуализации", videoModes, currentVideoIndex, position -> {
+            String modeStr = (position == 0) ? "single" : "broadcast";
+            prefs.edit().putString("video_render_mode", modeStr)
+                        .putInt("pref_video_index", position)
+                        .apply();
+            String label = (position == 0) ? "Одиночный" : "Трансляция";
 
-        HighlightArrayAdapter adapter = new HighlightArrayAdapter(context, videoModes, currentVideoIndex);
-        AlertDialog dialog = builder.setAdapter(adapter, null).create();
-
-        dialog.getListView().setOnItemClickListener((parent, view, position, id) -> {
-            view.setPressed(true);
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                dialog.dismiss();
-
-                String modeStr = (position == 0) ? "single" : "broadcast";
-                prefs.edit().putString("video_render_mode", modeStr)
-                            .putInt("pref_video_index", position)
-                            .apply();
-                String label = (position == 0) ? "Одиночный" : "Трансляция";
-
-                if (callback != null) {
-                    callback.onLog("[НАСТРОЙКИ] Режим видео изменен на: " + label);
-                }
-                Toast.makeText(context, "Режим видео: " + label, Toast.LENGTH_SHORT).show();
-            }, CLICK_DELAY_MS);
-        });
-
-        setDialogWidth75(dialog, context);
+            if (callback != null) {
+                callback.onLog("[НАСТРОЙКИ] Режим видео изменен на: " + label);
+            }
+            Toast.makeText(context, "Режим видео: " + label, Toast.LENGTH_SHORT).show();
+        }, "Назад", () -> showSettingsDialog(context, prefs, callback));
     }
 
     /**
@@ -260,33 +264,20 @@ public class SettingsDialogManager {
             };
         }
 
-        AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        builder.setTitle(getCenteredTitle("Резервное копирование базы данных"));
-
-        HighlightArrayAdapter adapter = new HighlightArrayAdapter(context, backupOptions, -1);
-        AlertDialog dialog = builder.setAdapter(adapter, null).create();
-
-        dialog.getListView().setOnItemClickListener((parent, view, position, id) -> {
-            view.setPressed(true);
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                dialog.dismiss();
-
-                if (position == 0) {
-                    if (callback != null) {
-                        callback.onExportBackupRequested(backupFile);
-                    }
-                } else if (position == 1) {
-                    if (!hasBackup) {
-                        Toast.makeText(context, "Файл бэкапа не найден в папке O2Test!", Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    if (callback != null) {
-                        callback.onImportBackupRequested(backupFile);
-                    }
+        showCustomMenuDialog(context, "Резервное копирование базы данных", backupOptions, -1, position -> {
+            if (position == 0) {
+                if (callback != null) {
+                    callback.onExportBackupRequested(backupFile);
                 }
-            }, CLICK_DELAY_MS);
-        });
-
-        setDialogWidth75(dialog, context);
+            } else if (position == 1) {
+                if (!hasBackup) {
+                    Toast.makeText(context, "Файл бэкапа не найден в папке O2Test!", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                if (callback != null) {
+                    callback.onImportBackupRequested(backupFile);
+                }
+            }
+        }, "Назад", () -> showSettingsDialog(context, prefs, callback));
     }
 }
