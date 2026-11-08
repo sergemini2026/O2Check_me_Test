@@ -12,8 +12,10 @@ import android.os.Looper;
 import android.text.Layout;
 import android.text.SpannableString;
 import android.text.style.AlignmentSpan;
+import android.util.TypedValue;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
 import android.widget.ArrayAdapter;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -41,6 +43,18 @@ public class SettingsDialogManager {
     }
 
     /**
+     * Установка ширины диалогового окна равной 75% от ширины экрана (уменьшение на 1/4)
+     */
+    private static void setDialogWidth75(AlertDialog dialog, Context context) {
+        dialog.show();
+        Window window = dialog.getWindow();
+        if (window != null) {
+            int width = (int) (context.getResources().getDisplayMetrics().widthPixels * 0.75);
+            window.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+    }
+
+    /**
      * Создает Selector с визуальной подсветкой выбранной строки при касании
      */
     private static StateListDrawable createRowSelector() {
@@ -52,13 +66,15 @@ public class SettingsDialogManager {
     }
 
     /**
-     * Кастомный адаптер списков с подсветкой текущего активного пункта и отступом (~1 см слева)
+     * Кастомный адаптер списков с подсветкой и отступом ровно 1 см слева
      */
     private static class HighlightArrayAdapter extends ArrayAdapter<CharSequence> {
         private final int selectedIndex;
+        private final Context context;
 
         public HighlightArrayAdapter(Context context, CharSequence[] items, int selectedIndex) {
             super(context, android.R.layout.select_dialog_item, items);
+            this.context = context;
             this.selectedIndex = selectedIndex;
         }
 
@@ -76,7 +92,9 @@ public class SettingsDialogManager {
                 TextView tv = (TextView) view;
                 tv.setTextColor(Color.WHITE);
                 tv.setTextSize(16);
-                tv.setPadding(75, 28, 32, 28);
+                // Точный перевод 1 см (10 мм) в пиксели для отступа слева
+                int indentPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_MM, 10, context.getResources().getDisplayMetrics());
+                tv.setPadding(indentPx, 28, 32, 28);
             }
             return view;
         }
@@ -87,9 +105,9 @@ public class SettingsDialogManager {
      */
     public static void showSettingsDialog(Context context, SharedPreferences prefs, SettingsCallback callback) {
         CharSequence[] menuItems = {
-            "Аудио",
-            "Видео",
-            "Резервирование"
+            "🎧 Аудио",
+            "📹 Видео",
+            "💾 Резервирование"
         };
 
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
@@ -112,7 +130,7 @@ public class SettingsDialogManager {
             }, CLICK_DELAY_MS);
         });
 
-        dialog.show();
+        setDialogWidth75(dialog, context);
     }
 
     /**
@@ -174,7 +192,7 @@ public class SettingsDialogManager {
             }, CLICK_DELAY_MS);
         });
 
-        dialog.show();
+        setDialogWidth75(dialog, context);
     }
 
     /**
@@ -212,7 +230,7 @@ public class SettingsDialogManager {
             }, CLICK_DELAY_MS);
         });
 
-        dialog.show();
+        setDialogWidth75(dialog, context);
     }
 
     /**
@@ -269,6 +287,6 @@ public class SettingsDialogManager {
             }, CLICK_DELAY_MS);
         });
 
-        dialog.show();
+        setDialogWidth75(dialog, context);
     }
 }
