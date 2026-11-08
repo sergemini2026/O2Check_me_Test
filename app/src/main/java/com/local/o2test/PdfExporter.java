@@ -429,7 +429,7 @@ public class PdfExporter {
             textPaint.setTextSize(10f);
             textPaint.setFakeBoldText(true);
             textPaint.setColor(Color.parseColor("#0F172A"));
-            String titleTraining = \n"Тренировка";
+            String titleTraining = "\n Тренировка";
             float tw1 = textPaint.measureText(titleTraining);
             canvasPoincare.drawText(titleTraining, (PAGE_WIDTH - tw1) / 2f, currentPoincareY, textPaint);
             currentPoincareY += 8;
