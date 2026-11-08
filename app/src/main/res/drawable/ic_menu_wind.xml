@@ -4,29 +4,16 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Профиль головы, смотрящей вправо -->
+    <!-- Силуэт человека в практике / медитации -->
     <path
-        android:pathData="M 6,21 C 6,14 7,6 12,5 C 15,5 17,7 18,10 C 18,11 16,11 15,11 C 14,11 13,10.5 13,10 C 13,12 14,13 13,14 C 11,15 9,15 8,17 C 7,19 7,21 6,21 Z"
-        android:strokeWidth="1.8"
+        android:pathData="M12,4C13.1,4 14,3.1 14,2C14,0.9 13.1,0 12,0C10.9,0 10,0.9 10,2C10,3.1 10.9,4 12,4ZM18.5,15C18,14.5 17.3,14 16.5,13.8L15,13C14.5,12.7 14,12.3 13.6,11.8C13.2,11.3 12.8,10.7 12.5,10C12.3,9.5 12.1,9 12,8.5C11.9,9 11.7,9.5 11.5,10C11.2,10.7 10.8,11.3 10.4,11.8C10,12.3 9.5,12.7 9,13L7.5,13.8C6.7,14 6,14.5 5.5,15C5.2,15.3 5,15.7 5,16.2C5,17.2 5.8,18 6.8,18H8.2C8.5,18 8.8,17.8 9,17.5C9.5,16.8 10.2,16.2 11,15.8V19.5C11,20.3 11.6,21 12.4,21H12.6C13.4,21 14,20.3 14,19.5V15.8C14.8,16.2 15.5,16.8 16,17.5C16.2,17.8 16.5,18 16.8,18H18.2C19.2,18 20,17.2 20,16.2C20,15.7 19.8,15.3 18.5,15Z"
+        android:strokeWidth="1.2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round">
         <aapt:attr name="android:strokeColor">
-            <gradient android:type="linear" android:startX="6" android:startY="5" android:endX="18" android:endY="21">
+            <gradient android:type="linear" android:startX="5" android:startY="0" android:endX="20" android:endY="21">
                 <item android:color="#E0E0E0" android:offset="0.0" />
                 <item android:color="#606060" android:offset="1.0" />
-            </gradient>
-        </aapt:attr>
-    </path>
-    <!-- Облачко/поток воздуха с волнами внутри -->
-    <path
-        android:pathData="M 16,8 C 21,7 23,10 23,13 C 23,17 21,19 16,18 C 15,17 15,9 16,8 Z M 17,10 C 19,9 20,11 21,10 M 16,13 C 18,12 19,14 22,13 M 17,16 C 19,15 20,17 21,16"
-        android:strokeWidth="1.4"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round">
-        <aapt:attr name="android:strokeColor">
-            <gradient android:type="linear" android:startX="15" android:startY="7" android:endX="23" android:endY="19">
-                <item android:color="#D0D0D0" android:offset="0.0" />
-                <item android:color="#505050" android:offset="1.0" />
             </gradient>
         </aapt:attr>
     </path>
