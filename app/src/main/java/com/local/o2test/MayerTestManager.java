@@ -5,12 +5,11 @@ import android.content.Context;
 import android.text.SpannableString;
 import android.text.Layout;
 import android.text.style.AlignmentSpan;
-import android.widget.Button;
 
 public class MayerTestManager {
 
     private final Context context;
-    private final Button btnTest;
+    private final UiBuilder.TestButtonContainer btnTest;
     private final MayerTestListener listener;
 
     private boolean isAvailable = false;
@@ -21,7 +20,7 @@ public class MayerTestManager {
         void onLog(String message);
     }
 
-    public MayerTestManager(Context context, Button btnTest, MayerTestListener listener) {
+    public MayerTestManager(Context context, UiBuilder.TestButtonContainer btnTest, MayerTestListener listener) {
         this.context = context;
         this.btnTest = btnTest;
         this.listener = listener;
@@ -61,7 +60,7 @@ public class MayerTestManager {
 
         if (btnTest != null) {
             btnTest.setBackgroundResource(R.drawable.bg_test_button_pink_gradient);
-            // Блокируем кнопку на время активного теста, чтобы исключить повторные клики
+            // Блокируем контейнер на время активного теста, чтобы исключить повторные клики
             btnTest.setEnabled(false);
             btnTest.setAlpha(1.0f);
         }
