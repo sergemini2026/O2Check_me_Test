@@ -88,7 +88,7 @@ public class MayerTestManager {
             btnTest.setAlpha(isAvailable ? 1.0f : 0.5f);
         }
 
-        String logMsg = "[МАЙЕР ТЕСТ] Режим тестирования завершен. Возврат к штатной автоподстройке фазы.";
+        String logMsg = "[МАЙЕР ТЕСТ] Режим тестирования завершен. Возврат к автоподстройке фазы.";
         if (listener != null) {
             listener.onLog(logMsg);
             listener.onTestModeChanged(false);
