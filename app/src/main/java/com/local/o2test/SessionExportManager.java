@@ -44,9 +44,6 @@ public class SessionExportManager {
         return s;
     }
 
-    /**
-     * Безопасная инициализация папки O2Test без удаления пользовательских данных и профилей.
-     */
     public static void cleanLegacyO2TestDirectory(Context context) {
         try {
             File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
@@ -59,9 +56,6 @@ public class SessionExportManager {
         }
     }
 
-    /**
-     * Автоматическое сохранение сессии: последовательный раздельный экспорт CSV -> запись в БД -> генерация PDF
-     */
     public static void saveSessionAutomatically(final Context context, 
                                                 final SharedPreferences prefs,
                                                 final List<DataPoint> sessionData,
@@ -108,7 +102,6 @@ public class SessionExportManager {
         }
         final String customPath = profileDir.getAbsolutePath();
 
-        // 1. Сохранение тренировочного CSV
         CsvExporter.saveSessionToCsv(context, finalTrainingPoints, customPath, "_training", new CsvExporter.ExportCallback() {
             @Override
             public void onSuccess(final String trainingFilePath, String trainingFileName) {
@@ -116,7 +109,6 @@ public class SessionExportManager {
                     callback.onLog("Тренировочный CSV успешно сохранен: " + trainingFileName);
                 }
                 
-                // 2. Сохранение тестового CSV
                 CsvExporter.saveSessionToCsv(context, finalTestPoints, customPath, "_test", new CsvExporter.ExportCallback() {
                     @Override
                     public void onSuccess(String testFilePath, String testFileName) {
@@ -228,6 +220,7 @@ public class SessionExportManager {
                                 snapshot.getModulationSec(),
                                 snapshot.isPstiPhase(),
                                 snapshot.isDumpSnapshot(),
+                                snapshot.isMayerTestMode(),
                                 snapshot.getGlobalUniqueIndex(),
                                 snapshot.getTrainingDumpIndex(),
                                 snapshot.getTestDumpIndex(),
@@ -328,9 +321,6 @@ public class SessionExportManager {
         });
     }
 
-    /**
-     * Экспорт базы данных (создание бэкапа) с предварительной проверкой существующего файла и предупреждением.
-     */
     public static void exportDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
         Runnable exportRunnable = () -> {
             dbExecutor.execute(() -> {
@@ -418,9 +408,6 @@ public class SessionExportManager {
         }
     }
 
-    /**
-     * Импорт и восстановление базы через бэкап со сбросом синглтона Room и переносом WAL/SHM файлов.
-     */
     public static void importDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
         new AlertDialog.Builder(context)
             .setTitle(getCenteredTitle("⚠️ [ВНИМАНИЕ!]"))
