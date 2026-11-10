@@ -42,6 +42,7 @@ public class HrvForegroundService extends Service {
 
     private final List<Integer> slidingWindowList = Collections.synchronizedList(new ArrayList<>());
     private boolean isPostiTraceActive = false;
+    private boolean postiCompletionTriggered = false;
     private boolean isMayerTestMode = false;
 
     private final List<Integer> rsaCycleBuffer = Collections.synchronizedList(new ArrayList<>());
@@ -327,6 +328,7 @@ public class HrvForegroundService extends Service {
 
         rsaCycleAccumulatedMs = 0;
         isPostiTraceActive = false;
+        postiCompletionTriggered = false;
         counterSinceLastProcess = 0;
         isRecording = true;
         updateNotificationText("Идет запись сессии ВСР...");
@@ -335,6 +337,7 @@ public class HrvForegroundService extends Service {
     public void stopSessionRecording() {
         isRecording = false;
         isPostiTraceActive = false;
+        postiCompletionTriggered = false;
         isMayerTestMode = false;
         stopAudioAndClock();
         
@@ -361,12 +364,14 @@ public class HrvForegroundService extends Service {
         testSessionManager.resetSession();
         synchronized (testDataPoints) { testDataPoints.clear(); }
         isPostiTraceActive = true;
+        postiCompletionTriggered = false;
         stopAudioAndClock();
         updateNotificationText("Замер следовой когерентности (PSTI)...");
     }
 
     public void stopPostiRecording() {
         isPostiTraceActive = false;
+        postiCompletionTriggered = false;
         updateNotificationText("Замер PSTI завершен");
     }
 
@@ -406,6 +411,15 @@ public class HrvForegroundService extends Service {
     public void addRrInterval(int rrMs) {
         if (isPostiTraceActive) {
             testSessionManager.addRrInterval(rrMs);
+            
+            // Проверяем достижение целевого количества RR-интервалов (300) для PSTI
+            if (!postiCompletionTriggered && testSessionManager.getRawSessionData().size() >= TARGET_MACRO_RR_COUNT) {
+                postiCompletionTriggered = true;
+                if (callback != null) {
+                    // Вызываем существующий callback, который перехватывается в MainActivity для завершения PSTI
+                    callback.onMacroDumpCompleted(0, null, TARGET_MACRO_RR_COUNT, null);
+                }
+            }
             return;
         }
 
