@@ -1268,15 +1268,18 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                             phaseBuffer.add(rrMs);
                             int count = phaseBuffer.size();
 
-                            if (count < CALIBRATION_TARGET) {
+                   if (count < CALIBRATION_TARGET) {
                                 float percent = Math.min(100.0f, (count / (float) CALIBRATION_TARGET) * 100.0f);
                                 String statusText = String.format(Locale.US, "Идет сбор данных для фазовой автоподстройки: %.0f%%", percent);
-                                SimRunner.runOnMainThreadIfNeeded(() -> {
+                                runOnUiThread(() -> {
                                     if (ui.tvStatusValue != null) {
                                         ui.tvStatusValue.setText(statusText);
                                     }
                                 });
-                            } else {
+                            }
+
+                   
+                          else {
                                 isCalibrationCompleted = true;
                                 completedCyclesInCurrentDump = 0;
 
