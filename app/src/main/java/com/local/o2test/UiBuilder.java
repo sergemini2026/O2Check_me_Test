@@ -51,9 +51,10 @@ public class UiBuilder {
         public TrendChartView chartView;
         public TextView tvHrvMetrics;
         public TextView tvStatusValue;
-        public TextView tvPhimIndex;      // Индекс PhM над пейсером
-        public TextView tvAttractorIndex; // Индекс Аттрактора (IA) над пейсером
-        public Button btnTest;            // Кнопка ТЕСТ внутри пейсера (между 6 и 14)
+        public TextView tvPhimIndex;            // Индекс PhM над пейсером
+        public TextView tvMayerFrequencyIndex;  // Индекс FM над пейсером
+        public TextView tvAttractorIndex;       // Индекс Аттрактора (IA) над пейсером
+        public Button btnTest;                  // Кнопка ТЕСТ внутри пейсера
         public TextView tvLog;
         public ScrollView logScrollView;
         public ImageButton btnHeart;
@@ -208,7 +209,7 @@ public class UiBuilder {
         v.tvLog.setLayoutParams(tvLogParams);
         v.logScrollView.addView(v.tvLog);
 
-        // Заголовки над пейсером: PhM:[--]%  IA:[--]%
+        // Заголовки над пейсером: PhM:[--]%  FM:[--]  IA:[--]%
         LinearLayout pacerHeaderLayout = new LinearLayout(context);
         pacerHeaderLayout.setOrientation(LinearLayout.HORIZONTAL);
         pacerHeaderLayout.setGravity(Gravity.CENTER);
@@ -223,6 +224,12 @@ public class UiBuilder {
         v.tvPhimIndex.setTextSize(15);
         v.tvPhimIndex.setTextColor(0xFFFF6D00);
         pacerHeaderLayout.addView(v.tvPhimIndex);
+
+        v.tvMayerFrequencyIndex = new TextView(context);
+        v.tvMayerFrequencyIndex.setText("FM:[--]  ");
+        v.tvMayerFrequencyIndex.setTextSize(15);
+        v.tvMayerFrequencyIndex.setTextColor(0xFFFF6D00);
+        pacerHeaderLayout.addView(v.tvMayerFrequencyIndex);
 
         v.tvAttractorIndex = new TextView(context);
         v.tvAttractorIndex.setText("IA:[--]%");
@@ -298,7 +305,6 @@ public class UiBuilder {
 
         } else {
             // ВАРИАНТ 2: АЛЬБОМНАЯ ОРИЕНТАЦИЯ (соотношение 3:1)
-            // Левая колонка (вес 3.0f), содержащая topControlBlock и logScrollView друг под другом
             LinearLayout leftColumnLayout = new LinearLayout(context);
             leftColumnLayout.setOrientation(LinearLayout.VERTICAL);
             LinearLayout.LayoutParams leftColParams = new LinearLayout.LayoutParams(
@@ -313,7 +319,6 @@ public class UiBuilder {
             v.logScrollView.setLayoutParams(logParamsLandscape);
             leftColumnLayout.addView(v.logScrollView);
 
-            // Правая колонка (вес 1.0f), содержащая только модуль пейсера во всю высоту экрана
             LinearLayout.LayoutParams rightColParams = new LinearLayout.LayoutParams(
                     0, LinearLayout.LayoutParams.MATCH_PARENT, 1.0f);
             rightColParams.leftMargin = (int) (8 * dm.density);
