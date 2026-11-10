@@ -31,7 +31,7 @@ data class HrvSnapshotEntity(
     val globalUniqueIndex: Int = 0,
     val trainingDumpIndex: Int = 0,
     val testDumpIndex: Int = 0,
-    val blockNumber: Int = 1 // Порядковый номер блока внутри цикла тренировки
+    val blockNumber: Int = 1
 ) {
     constructor(
         timestamp: Long,
