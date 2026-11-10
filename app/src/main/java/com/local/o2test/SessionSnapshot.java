@@ -7,6 +7,7 @@ public class SessionSnapshot {
     private final float modulationSec;
     private final boolean isPstiPhase;
     private final boolean isDumpSnapshot;
+    private final boolean isMayerTestMode;
     private final int globalUniqueIndex;
     private final int trainingDumpIndex;
     private final int testDumpIndex;
@@ -18,6 +19,7 @@ public class SessionSnapshot {
             float modulationSec,
             boolean isPstiPhase,
             boolean isDumpSnapshot,
+            boolean isMayerTestMode,
             int globalUniqueIndex,
             int trainingDumpIndex,
             int testDumpIndex,
@@ -28,6 +30,7 @@ public class SessionSnapshot {
         this.modulationSec = modulationSec;
         this.isPstiPhase = isPstiPhase;
         this.isDumpSnapshot = isDumpSnapshot;
+        this.isMayerTestMode = isMayerTestMode;
         this.globalUniqueIndex = globalUniqueIndex;
         this.trainingDumpIndex = trainingDumpIndex;
         this.testDumpIndex = testDumpIndex;
@@ -67,6 +70,13 @@ public class SessionSnapshot {
      */
     public boolean isDumpSnapshot() {
         return isDumpSnapshot;
+    }
+
+    /**
+     * Признак работы в режиме тестирования частоты Майера (открытый контур / автоподстройка отключена)
+     */
+    public boolean isMayerTestMode() {
+        return isMayerTestMode;
     }
 
     /**
