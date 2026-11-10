@@ -42,6 +42,7 @@ public class HrvForegroundService extends Service {
 
     private final List<Integer> slidingWindowList = Collections.synchronizedList(new ArrayList<>());
     private boolean isPostiTraceActive = false;
+    private boolean isMayerTestMode = false;
 
     private final List<Integer> rsaCycleBuffer = Collections.synchronizedList(new ArrayList<>());
     private int rsaCycleAccumulatedMs = 0;
@@ -105,6 +106,7 @@ public class HrvForegroundService extends Service {
         void onConnectionStatusChanged(String deviceType, boolean isConnected);
         default void onPhaseCorrectionCalculated(float correctionDelta) {}
         default void onMacroDumpCompleted(int avgHr, HrvCalculator.Metrics hrv, int rrCount, QuantumContext context) {}
+        default void onMayerTestModeAutoReset() {}
     }
 
     public class LocalBinder extends Binder {
@@ -221,6 +223,17 @@ public class HrvForegroundService extends Service {
         }
     }
 
+    public void setMayerTestMode(boolean active) {
+        this.isMayerTestMode = active;
+        if (DEBUG) {
+            Log.d(TAG, "[MAYER_TEST] Режим тестирования частоты Майера в сервисе: " + active);
+        }
+    }
+
+    public boolean isMayerTestMode() {
+        return isMayerTestMode;
+    }
+
     public void setAudioResource(int resId) {
         this.currentAudioResId = resId;
         if (isRecording) {
@@ -272,6 +285,13 @@ public class HrvForegroundService extends Service {
     }
 
     public void adjustServicePhase(float targetPhase) {
+        // Если активен тест Майера (открытый контур), подавляем корректировки фазы
+        if (isMayerTestMode) {
+            if (DEBUG) {
+                Log.d(TAG, "[MAYER_TEST] Коррекция фазы заблокирована (открытый контур активен)");
+            }
+            return;
+        }
         if (serviceMasterClock != null) {
             serviceMasterClock.adjustPhase(targetPhase);
         }
@@ -303,6 +323,7 @@ public class HrvForegroundService extends Service {
         trainingDumpCounter = 0;
         testDumpCounter = 0;
         currentBlockNumber = 0;
+        isMayerTestMode = false;
 
         rsaCycleAccumulatedMs = 0;
         isPostiTraceActive = false;
@@ -314,6 +335,7 @@ public class HrvForegroundService extends Service {
     public void stopSessionRecording() {
         isRecording = false;
         isPostiTraceActive = false;
+        isMayerTestMode = false;
         stopAudioAndClock();
         
         synchronized (slidingWindowList) {
@@ -458,19 +480,23 @@ public class HrvForegroundService extends Service {
 
                 boolean isCycleComplete = (currentBlockNumber >= trainingTargetX);
 
+                // Фиксируем текущий статус флага для снимка и сбрасываем режим после завершения дампирования
+                boolean snapshotTestMode = isMayerTestMode;
+
                 // Вычисляем фазу Майера по завершенному макро-дампу (300 RR)
                 float macroPhase = MayerWaveAnalyzer.calculateInitialPhase(dumpData, currentModulationPeriodMs);
 
                 QuantumContext quantum = new QuantumContext(globalUniqueCounter, trainingDumpCounter, currentBlockNumber, isCycleComplete, trainingTargetX, macroPhase);
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
 
-                // Создаем макро-дамп с использованием нового строгого конструктора
+                // Создаем макро-дамп с использованием флага isMayerTestMode
                 SessionSnapshot dumpSnapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
                         metrics,
                         currentModulationSec,
                         false, // isPstiPhase
                         true,  // isDumpSnapshot
+                        snapshotTestMode,
                         globalUniqueCounter,
                         trainingDumpCounter,
                         0,     // testDumpIndex
@@ -482,12 +508,20 @@ public class HrvForegroundService extends Service {
                 }
 
                 if (DEBUG) {
-                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Global #%d, Training #%d) | Блок %d/%d | Переход к PSTI: %b | RMSSD: %.1f ms | Фаза Майера: %.2f",
-                            globalUniqueCounter, trainingDumpCounter, currentBlockNumber, trainingTargetX, isCycleComplete, metrics.rmssd, macroPhase));
+                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Global #%d, Training #%d) | Тест Майера: %b | Блок %d/%d | Переход к PSTI: %b | RMSSD: %.1f ms | Фаза Майера: %.2f",
+                            globalUniqueCounter, trainingDumpCounter, snapshotTestMode, currentBlockNumber, trainingTargetX, isCycleComplete, metrics.rmssd, macroPhase));
                 }
 
                 if (callback != null) {
                     callback.onMacroDumpCompleted(avgHr, metrics, TARGET_MACRO_RR_COUNT, quantum);
+                }
+
+                // Автосброс режима Майер-теста по завершении макро-дампа
+                if (snapshotTestMode) {
+                    isMayerTestMode = false;
+                    if (callback != null) {
+                        callback.onMayerTestModeAutoReset();
+                    }
                 }
 
                 if (isCycleComplete) {
@@ -500,6 +534,7 @@ public class HrvForegroundService extends Service {
     }
 
     private void evaluateCyclePhaseCorrection(List<Integer> cycleRrList) {
+        if (isMayerTestMode) return;
         if (cycleRrList == null || cycleRrList.size() < 5) return;
         try {
             float measuredPhase = MayerWaveAnalyzer.calculateInitialPhase(cycleRrList, currentModulationPeriodMs);
@@ -518,13 +553,13 @@ public class HrvForegroundService extends Service {
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
                 int activeBlockNum = Math.max(1, currentBlockNumber);
 
-                // Для микро-срезов сквозные индексы равны 0, а blockNumber отражает текущую фазу
                 SessionSnapshot snapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
                         metrics,
                         currentModulationSec,
                         isPostiTraceActive,
                         false, // isDumpSnapshot
+                        isMayerTestMode,
                         0,     // globalUniqueIndex
                         0,     // trainingDumpIndex
                         0,     // testDumpIndex
