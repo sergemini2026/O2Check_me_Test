@@ -15,6 +15,7 @@ import android.text.style.ForegroundColorSpan;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.FrameLayout;
@@ -45,6 +46,70 @@ public class UiBuilder {
         void onProfileSelected(ProfileEntity profile);
     }
 
+    /**
+     * Контейнер кнопки ТЕСТ с независимым управлением визуальными слоями и текстом в стеке (FrameLayout).
+     */
+    public static class TestButtonContainer extends FrameLayout {
+        private View bgGradient;
+        private View bgChevron;
+        private TextView tvLabel;
+
+        public TestButtonContainer(Context context) {
+            super(context);
+
+            // Слой 1: Кнопка с заливкой (розовый градиент)
+            bgGradient = new View(context);
+            bgGradient.setBackgroundResource(R.drawable.bg_test_button_pink_gradient);
+            addView(bgGradient, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+
+            // Слой 2: Кнопка без заливки (шеврон)
+            bgChevron = new View(context);
+            bgChevron.setBackgroundResource(R.drawable.bg_test_button_chevron);
+            addView(bgChevron, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+
+            // Слой 3: Текстовая метка «ТЕСТ» всегда на самом верху
+            tvLabel = new TextView(context);
+            tvLabel.setText("ТЕСТ");
+            tvLabel.setTextSize(11);
+            tvLabel.setTextColor(Color.WHITE);
+            tvLabel.setGravity(Gravity.CENTER);
+            
+            FrameLayout.LayoutParams textParams = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
+            addView(tvLabel, textParams);
+
+            // Инициализация по умолчанию: режим теста не активирован (шеврон сверху)
+            setTestActive(false);
+        }
+
+        public void setTestActive(boolean active) {
+            if (active) {
+                // Режим теста активирован: градиент поднимается поверх шеврона, текст поверх всего
+                bgChevron.bringToFront();
+                bgGradient.bringToFront();
+                tvLabel.bringToFront();
+            } else {
+                // Режим теста не активирован: шеврон поднимается поверх градиента, текст поверх всего
+                bgGradient.bringToFront();
+                bgChevron.bringToFront();
+                tvLabel.bringToFront();
+            }
+        }
+
+        @Override
+        public void setBackgroundResource(int resid) {
+            if (resid == R.drawable.bg_test_button_pink_gradient) {
+                setTestActive(true);
+            } else if (resid == R.drawable.bg_test_button_chevron) {
+                setTestActive(false);
+            } else {
+                super.setBackgroundResource(resid);
+            }
+        }
+    }
+
     public static class Views {
         public LinearLayout mainLayout;
         public TextView tvLiveMetrics;
@@ -54,7 +119,7 @@ public class UiBuilder {
         public TextView tvPhimIndex;            // Индекс PhM над пейсером
         public TextView tvMayerFrequencyIndex;  // Индекс FM над пейсером
         public TextView tvAttractorIndex;       // Индекс Аттрактора (IA) над пейсером
-        public Button btnTest;                  // Кнопка ТЕСТ внутри пейсера
+        public TestButtonContainer btnTest;     // Контейнер кнопки ТЕСТ внутри пейсера
         public TextView tvLog;
         public ScrollView logScrollView;
         public ImageButton btnHeart;
@@ -108,14 +173,14 @@ public class UiBuilder {
         btnBar.addView(v.btnExit);
         v.mainLayout.addView(btnBar);
 
-        // --- БЛОК ГРАФИКОВ (в альбомном режиме вес 1.0f = 50% высоты) ---
+        // --- БЛОК ГРАФИКОВ ---
         v.chartView = new TrendChartView(context);
         LinearLayout.LayoutParams chartParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, isLandscape ? 1.0f : 1.4f);
         v.chartView.setLayoutParams(chartParams);
         v.mainLayout.addView(v.chartView);
 
-        // --- ОБЩИЙ НИЖНИЙ КОНТЕЙНЕР (Адаптивный по ориентации) ---
+        // --- ОБЩИЙ НИЖНИЙ КОНТЕЙНЕР ---
         LinearLayout bottomRootLayout = new LinearLayout(context);
         bottomRootLayout.setOrientation(isLandscape ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
         LinearLayout.LayoutParams bottomRootParams = new LinearLayout.LayoutParams(
@@ -129,7 +194,7 @@ public class UiBuilder {
         topControlBlock.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
-        // БЛОК ВСР (с поддержкой LF/HF)
+        // БЛОК ВСР
         v.tvHrvMetrics = new TextView(context);
         v.tvHrvMetrics.setTextSize(16);
         v.tvHrvMetrics.setTextColor(Color.WHITE);
@@ -155,7 +220,7 @@ public class UiBuilder {
         v.tvStatusValue.setLayoutParams(statusParams);
         topControlBlock.addView(v.tvStatusValue);
 
-        // БЛОК УПРАВЛЕНИЯ МОНИТОРИНГОМ И ТРЕНИРОВКАМИ (4 КНОПКИ)
+        // БЛОК УПРАВЛЕНИЯ МОНИТОРИНГОМ И ТРЕНИРОВКАМИ
         LinearLayout actionPanel = new LinearLayout(context);
         actionPanel.setOrientation(LinearLayout.HORIZONTAL);
         actionPanel.setGravity(Gravity.CENTER_VERTICAL);
@@ -209,7 +274,7 @@ public class UiBuilder {
         v.tvLog.setLayoutParams(tvLogParams);
         v.logScrollView.addView(v.tvLog);
 
-        // Заголовки над пейсером: PhM:[--]%  FM:[--]  IA:[--]%
+        // Заголовки над пейсером
         LinearLayout pacerHeaderLayout = new LinearLayout(context);
         pacerHeaderLayout.setOrientation(LinearLayout.HORIZONTAL);
         pacerHeaderLayout.setGravity(Gravity.CENTER);
@@ -237,7 +302,7 @@ public class UiBuilder {
         v.tvAttractorIndex.setTextColor(0xFFFF6D00);
         pacerHeaderLayout.addView(v.tvAttractorIndex);
 
-        // Правая панель (обертка для центрирования пейсера и встроенной кнопки ТЕСТ)
+        // Правая панель
         v.rightPanel = new FrameLayout(context);
         LinearLayout.LayoutParams rightPanelParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
@@ -252,24 +317,15 @@ public class UiBuilder {
         v.pacerView.setLayoutParams(pacerParams);
         v.rightPanel.addView(v.pacerView);
 
-        v.btnTest = new Button(context);
-        v.btnTest.setText("ТЕСТ");
-        v.btnTest.setTextSize(11);
-        v.btnTest.setTextColor(Color.WHITE);
-        v.btnTest.setBackgroundResource(R.drawable.bg_test_button_chevron);
-        v.btnTest.setGravity(Gravity.CENTER);
-
-        // Адаптивный отступ текста внутри кнопки ТЕСТ в зависимости от ориентации
-        int textPaddingTopPx = (int) ((isLandscape ? 12 : 11) * dm.density);
-        v.btnTest.setPadding(0, textPaddingTopPx, 0, 0);
+        // Интеграция TestButtonContainer вместо обычной кнопки
+        v.btnTest = new TestButtonContainer(context);
 
         int btnWidthPx = (int) (64 * dm.density);
         int btnHeightPx = (int) (64 * dm.density);
         FrameLayout.LayoutParams testBtnParams = new FrameLayout.LayoutParams(btnWidthPx, btnHeightPx);
         testBtnParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-
-        // Адаптивный нижний отступ кнопки ТЕСТ в зависимости от ориентации
         testBtnParams.bottomMargin = (int) ((isLandscape ? 6 : 26) * dm.density);
+        
         v.btnTest.setLayoutParams(testBtnParams);
         v.rightPanel.addView(v.btnTest);
 
@@ -281,7 +337,6 @@ public class UiBuilder {
 
         // --- СБОРКА В ЗАВИСИМОСТИ ОТ ОРИЕНТАЦИИ ---
         if (!isLandscape) {
-            // ВАРИАНТ 1: КНИЖНАЯ ОРИЕНТАЦИЯ
             bottomRootLayout.addView(topControlBlock);
 
             LinearLayout bottomSplitLayout = new LinearLayout(context);
@@ -304,7 +359,6 @@ public class UiBuilder {
             bottomRootLayout.addView(bottomSplitLayout);
 
         } else {
-            // ВАРИАНТ 2: АЛЬБОМНАЯ ОРИЕНТАЦИЯ (соотношение 3:1)
             LinearLayout leftColumnLayout = new LinearLayout(context);
             leftColumnLayout.setOrientation(LinearLayout.VERTICAL);
             LinearLayout.LayoutParams leftColParams = new LinearLayout.LayoutParams(
@@ -333,9 +387,6 @@ public class UiBuilder {
         return v;
     }
 
-    /**
-     * Универсальный метод обновления строки параметров HRV с поддержкой LF/HF
-     */
     public static void updateHrvDisplay(TextView tvHrvMetrics, String profileName, String rmssd, String pnn50, String lfHfStr, String tp) {
         if (tvHrvMetrics != null) {
             String displayStr = String.format(Locale.US,
