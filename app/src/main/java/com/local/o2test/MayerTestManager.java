@@ -25,8 +25,6 @@ public class MayerTestManager {
         this.context = context;
         this.btnTest = btnTest;
         this.listener = listener;
-
-        // Изначально кнопка заблокирована до завершения калибровки
         applyInitialState();
     }
 
@@ -37,12 +35,9 @@ public class MayerTestManager {
         }
     }
 
-    /**
-     * Установка доступности кнопки после завершения калибровки (первые 100 RR-интервалов)
-     */
     public void setAvailable(boolean available) {
         this.isAvailable = available;
-        if (btnTest != null) {
+        if (btnTest != null && !isTestModeActive) {
             btnTest.setEnabled(available);
             btnTest.setAlpha(available ? 1.0f : 0.5f);
         }
@@ -57,44 +52,43 @@ public class MayerTestManager {
     }
 
     /**
-     * Обработка нажатия на кнопку «Тест»
+     * Обработка нажатия на кнопку «Тест» с защитой от повторных срабатываний
      */
     public void handleTestButtonClick() {
-        if (!isAvailable) return;
+        if (!isAvailable || isTestModeActive) return;
 
-        // Переходим в режим тестирования (открытый контур)
         isTestModeActive = true;
 
-        // Применяем визуальное оформление активного состояния (розовый градиент / индикация)
         if (btnTest != null) {
             btnTest.setBackgroundResource(R.drawable.bg_test_button_pink_gradient);
+            // Блокируем кнопку на время активного теста, чтобы исключить повторные клики
+            btnTest.setEnabled(false);
+            btnTest.setAlpha(1.0f);
         }
 
-        // Вывод сообщения в системный лог
         String logMsg = "[МАЙЕР ТЕСТ] Режим тестирования активирован: автоподстройка фазы отключена до конца текущего дампа.";
         if (listener != null) {
             listener.onLog(logMsg);
             listener.onTestModeChanged(true);
         }
 
-        // Показ модального предупреждения пользователю
         showTestAlert();
     }
 
     /**
-     * Автоматический сброс режима (по окончании макро-дампа или остановке сессии)
+     * Сброс режима и возврат кнопки в штатный вид
      */
     public void resetTestMode() {
         if (!isTestModeActive) return;
 
         isTestModeActive = false;
 
-        // Возвращаем кнопку в стандартный вид с шевроном
         if (btnTest != null) {
             btnTest.setBackgroundResource(R.drawable.bg_test_button_chevron);
+            btnTest.setEnabled(isAvailable);
+            btnTest.setAlpha(isAvailable ? 1.0f : 0.5f);
         }
 
-        // Логируем возврат в штатный режим
         String logMsg = "[МАЙЕР ТЕСТ] Режим тестирования завершен. Возврат к штатной автоподстройке фазы.";
         if (listener != null) {
             listener.onLog(logMsg);
