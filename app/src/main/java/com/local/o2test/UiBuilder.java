@@ -78,6 +78,9 @@ public class UiBuilder {
             
             FrameLayout.LayoutParams textParams = new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
+          // Добавляем отступ сверху 10 dp
+int topMarginPx = (int) (10 * context.getResources().getDisplayMetrics().density);
+textParams.topMargin = topMarginPx;
             addView(tvLabel, textParams);
 
             // Инициализация по умолчанию: режим теста не активирован (шеврон виден, градиент скрыт)
