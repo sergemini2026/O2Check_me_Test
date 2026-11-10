@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/tools"
     android:width="64dp"
     android:height="64dp"
     android:viewportWidth="64"
@@ -10,7 +11,7 @@
         android:strokeLineJoin="round"
         android:strokeLineCap="round"
         android:pathData="M 8,27.77 L 32,32 L 56,27.77 L 56,43.77 L 32,48 L 8,43.77 Z">
-        <aapt:attr name="android:fillColor" xmlns:aapt="http://schemas.android.com/tools">
+        <aapt:attr name="android:fillColor">
             <gradient
                 android:type="linear"
                 android:startX="8"
