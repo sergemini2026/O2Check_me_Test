@@ -47,7 +47,7 @@ public class UiBuilder {
     }
 
     /**
-     * Контейнер кнопки ТЕСТ с независимым управлением визуальными слоями и текстом в стеке (FrameLayout).
+     * Контейнер кнопки ТЕСТ с надежным управлением видимостью подложек (FrameLayout).
      */
     public static class TestButtonContainer extends FrameLayout {
         private View bgGradient;
@@ -69,7 +69,7 @@ public class UiBuilder {
             addView(bgChevron, new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
-            // Слой 3: Текстовая метка «ТЕСТ» всегда на самом верху
+            // Слой 3: Текстовая метка «ТЕСТ» всегда поверх подложек
             tvLabel = new TextView(context);
             tvLabel.setText("ТЕСТ");
             tvLabel.setTextSize(11);
@@ -80,22 +80,22 @@ public class UiBuilder {
                     FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
             addView(tvLabel, textParams);
 
-            // Инициализация по умолчанию: режим теста не активирован (шеврон сверху)
+            // Инициализация по умолчанию: режим теста не активирован (шеврон виден, градиент скрыт)
             setTestActive(false);
         }
 
         public void setTestActive(boolean active) {
             if (active) {
-                // Режим теста активирован: градиент поднимается поверх шеврона, текст поверх всего
-                bgChevron.bringToFront();
-                bgGradient.bringToFront();
-                tvLabel.bringToFront();
+                // Режим теста активирован: показываем градиент, скрываем шеврон
+                bgGradient.setVisibility(View.VISIBLE);
+                bgChevron.setVisibility(View.GONE);
             } else {
-                // Режим теста не активирован: шеврон поднимается поверх градиента, текст поверх всего
-                bgGradient.bringToFront();
-                bgChevron.bringToFront();
-                tvLabel.bringToFront();
+                // Режим теста не активирован: показываем шеврон, скрываем градиент
+                bgGradient.setVisibility(View.GONE);
+                bgChevron.setVisibility(View.VISIBLE);
             }
+            // Гарантируем, что текст всегда поверх активной подложки
+            tvLabel.bringToFront();
         }
 
         @Override
