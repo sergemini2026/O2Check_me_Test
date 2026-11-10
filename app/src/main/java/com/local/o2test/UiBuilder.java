@@ -65,7 +65,7 @@ public class UiBuilder {
 
             // Слой 2: Кнопка без заливки (шеврон)
             bgChevron = new View(context);
-            bgChevron.setBackgroundResource(R.drawable.bg_test_button_pink_gradient);
+            bgChevron.setBackgroundResource(R.drawable.bg_test_button_chevron);
             addView(bgChevron, new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
 
