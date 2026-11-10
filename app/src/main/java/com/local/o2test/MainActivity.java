@@ -46,7 +46,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private static final int PI_SMOOTHING_WINDOW = 5;
     private static final int CALIBRATION_TARGET = 100;
     private static final int TARGET_RR_PER_DUMP = 300;     
-    private static final int POSTI_WINDOW_SEC = 300;       
 
     private O2BleManager bleManager;
     private PolarH10Manager polarManager;
@@ -79,10 +78,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private final List<Integer> phaseBuffer = new ArrayList<>();
     private final Queue<Float> piWindow = new LinkedList<>();
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
-
-    private final Handler pstiHandler = new Handler(Looper.getMainLooper());
-    private Runnable pstiCountdownRunnable;
-    private int pstiRemainingSec = POSTI_WINDOW_SEC;
 
     private double lastPstiScore = 0.0;
     private double lastPstiRmssdRatio = 0.0;
@@ -616,10 +611,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     private void updateRightPanelStatus() {
-        updateRightPanelStatusWithCountdown(pstiRemainingSec);
-    }
-
-    private void updateRightPanelStatusWithCountdown(int seconds) {
         if (ui.tvStatusValue == null) return;
         boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
         
@@ -873,7 +864,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 @Override
                 public void onMacroDumpCompleted(int avgHr, HrvCalculator.Metrics hrv, int rrCount, HrvForegroundService.QuantumContext context) {
                     boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
-                    if (isPostiActive) return;
+                    
+                    if (isPostiActive) {
+                        // Событие завершения PSTI дампа (событийное завершение фазы без таймеров)
+                        evaluateAndFinishPostiTrace();
+                        return;
+                    }
 
                     int totalBlocks = trainingTargetX;
                     int currentBlockNum = context != null ? context.getBlockNumber() : ((sessionDumpCount % totalBlocks) + 1);
@@ -980,9 +976,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private void startPostiTraceWindow() {
         postiStartTime = System.currentTimeMillis();
-        pstiRemainingSec = POSTI_WINDOW_SEC;
         
         stopAudioAndClockInService();
+
+        // Событийная деактивация кнопки «Тест» на время фазы PSTI
+        if (mayerTestManager != null) {
+            mayerTestManager.resetTestMode();
+            mayerTestManager.setAvailable(false);
+        }
 
         if (isBound && hrvService != null) {
             hrvService.startPostiRecording();
@@ -992,28 +993,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             progressManager.restart();
         }
 
-        pstiHandler.removeCallbacks(pstiCountdownRunnable);
-        pstiCountdownRunnable = new Runnable() {
-            @Override
-            public void run() {
-                if (isBound && hrvService != null && hrvService.isPostiTraceActive()) {
-                    if (pstiRemainingSec > 0) {
-                        pstiRemainingSec--;
-                        updateRightPanelStatusWithCountdown(pstiRemainingSec);
-                        pstiHandler.postDelayed(this, 1000);
-                    }
-                }
-            }
-        };
-        pstiHandler.postDelayed(pstiCountdownRunnable, 1000);
-
-        updateRightPanelStatusWithCountdown(pstiRemainingSec);
-        onLog("[PSTI] Модуляция остановлена. Запуск 5-минутного окна замера индекса консолидации барорефлекса PSTI в сервисе...");
+        updateRightPanelStatus();
+        onLog("[PSTI] Модуляция остановлена. Запуск замера индекса консолидации барорефлекса PSTI в сервисе...");
     }
 
     private void evaluateAndFinishPostiTrace() {
-        pstiHandler.removeCallbacks(pstiCountdownRunnable);
-
         List<Integer> snapshotRr = new ArrayList<>();
         if (isBound && hrvService != null) {
             snapshotRr = hrvService.getPostiRrData();
@@ -1109,6 +1093,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         completedCyclesInCurrentDump = 0;
 
+        // Событийная разблокировка кнопки «Тест» после завершения расчетов и смены фазы PSTI
+        if (mayerTestManager != null) {
+            mayerTestManager.setAvailable(true);
+        }
+
         runOnUiThread(() -> {
             if (isRecording && isBound && hrvService != null) {
                 startClockAndPacerAfterCalibration(0.0f);
@@ -1139,7 +1128,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         lastGlobalUniqueIndex = 0;
         testDumpCounter = 0;
         completedCyclesInCurrentDump = 0;
-        pstiHandler.removeCallbacks(pstiCountdownRunnable);
         
         stopAudioAndClockInService();
 
@@ -1180,7 +1168,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     private void stopAudioAndClockInService() {
-        pstiHandler.removeCallbacks(pstiCountdownRunnable);
         if (isBound && hrvService != null) {
             hrvService.stopAudioAndClock();
         }
@@ -1276,14 +1263,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     prevRrMs = rrMs;
                     currentPolarHr = Math.round(instantHr);
 
-                    boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
-                    if (isPostiActive) {
-                        long elapsedPostiSec = (System.currentTimeMillis() - postiStartTime) / 1000;
-                        if (elapsedPostiSec >= POSTI_WINDOW_SEC) {
-                            evaluateAndFinishPostiTrace();
-                        }
-                    }
-
                     if (!isCalibrationCompleted && (!isBound || hrvService == null || !hrvService.isPostiTraceActive())) {
                         synchronized (phaseBuffer) {
                             phaseBuffer.add(rrMs);
@@ -1292,7 +1271,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                             if (count < CALIBRATION_TARGET) {
                                 float percent = Math.min(100.0f, (count / (float) CALIBRATION_TARGET) * 100.0f);
                                 String statusText = String.format(Locale.US, "Идет сбор данных для фазовой автоподстройки: %.0f%%", percent);
-                                runOnUiThread(() -> {
+                                SimRunner.runOnMainThreadIfNeeded(() -> {
                                     if (ui.tvStatusValue != null) {
                                         ui.tvStatusValue.setText(statusText);
                                     }
