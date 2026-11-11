@@ -461,8 +461,8 @@ public class HrvForegroundService extends Service {
 
                     int rrCount = macroRrBuffer.size();
                     
-                    // Шаг 2: Вызов колбэка для обновления прогресса сбора дампов
-                    if (callback != null && rrCount < TARGET_MACRO_RR_COUNT) {
+                    // Вызов колбэка для обновления прогресса строго каждые 10 интервалов
+                    if (callback != null && rrCount < TARGET_MACRO_RR_COUNT && (rrCount % 10 == 0)) {
                         int currentHr = calculateAverageHr(macroHrWindow);
                         HrvCalculator.Metrics partialMetrics = HrvCalculator.calculate(macroRrBuffer);
                         callback.onMacroProgressUpdated(rrCount, TARGET_MACRO_RR_COUNT, currentHr, partialMetrics);
