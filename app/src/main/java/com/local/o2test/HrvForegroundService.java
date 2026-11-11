@@ -108,6 +108,7 @@ public class HrvForegroundService extends Service {
         default void onPhaseCorrectionCalculated(float correctionDelta) {}
         default void onMacroDumpCompleted(int avgHr, HrvCalculator.Metrics hrv, int rrCount, QuantumContext context) {}
         default void onMayerTestModeAutoReset() {}
+        default void onMacroProgressUpdated(int rrCount, int totalCount, int currentHr, HrvCalculator.Metrics partialMetrics) {}
     }
 
     public class LocalBinder extends Binder {
@@ -286,7 +287,6 @@ public class HrvForegroundService extends Service {
     }
 
     public void adjustServicePhase(float targetPhase) {
-        // Если активен тест Майера (открытый контур), подавляем корректировки фазы
         if (isMayerTestMode) {
             if (DEBUG) {
                 Log.d(TAG, "[MAYER_TEST] Коррекция фазы заблокирована (открытый контур активен)");
@@ -412,11 +412,9 @@ public class HrvForegroundService extends Service {
         if (isPostiTraceActive) {
             testSessionManager.addRrInterval(rrMs);
             
-            // Проверяем достижение целевого количества RR-интервалов (300) для PSTI
             if (!postiCompletionTriggered && testSessionManager.getRawSessionData().size() >= TARGET_MACRO_RR_COUNT) {
                 postiCompletionTriggered = true;
                 if (callback != null) {
-                    // Вызываем существующий callback, который перехватывается в MainActivity для завершения PSTI
                     callback.onMacroDumpCompleted(0, null, TARGET_MACRO_RR_COUNT, null);
                 }
             }
@@ -461,7 +459,16 @@ public class HrvForegroundService extends Service {
                     int instantHr = Math.round(60000.0f / rrMs);
                     macroHrWindow.add(instantHr);
 
-                    if (macroRrBuffer.size() >= TARGET_MACRO_RR_COUNT) {
+                    int rrCount = macroRrBuffer.size();
+                    
+                    // Шаг 2: Вызов колбэка для обновления прогресса сбора дампов
+                    if (callback != null && rrCount < TARGET_MACRO_RR_COUNT) {
+                        int currentHr = calculateAverageHr(macroHrWindow);
+                        HrvCalculator.Metrics partialMetrics = HrvCalculator.calculate(macroRrBuffer);
+                        callback.onMacroProgressUpdated(rrCount, TARGET_MACRO_RR_COUNT, currentHr, partialMetrics);
+                    }
+
+                    if (rrCount >= TARGET_MACRO_RR_COUNT) {
                         List<Integer> dumpSnapshotData = new ArrayList<>(macroRrBuffer);
                         int avgHr = calculateAverageHr(macroHrWindow);
 
@@ -494,16 +501,13 @@ public class HrvForegroundService extends Service {
 
                 boolean isCycleComplete = (currentBlockNumber >= trainingTargetX);
 
-                // Фиксируем текущий статус флага для снимка и сбрасываем режим после завершения дампирования
                 boolean snapshotTestMode = isMayerTestMode;
 
-                // Вычисляем фазу Майера по завершенному макро-дампу (300 RR)
                 float macroPhase = MayerWaveAnalyzer.calculateInitialPhase(dumpData, currentModulationPeriodMs);
 
                 QuantumContext quantum = new QuantumContext(globalUniqueCounter, trainingDumpCounter, currentBlockNumber, isCycleComplete, trainingTargetX, macroPhase);
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
 
-                // Создаем макро-дамп с использованием флага isMayerTestMode
                 SessionSnapshot dumpSnapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
                         metrics,
@@ -530,7 +534,6 @@ public class HrvForegroundService extends Service {
                     callback.onMacroDumpCompleted(avgHr, metrics, TARGET_MACRO_RR_COUNT, quantum);
                 }
 
-                // Автосброс режима Майер-теста по завершении макро-дампа
                 if (snapshotTestMode) {
                     isMayerTestMode = false;
                     if (callback != null) {
