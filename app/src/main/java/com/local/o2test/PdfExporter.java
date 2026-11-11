@@ -117,7 +117,7 @@ public class PdfExporter {
             int currentPageNumber = 1;
 
             // ==========================================
-            // СТРАНИЦА 1: Сводка, Заключение, Гистограмма RR (и далее поток блоков без жесткого разрыва)
+            // СТРАНИЦА 1: Сводка, Заключение, Гистограмма RR
             // ==========================================
             PdfDocument.PageInfo pageInfo1 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
             PdfDocument.Page page1 = document.startPage(pageInfo1);
@@ -230,7 +230,7 @@ public class PdfExporter {
             canvas1.restore();
 
             // ==========================================
-            // ПРОДОЛЖЕНИЕ ПОТОКА НА СТРАНИЦЕ 1 (Блок 3: Динамика индекса PSTI по сессиям)
+            // ПРОДОЛЖЕНИЕ ПОТОКА НА СТРАНИЦЕ 1 (Блок 3: Динамика индекса PSTI)
             // ==========================================
             int currentY = 350;
             if (currentY + 25 > PAGE_HEIGHT - MARGIN) {
@@ -281,7 +281,7 @@ public class PdfExporter {
             }
 
             // ==========================================
-            // МАКРО-УРОВЕНЬ ДЛЯ ГРАФИКОВ: СТРОГО ПО МАКРО-ДАМПАМ (isDumpSnapshot = true) [Раздел 4]
+            // МАКРО-УРОВЕНЬ ДЛЯ ГРАФИКОВ [Раздел 4]
             // ==========================================
             List<HrvSnapshotEntity> dumpSnapshots = new ArrayList<>();
             if (snapshots != null) {
@@ -410,7 +410,7 @@ public class PdfExporter {
             document.finishPage(page1);
 
             // ==========================================
-            // ОТДЕЛЬНАЯ СТРАНИЦА: Раздел 5 (Две скатертограммы Пуанкаре)
+            // ОТДЕЛЬНАЯ СТРАНИЦА: Раздел 5 (Пуанкаре)
             // ==========================================
             PdfDocument.PageInfo pageInfoPoincare = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
             PdfDocument.Page pagePoincare = document.startPage(pageInfoPoincare);
@@ -425,30 +425,25 @@ public class PdfExporter {
             int plotHeight = 295;
             int currentPoincareY = 52;
 
-            // Заголовок 1 (Тренировка) - строго по центру
             textPaint.setTextSize(10f);
             textPaint.setFakeBoldText(true);
             textPaint.setColor(Color.parseColor("#0F172A"));
-            String titleTraining = "\n Тренировка";
+            String titleTraining = "Тренировка";
             float tw1 = textPaint.measureText(titleTraining);
             canvasPoincare.drawText(titleTraining, (PAGE_WIDTH - tw1) / 2f, currentPoincareY, textPaint);
             currentPoincareY += 8;
 
-            // Первый график (Тренировка)
             drawPoincarePlot(canvasPoincare, trainingRrList, MARGIN, currentPoincareY, PAGE_WIDTH - 2 * MARGIN, plotHeight);
             currentPoincareY += plotHeight + 20;
 
-            // Заголовок 2 (Тест PSTI) - строго по центру
             String titlePsti = "Тест PSTI";
             float tw2 = textPaint.measureText(titlePsti);
             canvasPoincare.drawText(titlePsti, (PAGE_WIDTH - tw2) / 2f, currentPoincareY, textPaint);
             currentPoincareY += 8;
 
-            // Второй график (Тест PSTI)
             drawPoincarePlot(canvasPoincare, testRrList, MARGIN, currentPoincareY, PAGE_WIDTH - 2 * MARGIN, plotHeight);
             currentPoincareY += plotHeight + 15;
 
-            // Текстовая расшифровка в нижней части листа
             textPaint.setTextSize(9.5f);
             textPaint.setFakeBoldText(true);
             canvasPoincare.drawText("Расшифровка показателей Пуанкаре:", MARGIN, currentPoincareY, textPaint);
@@ -466,10 +461,10 @@ public class PdfExporter {
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvasPoincare);
             canvasPoincare.restore();
 
-            document.finishPage(pagePoincare); // ИСПРАВЛЕНО: передан объект pagePoincare вместо pageInfoPoincare
+            document.finishPage(pagePoincare);
 
             // ==========================================
-            // ХРОНОЛОГИЧЕСКИЙ ЛОГ (Раздел 6): Двухуровневый формат
+            // ХРОНОЛОГИЧЕСКИЙ ЛОГ (Раздел 6): С новой колонкой PhM и подсветкой теста Майера
             // ==========================================
             List<HrvSnapshotEntity> logSnapshots = new ArrayList<>();
             if (snapshots != null) {
@@ -514,14 +509,15 @@ public class PdfExporter {
                 textPaint.setFakeBoldText(true);
                 textPaint.setColor(Color.parseColor("#0F172A"));
                 canvasN.drawText("Время", MARGIN, startY, textPaint);
-                canvasN.drawText("RMSSD", MARGIN + 48, startY, textPaint);
-                canvasN.drawText("SDNN", MARGIN + 92, startY, textPaint);
-                canvasN.drawText("SI", MARGIN + 132, startY, textPaint);
-                canvasN.drawText("IA", MARGIN + 172, startY, textPaint);
-                canvasN.drawText("LF/HF", MARGIN + 212, startY, textPaint);
-                canvasN.drawText("TP", MARGIN + 252, startY, textPaint);
-                canvasN.drawText("SampEn", MARGIN + 308, startY, textPaint);
-                canvasN.drawText("DFA α1", MARGIN + 368, startY, textPaint);
+                canvasN.drawText("RMSSD", MARGIN + 45, startY, textPaint);
+                canvasN.drawText("SDNN", MARGIN + 85, startY, textPaint);
+                canvasN.drawText("SI", MARGIN + 120, startY, textPaint);
+                canvasN.drawText("IA", MARGIN + 155, startY, textPaint);
+                canvasN.drawText("PhM", MARGIN + 195, startY, textPaint);     // Новая колонка PhM
+                canvasN.drawText("LF/HF", MARGIN + 235, startY, textPaint);
+                canvasN.drawText("TP", MARGIN + 275, startY, textPaint);
+                canvasN.drawText("SampEn", MARGIN + 330, startY, textPaint);
+                canvasN.drawText("DFA α1", MARGIN + 385, startY, textPaint);
                 canvasN.drawText("Модуляция", MARGIN + 435, startY, textPaint);
 
                 strokePaint.setColor(Color.parseColor("#CBD5E1"));
@@ -537,18 +533,26 @@ public class PdfExporter {
                 while (snapshotIdx < totalLogSnapshots && rowsOnPage < rowsPerPage) {
                     HrvSnapshotEntity s = logSnapshots.get(snapshotIdx);
                     boolean isPstiPhase = s.isPstiPhase();
+                    boolean isTestModeCurrent = s.isMayerTestMode();
 
                     boolean isPhaseChanged = (snapshotIdx == 0) || (logSnapshots.get(snapshotIdx - 1).isPstiPhase() != isPstiPhase);
+                    boolean isTestModeChanged = (snapshotIdx == 0) || (logSnapshots.get(snapshotIdx - 1).isMayerTestMode() != isTestModeCurrent);
                     boolean isNewPageStart = (rowsOnPage == 0);
 
-                    if (isPhaseChanged || isNewPageStart) {
-                        fillPaint.setColor(Color.parseColor("#E2E8F0"));
+                    if (isPhaseChanged || isTestModeChanged || isNewPageStart) {
+                        fillPaint.setColor(isTestModeCurrent ? Color.parseColor("#FCE7F3") : Color.parseColor("#E2E8F0"));
                         canvasN.drawRect(MARGIN, currentYLog - 10, PAGE_WIDTH - MARGIN, currentYLog + 4, fillPaint);
 
                         textPaint.setTextSize(8.0f);
                         textPaint.setFakeBoldText(true);
                         textPaint.setColor(Color.parseColor("#0F172A"));
-                        String centerTitleText = (isPstiPhase ? "Тест PSTI (Итоговый макро-дамп)" : "Тренировка (Микро-срезы)") + " — " + workoutMode;
+                        
+                        String centerTitleText;
+                        if (isTestModeCurrent) {
+                            centerTitleText = "Режим тестирования частоты Майера (Открытый контур)";
+                        } else {
+                            centerTitleText = (isPstiPhase ? "Тест PSTI (Итоговый макро-дамп)" : "Тренировка (Микро-срезы)") + " — " + workoutMode;
+                        }
                         
                         float textWidth = textPaint.measureText(centerTitleText);
                         float centerX = MARGIN + (PAGE_WIDTH - 2 * MARGIN - textWidth) / 2f;
@@ -556,6 +560,12 @@ public class PdfExporter {
                         
                         currentYLog += 16;
                         textPaint.setFakeBoldText(false);
+                    }
+
+                    // Подсветка строки мягким фоном, если активен тест Майера
+                    if (isTestModeCurrent) {
+                        fillPaint.setColor(Color.parseColor("#FDF2F8"));
+                        canvasN.drawRect(MARGIN, currentYLog - 8, PAGE_WIDTH - MARGIN, currentYLog + 6, fillPaint);
                     }
 
                     double lf = s.getLfPower();
@@ -567,14 +577,15 @@ public class PdfExporter {
                     double iaPct = Math.max(0.0, Math.min(100.0, (logLfHf - 1.0) * 100.0));
 
                     canvasN.drawText(timeFormat.format(new Date(s.getTimestamp())), MARGIN, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getRmssd()), MARGIN + 48, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getSdnn()), MARGIN + 92, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getBaevskySi()), MARGIN + 132, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.0f%%", iaPct), MARGIN + 172, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getLfHfRatio()), MARGIN + 212, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.0f", s.getTotalPower()), MARGIN + 252, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getSampleEntropy()), MARGIN + 308, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getDfaAlpha1()), MARGIN + 368, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getRmssd()), MARGIN + 45, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getSdnn()), MARGIN + 85, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getBaevskySi()), MARGIN + 120, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.0f%%", iaPct), MARGIN + 155, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.0f%%", s.getPhim() * 100f), MARGIN + 195, currentYLog, textPaint); // Вывод PhM (%)
+                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getLfHfRatio()), MARGIN + 235, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.0f", s.getTotalPower()), MARGIN + 275, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getSampleEntropy()), MARGIN + 330, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getDfaAlpha1()), MARGIN + 385, currentYLog, textPaint);
 
                     float modSec = s.getModulationSec() > 0 ? s.getModulationSec() : 10.0f;
                     canvasN.drawText(String.format(Locale.US, "%.1f с", modSec), MARGIN + 435, currentYLog, textPaint);
