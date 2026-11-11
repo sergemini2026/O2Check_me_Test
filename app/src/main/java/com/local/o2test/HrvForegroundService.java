@@ -412,7 +412,17 @@ public class HrvForegroundService extends Service {
         if (isPostiTraceActive) {
             testSessionManager.addRrInterval(rrMs);
             
-            if (!postiCompletionTriggered && testSessionManager.getRawSessionData().size() >= TARGET_MACRO_RR_COUNT) {
+            List<Integer> postiBuffer = testSessionManager.getRawSessionData();
+            int rrCount = postiBuffer.size();
+
+            // Вызов колбэка для обновления прогресса PSTI строго каждые 10 интервалов
+            if (callback != null && rrCount < TARGET_MACRO_RR_COUNT && (rrCount % 10 == 0)) {
+                int currentHr = Math.round(60000.0f / rrMs);
+                HrvCalculator.Metrics partialMetrics = HrvCalculator.calculate(postiBuffer);
+                callback.onMacroProgressUpdated(rrCount, TARGET_MACRO_RR_COUNT, currentHr, partialMetrics);
+            }
+            
+            if (!postiCompletionTriggered && rrCount >= TARGET_MACRO_RR_COUNT) {
                 postiCompletionTriggered = true;
                 if (callback != null) {
                     callback.onMacroDumpCompleted(0, null, TARGET_MACRO_RR_COUNT, null);
