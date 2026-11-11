@@ -31,7 +31,8 @@ data class HrvSnapshotEntity(
     val globalUniqueIndex: Int = 0,
     val trainingDumpIndex: Int = 0,
     val testDumpIndex: Int = 0,
-    val blockNumber: Int = 1
+    val blockNumber: Int = 1,
+    val phim: Float // Обязательное поле без дефолтного значения
 ) {
     constructor(
         timestamp: Long,
@@ -43,7 +44,8 @@ data class HrvSnapshotEntity(
         globalUniqueIndex: Int,
         trainingDumpIndex: Int,
         testDumpIndex: Int,
-        blockNumber: Int
+        blockNumber: Int,
+        phim: Float
     ) : this(
         timestamp = timestamp,
         rmssd = m.rmssd,
@@ -68,6 +70,7 @@ data class HrvSnapshotEntity(
         globalUniqueIndex = globalUniqueIndex,
         trainingDumpIndex = trainingDumpIndex,
         testDumpIndex = testDumpIndex,
-        blockNumber = blockNumber
+        blockNumber = blockNumber,
+        phim = phim
     )
 }
