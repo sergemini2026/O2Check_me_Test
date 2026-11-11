@@ -862,6 +862,25 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 }
 
                 @Override
+                public void onMacroProgressUpdated(int rrCount, int totalCount, int currentHr, HrvCalculator.Metrics partialMetrics) {
+                    float percent = Math.min(100.0f, (rrCount / (float) totalCount) * 100.0f);
+                    int remainingBeats = Math.max(0, totalCount - rrCount);
+
+                    int remainingSec = 0;
+                    if (currentHr > 0 && remainingBeats > 0) {
+                        remainingSec = (int) Math.round((remainingBeats * 60.0) / currentHr);
+                    }
+                    int remMin = remainingSec / 60;
+                    int remSec = remainingSec % 60;
+
+                    String rmssdStr = (partialMetrics != null) ? String.format(Locale.US, "%.1f ms", partialMetrics.rmssd) : "--";
+                    String logMsg = String.format(Locale.US,
+                            "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
+                            percent, rrCount, totalCount, remMin, remSec, currentHr, rmssdStr);
+                    onLog(logMsg);
+                }
+
+                @Override
                 public void onMacroDumpCompleted(int avgHr, HrvCalculator.Metrics hrv, int rrCount, HrvForegroundService.QuantumContext context) {
                     boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
                     
@@ -903,14 +922,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
                     if (context != null && context.isPstiPhase()) {
                         startPostiTraceWindow();
-                        if (isBound && hrvService != null) {
-                            hrvService.updateNotificationText("Блок 1/1 | Запись завершена. Замер PSTI...");
-                        }
                     } else {
                         onLog("[Мониторинг] Продолжение сеанса дыхания...");
-                        if (isBound && hrvService != null) {
-                            hrvService.updateNotificationText(blockInfo + " | HR: " + avgHr + " bpm | RMSSD: " + (hrv != null ? String.format(Locale.US, "%.1f ms", hrv.rmssd) : "--"));
-                        }
                     }
 
                     runOnUiThread(() -> updateRightPanelStatus());
