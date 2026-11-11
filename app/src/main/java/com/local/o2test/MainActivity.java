@@ -129,6 +129,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 onLog("[SERVICE] Сервис успешно привязан к MainActivity");
             }
 
+            // Страховка: если сессия активна, гарантированно восстанавливаем callback в сервисе при ребиндинге
+            if (isRecording && hrvService != null) {
+                hrvService.setCallback(createServiceCallback());
+            }
+
             updateRightPanelStatus();
             if (ui.btnHeart != null) {
                 ui.btnHeart.setAlpha(isProfileAuthorized && isTrainingSelected ? 1.0f : 0.5f);
@@ -299,10 +304,132 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             // Восстанавливаем состояние интерфейса (логи, статус, метрики, график, профиль)
             restoreUiState(savedLogText);
 
+            // Восстанавливаем активность прогресс-бара при активной сессии
+            if (isRecording && progressManager != null) {
+                progressManager.start();
+            }
+
             if (DEBUG) {
                 onLog("[UI] Интерфейс успешно перестроен под ориентацию: " + (currentLandscape ? "Альбомная (Landscape)" : "Книжная (Portrait)"));
             }
         }
+    }
+
+    /**
+     * Единый метод-помощник для инициализации callback-интерфейса сервиса
+     */
+    private HrvForegroundService.ServiceCallback createServiceCallback() {
+        return new HrvForegroundService.ServiceCallback() {
+            @Override
+            public void onRrDataReceived(int rrMs, int hr) {}
+            @Override
+            public void onO2DataReceived(int spo2, int hr) {}
+            @Override
+            public void onConnectionStatusChanged(String deviceType, boolean isConnected) {}
+
+            @Override
+            public void onPhaseCorrectionCalculated(float correctionDelta) {
+                runOnUiThread(() -> {
+                    if (isBound && hrvService != null && isRecording) {
+                        hrvService.adjustServicePhase(correctionDelta);
+                    }
+                });
+            }
+
+            @Override
+            public void onMayerTestModeAutoReset() {
+                runOnUiThread(() -> {
+                    if (mayerTestManager != null) {
+                        mayerTestManager.resetTestMode();
+                    }
+                });
+            }
+
+            @Override
+            public void onMacroProgressUpdated(int rrCount, int totalCount, int currentHr, HrvCalculator.Metrics partialMetrics) {
+                float percent = Math.min(100.0f, (rrCount / (float) totalCount) * 100.0f);
+                int remainingBeats = Math.max(0, totalCount - rrCount);
+
+                int remainingSec = 0;
+                if (currentHr > 0 && remainingBeats > 0) {
+                    remainingSec = (int) Math.round((remainingBeats * 60.0) / currentHr);
+                }
+                int remMin = remainingSec / 60;
+                int remSec = remainingSec % 60;
+
+                String rmssdStr = (partialMetrics != null) ? String.format(Locale.US, "%.1f ms", partialMetrics.rmssd) : "--";
+                String logMsg = String.format(Locale.US,
+                        "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
+                        percent, rrCount, totalCount, remMin, remSec, currentHr, rmssdStr);
+                onLog(logMsg);
+            }
+
+            @Override
+            public void onMacroDumpCompleted(int avgHr, HrvCalculator.Metrics hrv, int rrCount, HrvForegroundService.QuantumContext context) {
+                boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
+                
+                if (isPostiActive) {
+                    // Событие завершения PSTI дампа (событийное завершение фазы без таймеров)
+                    evaluateAndFinishPostiTrace();
+                    return;
+                }
+
+                int totalBlocks = trainingTargetX;
+                int currentBlockNum = context != null ? context.getBlockNumber() : ((sessionDumpCount % totalBlocks) + 1);
+                String blockInfo = String.format(Locale.US, "Блок %d/%d", currentBlockNum, totalBlocks);
+
+                // Синхронизируем глобальный уникальный индекс из контекста сервиса
+                if (context != null) {
+                    lastGlobalUniqueIndex = context.getGlobalUniqueIndex();
+                    float macroPhase = context.getMacroPhase();
+                    runOnUiThread(() -> updatePhimIndexDisplay(macroPhase));
+                }
+
+                String logMsg = String.format(Locale.US,
+                        "[Дамп ГОТОВ 100%%] %s | HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %s | TP: %.0f ms²",
+                        blockInfo, avgHr, hrv != null ? hrv.rmssd : 0.0, hrv != null ? hrv.pnn50 : 0.0, currentLfHfDisplayStr, hrv != null ? hrv.totalPower : 0.0);
+                onLog(logMsg);
+
+                sessionDumpCount++;
+                completedCyclesInCurrentDump = 0;
+
+                int currentDumpIndex = lastGlobalUniqueIndex;
+                if (DEBUG) {
+                    onLog(String.format(Locale.US, "[STATE_MACHINE] Дамп #%d завершен (Блок %d/%d)", currentDumpIndex, currentBlockNum, totalBlocks));
+                } else {
+                    onLog(String.format(Locale.US, "[Дамп #%d завершен]", currentDumpIndex));
+                }
+
+                if (progressManager != null) {
+                    progressManager.restart();
+                }
+
+                if (context != null && context.isPstiPhase()) {
+                    startPostiTraceWindow();
+                } else {
+                    onLog("[Мониторинг] Продолжение сеанса дыхания...");
+                }
+
+                runOnUiThread(() -> updateRightPanelStatus());
+
+                if (hrv != null) {
+                    String rmssdStr = String.format(Locale.US, "%.1f ms", hrv.rmssd);
+                    String pnn50Str = String.format(Locale.US, "%.1f%%", hrv.pnn50);
+                    
+                    double iaNorm = (hrv.lfPower + hrv.hfPower > 0) ? (2.0 * hrv.lfPower / (hrv.lfPower + hrv.hfPower)) : 1.0;
+                    double iaPct = Math.max(0.0, Math.min(100.0, (iaNorm - 1.0) * 100.0));
+                    String iaStr = String.format(Locale.US, "%.0f", iaPct);
+                    
+                    String tpStr = String.format(Locale.US, "%.0f ms²", hrv.totalPower);
+
+                    final String finalLfHfStr = currentLfHfDisplayStr;
+                    runOnUiThread(() -> {
+                        updateMetricsDisplay(rmssdStr, pnn50Str, finalLfHfStr, tpStr);
+                        updateAttractorIndexDisplay(iaStr);
+                    });
+                }
+            }
+        };
     }
 
     /**
@@ -834,118 +961,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             hrvService.startSessionRecording();
             
             modulationManager.applyModulation(hrvService, isBound);
-            
-            hrvService.setCallback(new HrvForegroundService.ServiceCallback() {
-                @Override
-                public void onRrDataReceived(int rrMs, int hr) {}
-                @Override
-                public void onO2DataReceived(int spo2, int hr) {}
-                @Override
-                public void onConnectionStatusChanged(String deviceType, boolean isConnected) {}
-
-                @Override
-                public void onPhaseCorrectionCalculated(float correctionDelta) {
-                    runOnUiThread(() -> {
-                        if (isBound && hrvService != null && isRecording) {
-                            hrvService.adjustServicePhase(correctionDelta);
-                        }
-                    });
-                }
-
-                @Override
-                public void onMayerTestModeAutoReset() {
-                    runOnUiThread(() -> {
-                        if (mayerTestManager != null) {
-                            mayerTestManager.resetTestMode();
-                        }
-                    });
-                }
-
-                @Override
-                public void onMacroProgressUpdated(int rrCount, int totalCount, int currentHr, HrvCalculator.Metrics partialMetrics) {
-                    float percent = Math.min(100.0f, (rrCount / (float) totalCount) * 100.0f);
-                    int remainingBeats = Math.max(0, totalCount - rrCount);
-
-                    int remainingSec = 0;
-                    if (currentHr > 0 && remainingBeats > 0) {
-                        remainingSec = (int) Math.round((remainingBeats * 60.0) / currentHr);
-                    }
-                    int remMin = remainingSec / 60;
-                    int remSec = remainingSec % 60;
-
-                    String rmssdStr = (partialMetrics != null) ? String.format(Locale.US, "%.1f ms", partialMetrics.rmssd) : "--";
-                    String logMsg = String.format(Locale.US,
-                            "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
-                            percent, rrCount, totalCount, remMin, remSec, currentHr, rmssdStr);
-                    onLog(logMsg);
-                }
-
-                @Override
-                public void onMacroDumpCompleted(int avgHr, HrvCalculator.Metrics hrv, int rrCount, HrvForegroundService.QuantumContext context) {
-                    boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
-                    
-                    if (isPostiActive) {
-                        // Событие завершения PSTI дампа (событийное завершение фазы без таймеров)
-                        evaluateAndFinishPostiTrace();
-                        return;
-                    }
-
-                    int totalBlocks = trainingTargetX;
-                    int currentBlockNum = context != null ? context.getBlockNumber() : ((sessionDumpCount % totalBlocks) + 1);
-                    String blockInfo = String.format(Locale.US, "Блок %d/%d", currentBlockNum, totalBlocks);
-
-                    // Синхронизируем глобальный уникальный индекс из контекста сервиса
-                    if (context != null) {
-                        lastGlobalUniqueIndex = context.getGlobalUniqueIndex();
-                        float macroPhase = context.getMacroPhase();
-                        runOnUiThread(() -> updatePhimIndexDisplay(macroPhase));
-                    }
-
-                    String logMsg = String.format(Locale.US,
-                            "[Дамп ГОТОВ 100%%] %s | HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %s | TP: %.0f ms²",
-                            blockInfo, avgHr, hrv != null ? hrv.rmssd : 0.0, hrv != null ? hrv.pnn50 : 0.0, currentLfHfDisplayStr, hrv != null ? hrv.totalPower : 0.0);
-                    onLog(logMsg);
-
-                    sessionDumpCount++;
-                    completedCyclesInCurrentDump = 0;
-
-                    int currentDumpIndex = lastGlobalUniqueIndex;
-                    if (DEBUG) {
-                        onLog(String.format(Locale.US, "[STATE_MACHINE] Дамп #%d завершен (Блок %d/%d)", currentDumpIndex, currentBlockNum, totalBlocks));
-                    } else {
-                        onLog(String.format(Locale.US, "[Дамп #%d завершен]", currentDumpIndex));
-                    }
-
-                    if (progressManager != null) {
-                        progressManager.restart();
-                    }
-
-                    if (context != null && context.isPstiPhase()) {
-                        startPostiTraceWindow();
-                    } else {
-                        onLog("[Мониторинг] Продолжение сеанса дыхания...");
-                    }
-
-                    runOnUiThread(() -> updateRightPanelStatus());
-
-                    if (hrv != null) {
-                        String rmssdStr = String.format(Locale.US, "%.1f ms", hrv.rmssd);
-                        String pnn50Str = String.format(Locale.US, "%.1f%%", hrv.pnn50);
-                        
-                        double iaNorm = (hrv.lfPower + hrv.hfPower > 0) ? (2.0 * hrv.lfPower / (hrv.lfPower + hrv.hfPower)) : 1.0;
-                        double iaPct = Math.max(0.0, Math.min(100.0, (iaNorm - 1.0) * 100.0));
-                        String iaStr = String.format(Locale.US, "%.0f", iaPct);
-                        
-                        String tpStr = String.format(Locale.US, "%.0f ms²", hrv.totalPower);
-
-                        final String finalLfHfStr = currentLfHfDisplayStr;
-                        runOnUiThread(() -> {
-                            updateMetricsDisplay(rmssdStr, pnn50Str, finalLfHfStr, tpStr);
-                            updateAttractorIndexDisplay(iaStr);
-                        });
-                    }
-                }
-            });
+            hrvService.setCallback(createServiceCallback());
         }
         
         if (polarManager != null) {
