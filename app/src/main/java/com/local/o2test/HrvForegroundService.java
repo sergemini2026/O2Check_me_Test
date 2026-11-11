@@ -528,7 +528,8 @@ public class HrvForegroundService extends Service {
                         globalUniqueCounter,
                         trainingDumpCounter,
                         0,     // testDumpIndex
-                        currentBlockNumber
+                        currentBlockNumber,
+                        macroPhase // Передаем вычисленную фазу макро-дампа
                 );
 
                 synchronized (snapshotBuffer) {
@@ -580,6 +581,9 @@ public class HrvForegroundService extends Service {
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
                 int activeBlockNum = Math.max(1, currentBlockNumber);
 
+                // Вычисление мгновенной фазы Майера для микро-среза
+                float phim = MayerWaveAnalyzer.calculateInitialPhase(windowData, currentModulationPeriodMs);
+
                 SessionSnapshot snapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
                         metrics,
@@ -590,7 +594,8 @@ public class HrvForegroundService extends Service {
                         0,     // globalUniqueIndex
                         0,     // trainingDumpIndex
                         0,     // testDumpIndex
-                        activeBlockNum
+                        activeBlockNum,
+                        phim   // Передаем рассчитанное значение PhM в строгий конструктор
                 );
                 synchronized (snapshotBuffer) {
                     snapshotBuffer.add(snapshot);
