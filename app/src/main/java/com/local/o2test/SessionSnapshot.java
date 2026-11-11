@@ -12,7 +12,9 @@ public class SessionSnapshot {
     private final int trainingDumpIndex;
     private final int testDumpIndex;
     private final int blockNumber;
+    private final float phim;
 
+    // Строгий конструктор с обязательным параметром phim
     public SessionSnapshot(
             long timestamp,
             HrvCalculator.Metrics metrics,
@@ -23,7 +25,8 @@ public class SessionSnapshot {
             int globalUniqueIndex,
             int trainingDumpIndex,
             int testDumpIndex,
-            int blockNumber
+            int blockNumber,
+            float phim
     ) {
         this.timestamp = timestamp;
         this.metrics = metrics;
@@ -35,6 +38,7 @@ public class SessionSnapshot {
         this.trainingDumpIndex = trainingDumpIndex;
         this.testDumpIndex = testDumpIndex;
         this.blockNumber = blockNumber;
+        this.phim = phim;
     }
 
     /**
@@ -105,6 +109,13 @@ public class SessionSnapshot {
      */
     public int getBlockNumber() {
         return blockNumber;
+    }
+
+    /**
+     * Мгновенное значение фазы Майера (PhM)
+     */
+    public float getPhim() {
+        return phim;
     }
 
     /**
