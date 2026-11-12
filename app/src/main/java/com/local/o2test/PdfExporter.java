@@ -94,7 +94,6 @@ public class PdfExporter {
             }
         }
 
-        // Подготовка раздельных массивов RR-интервалов для двух скатертограмм
         List<Integer> trainingRrList = new ArrayList<>();
         if (trainingDataPoints != null) {
             for (DataPoint dp : trainingDataPoints) {
@@ -116,9 +115,6 @@ public class PdfExporter {
         try {
             int currentPageNumber = 1;
 
-            // ==========================================
-            // СТРАНИЦА 1: Сводка, Заключение, Гистограмма RR
-            // ==========================================
             PdfDocument.PageInfo pageInfo1 = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
             PdfDocument.Page page1 = document.startPage(pageInfo1);
             Canvas canvas1 = page1.getCanvas();
@@ -229,9 +225,6 @@ public class PdfExporter {
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL).build().draw(canvas1);
             canvas1.restore();
 
-            // ==========================================
-            // ПРОДОЛЖЕНИЕ ПОТОКА НА СТРАНИЦЕ 1 (Блок 3: Динамика индекса PSTI)
-            // ==========================================
             int currentY = 350;
             if (currentY + 25 > PAGE_HEIGHT - MARGIN) {
                 document.finishPage(page1);
@@ -280,13 +273,11 @@ public class PdfExporter {
                 }
             }
 
-            // ==========================================
-            // МАКРО-УРОВЕНЬ ДЛЯ ГРАФИКОВ [Раздел 4]
-            // ==========================================
+            // МАКРО-УРОВЕНЬ ДЛЯ ГРАФИКОВ [Раздел 4] (фильтрация по isMacroDump)
             List<HrvSnapshotEntity> dumpSnapshots = new ArrayList<>();
             if (snapshots != null) {
                 for (HrvSnapshotEntity s : snapshots) {
-                    if (s.isDumpSnapshot()) {
+                    if (s.isMacroDump()) {
                         dumpSnapshots.add(s);
                     }
                 }
@@ -326,11 +317,9 @@ public class PdfExporter {
 
                 HrvSnapshotEntity snapshot = (d < dumpSnapshots.size()) ? dumpSnapshots.get(d) : null;
                 
-                int dumpIdx = (snapshot != null) ? snapshot.getGlobalUniqueIndex() : (d + 1);
+                int dumpIdx = (snapshot != null) ? snapshot.getDumpIndex() : (d + 1);
                 boolean isPstiPhase = (snapshot != null) && snapshot.isPstiPhase();
                 int blockNumber = (snapshot != null) ? snapshot.getBlockNumber() : 1;
-                int trainingIdx = (snapshot != null) ? snapshot.getTrainingDumpIndex() : 0;
-                int testIdx = (snapshot != null) ? snapshot.getTestDumpIndex() : 0;
                 String phaseStr = isPstiPhase ? "Тест PSTI" : "Тренировка";
 
                 long dumpEndTime = (snapshot != null) ? snapshot.getTimestamp() : endTime;
@@ -367,11 +356,11 @@ public class PdfExporter {
 
                 String headerTitle;
                 if (isPstiPhase) {
-                    headerTitle = String.format(Locale.US, "Дамп #%d (Тест PSTI #%d) | %s | Фаза: %s",
-                            dumpIdx, testIdx, workoutMode, phaseStr);
+                    headerTitle = String.format(Locale.US, "Дамп #%d (Тест PSTI) | %s | Фаза: %s",
+                            dumpIdx, workoutMode, phaseStr);
                 } else {
-                    headerTitle = String.format(Locale.US, "Дамп #%d (Тренировка #%d) | Блок %d/%d | %s | Фаза: %s",
-                            dumpIdx, trainingIdx, blockNumber, trainingTargetX, workoutMode, phaseStr);
+                    headerTitle = String.format(Locale.US, "Дамп #%d (Тренировка) | Блок %d/%d | %s | Фаза: %s",
+                            dumpIdx, blockNumber, trainingTargetX, workoutMode, phaseStr);
                 }
 
                 drawOxygenationChart(canvas1, dumpPoints, MARGIN, currentY, PAGE_WIDTH - 2 * MARGIN, 45, Color.parseColor("#0284C7"), headerTitle + " — SpO2 (%)", dumpStartTime, dumpEndTime);
@@ -409,9 +398,6 @@ public class PdfExporter {
 
             document.finishPage(page1);
 
-            // ==========================================
-            // ОТДЕЛЬНАЯ СТРАНИЦА: Раздел 5 (Пуанкаре)
-            // ==========================================
             PdfDocument.PageInfo pageInfoPoincare = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
             PdfDocument.Page pagePoincare = document.startPage(pageInfoPoincare);
             Canvas canvasPoincare = pagePoincare.getCanvas();
@@ -463,25 +449,23 @@ public class PdfExporter {
 
             document.finishPage(pagePoincare);
 
-            // ==========================================
-            // ХРОНОЛОГИЧЕСКИЙ ЛОГ (Раздел 6): С новой колонкой PhM и подсветкой теста Майера
-            // ==========================================
+            // ХРОНОЛОГИЧЕСКИЙ ЛОГ (Раздел 6): фильтрация микро-срезов и макро-дампов по единым флагам
             List<HrvSnapshotEntity> logSnapshots = new ArrayList<>();
             if (snapshots != null) {
                 for (HrvSnapshotEntity s : snapshots) {
                     if (!s.isPstiPhase()) {
-                        if (!s.isDumpSnapshot()) {
+                        if (!s.isMacroDump()) {
                             logSnapshots.add(s);
                         }
                     } else {
-                        if (s.isDumpSnapshot()) {
+                        if (s.isMacroDump()) {
                             logSnapshots.add(s);
                         }
                     }
                 }
                 if (logSnapshots.isEmpty()) {
                     for (HrvSnapshotEntity s : snapshots) {
-                        if (!s.isPstiPhase() || s.isDumpSnapshot()) {
+                        if (!s.isPstiPhase() || s.isMacroDump()) {
                             logSnapshots.add(s);
                         }
                     }
@@ -513,7 +497,7 @@ public class PdfExporter {
                 canvasN.drawText("SDNN", MARGIN + 85, startY, textPaint);
                 canvasN.drawText("SI", MARGIN + 120, startY, textPaint);
                 canvasN.drawText("IA", MARGIN + 155, startY, textPaint);
-                canvasN.drawText("PhM", MARGIN + 195, startY, textPaint);     // Новая колонка PhM
+                canvasN.drawText("PhM", MARGIN + 195, startY, textPaint);     // Колонка PhM в чистом виде (0.0 - 1.0)
                 canvasN.drawText("LF/HF", MARGIN + 235, startY, textPaint);
                 canvasN.drawText("TP", MARGIN + 275, startY, textPaint);
                 canvasN.drawText("SampEn", MARGIN + 330, startY, textPaint);
@@ -562,7 +546,6 @@ public class PdfExporter {
                         textPaint.setFakeBoldText(false);
                     }
 
-                    // Подсветка строки мягким фоном, если активен тест Майера
                     if (isTestModeCurrent) {
                         fillPaint.setColor(Color.parseColor("#FDF2F8"));
                         canvasN.drawRect(MARGIN, currentYLog - 8, PAGE_WIDTH - MARGIN, currentYLog + 6, fillPaint);
@@ -581,7 +564,7 @@ public class PdfExporter {
                     canvasN.drawText(String.format(Locale.US, "%.1f", s.getSdnn()), MARGIN + 85, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.1f", s.getBaevskySi()), MARGIN + 120, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.0f%%", iaPct), MARGIN + 155, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.0f%%", s.getPhim() * 100f), MARGIN + 195, currentYLog, textPaint); // Вывод PhM (%)
+                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getPhim()), MARGIN + 195, currentYLog, textPaint); // Вывод PhM в чистом виде (0.0 - 1.0)
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getLfHfRatio()), MARGIN + 235, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.0f", s.getTotalPower()), MARGIN + 275, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getSampleEntropy()), MARGIN + 330, currentYLog, textPaint);
@@ -598,9 +581,6 @@ public class PdfExporter {
                 document.finishPage(pageN);
             }
 
-            // ==========================================
-            // Сохранение файла
-            // ==========================================
             String fileName = "HRV_Report_" + System.currentTimeMillis() + ".pdf";
             File targetDir;
             if (customDirPath != null && !customDirPath.isEmpty()) {
