@@ -224,7 +224,8 @@ public class SessionExportManager {
                                 snapshot.getGlobalUniqueIndex(),
                                 snapshot.getTrainingDumpIndex(),
                                 snapshot.getTestDumpIndex(),
-                                snapshot.getBlockNumber()
+                                snapshot.getBlockNumber(),
+                                snapshot.getPhim() // Передаем обязательный параметр PhM
                         );
                         if (entity.getBaevskySi() > 0 && entity.getBaevskySi() <= 300) {
                             entityList.add(entity);
