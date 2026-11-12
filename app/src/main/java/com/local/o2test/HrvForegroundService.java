@@ -34,11 +34,11 @@ public class HrvForegroundService extends Service {
     private final IBinder binder = new LocalBinder();
     private PowerManager.WakeLock wakeLock;
 
-    private final HrvSessionManager trainingSessionManager = new HrvSessionManager();
-    private final HrvSessionManager testSessionManager = new HrvSessionManager();
+    // Единый менеджер сессии для непрерывного сбора сырых RR-интервалов
+    private final HrvSessionManager sessionManager = new HrvSessionManager();
 
-    private final List<DataPoint> trainingDataPoints = Collections.synchronizedList(new ArrayList<>());
-    private final List<DataPoint> testDataPoints = Collections.synchronizedList(new ArrayList<>());
+    // Единый массив точек данных сессии со сквозной маркировкой
+    private final List<DataPoint> sessionDataPoints = Collections.synchronizedList(new ArrayList<>());
 
     private final List<Integer> slidingWindowList = Collections.synchronizedList(new ArrayList<>());
     private boolean isPostiTraceActive = false;
@@ -49,16 +49,15 @@ public class HrvForegroundService extends Service {
     private int rsaCycleAccumulatedMs = 0;
     private static final int TARGET_CYCLE_MS = 10000;
 
-    // --- МАКРО-СЛОЙ И НЕЗАВИСИМЫЕ СЧЕТЧИКИ ИНДЕКСОВ ---
+    // --- МАКРО-СЛОЙ И СКВОЗНЫЕ СЧЕТЧИКИ ИНДЕКСОВ ---
     private static final int TARGET_MACRO_RR_COUNT = 300;
     private final List<Integer> macroRrBuffer = Collections.synchronizedList(new ArrayList<>());
     private final List<Integer> macroHrWindow = Collections.synchronizedList(new ArrayList<>());
     
-    // Целевой параметр x (1, 2 или 3) и независимые счетчики сессии
     private int trainingTargetX = 1;
     private int globalUniqueCounter = 0;
-    private int trainingDumpCounter = 0;
-    private int testDumpCounter = 0;
+    private int sliceCounter = 0;
+    private int dumpCounter = 0;
     private int currentBlockNumber = 0;
 
     private boolean isRecording = false;
@@ -78,15 +77,15 @@ public class HrvForegroundService extends Service {
 
     public static class QuantumContext {
         private final int globalUniqueIndex;
-        private final int trainingDumpIndex;
+        private final int dumpIndex;
         private final int blockNumber;
         private final boolean isPstiPhase;
         private final int targetX;
         private final float macroPhase;
 
-        public QuantumContext(int globalUniqueIndex, int trainingDumpIndex, int blockNumber, boolean isPstiPhase, int targetX, float macroPhase) {
+        public QuantumContext(int globalUniqueIndex, int dumpIndex, int blockNumber, boolean isPstiPhase, int targetX, float macroPhase) {
             this.globalUniqueIndex = globalUniqueIndex;
-            this.trainingDumpIndex = trainingDumpIndex;
+            this.dumpIndex = dumpIndex;
             this.blockNumber = blockNumber;
             this.isPstiPhase = isPstiPhase;
             this.targetX = targetX;
@@ -94,7 +93,7 @@ public class HrvForegroundService extends Service {
         }
 
         public int getGlobalUniqueIndex() { return globalUniqueIndex; }
-        public int getTrainingDumpIndex() { return trainingDumpIndex; }
+        public int getDumpIndex() { return dumpIndex; }
         public int getBlockNumber() { return blockNumber; }
         public boolean isPstiPhase() { return isPstiPhase; }
         public int getTargetX() { return targetX; }
@@ -310,10 +309,8 @@ public class HrvForegroundService extends Service {
     }
 
     public void startSessionRecording() {
-        trainingSessionManager.resetSession();
-        testSessionManager.resetSession();
-        synchronized (trainingDataPoints) { trainingDataPoints.clear(); }
-        synchronized (testDataPoints) { testDataPoints.clear(); }
+        sessionManager.resetSession();
+        synchronized (sessionDataPoints) { sessionDataPoints.clear(); }
         synchronized (slidingWindowList) { slidingWindowList.clear(); }
         synchronized (snapshotBuffer) { snapshotBuffer.clear(); }
         synchronized (rsaCycleBuffer) { rsaCycleBuffer.clear(); }
@@ -321,8 +318,8 @@ public class HrvForegroundService extends Service {
         synchronized (macroHrWindow) { macroHrWindow.clear(); }
         
         globalUniqueCounter = 0;
-        trainingDumpCounter = 0;
-        testDumpCounter = 0;
+        sliceCounter = 0;
+        dumpCounter = 0;
         currentBlockNumber = 0;
         isMayerTestMode = false;
 
@@ -361,8 +358,6 @@ public class HrvForegroundService extends Service {
     }
 
     public void startPostiRecording() {
-        testSessionManager.resetSession();
-        synchronized (testDataPoints) { testDataPoints.clear(); }
         isPostiTraceActive = true;
         postiCompletionTriggered = false;
         stopAudioAndClock();
@@ -380,76 +375,45 @@ public class HrvForegroundService extends Service {
     }
 
     public List<Integer> getPostiRrData() {
-        return testSessionManager.getRawSessionData();
+        // Возвращаем данные PSTI из общего сессионного менеджера или фильтруем по фазе
+        return sessionManager.getRawSessionData();
     }
 
     public void addDataPoint(DataPoint dp) {
         if (!isRecording) return;
-        if (isPostiTraceActive) {
-            synchronized (testDataPoints) {
-                testDataPoints.add(dp);
-            }
-        } else {
-            synchronized (trainingDataPoints) {
-                trainingDataPoints.add(dp);
-            }
+        synchronized (sessionDataPoints) {
+            sessionDataPoints.add(dp);
         }
     }
 
-    public List<DataPoint> getTrainingDataPoints() {
-        synchronized (trainingDataPoints) {
-            return new ArrayList<>(trainingDataPoints);
-        }
-    }
-
-    public List<DataPoint> getTestDataPoints() {
-        synchronized (testDataPoints) {
-            return new ArrayList<>(testDataPoints);
+    public List<DataPoint> getSessionDataPoints() {
+        synchronized (sessionDataPoints) {
+            return new ArrayList<>(sessionDataPoints);
         }
     }
 
     public void addRrInterval(int rrMs) {
-        if (isPostiTraceActive) {
-            testSessionManager.addRrInterval(rrMs);
-            
-            List<Integer> postiBuffer = testSessionManager.getRawSessionData();
-            int rrCount = postiBuffer.size();
+        if (!isRecording) return;
+        
+        sessionManager.addRrInterval(rrMs);
 
-            // Вызов колбэка для обновления прогресса PSTI строго каждые 10 интервалов
-            if (callback != null && rrCount < TARGET_MACRO_RR_COUNT && (rrCount % 10 == 0)) {
-                int currentHr = Math.round(60000.0f / rrMs);
-                HrvCalculator.Metrics partialMetrics = HrvCalculator.calculate(postiBuffer);
-                callback.onMacroProgressUpdated(rrCount, TARGET_MACRO_RR_COUNT, currentHr, partialMetrics);
-            }
-            
-            if (!postiCompletionTriggered && rrCount >= TARGET_MACRO_RR_COUNT) {
-                postiCompletionTriggered = true;
-                if (callback != null) {
-                    callback.onMacroDumpCompleted(0, null, TARGET_MACRO_RR_COUNT, null);
-                }
-            }
-            return;
-        }
-
-        if (isRecording) {
-            trainingSessionManager.addRrInterval(rrMs);
-            
-            if (rrMs > 300 && rrMs < 2000) {
-                // 1. МИКРО-УРОВЕНЬ: Скользящее окно (150/50 RR)
-                synchronized (slidingWindowList) {
-                    slidingWindowList.add(rrMs);
-                    while (slidingWindowList.size() > WINDOW_SIZE) {
-                        slidingWindowList.remove(0);
-                    }
-
-                    counterSinceLastProcess++;
-                    if (slidingWindowList.size() >= WINDOW_SIZE && counterSinceLastProcess >= STEP_SIZE) {
-                        counterSinceLastProcess = 0;
-                        processAndSaveWindow(new ArrayList<>(slidingWindowList));
-                    }
+        if (rrMs > 300 && rrMs < 2000) {
+            // 1. МИКРО-УРОВЕНЬ: Скользящее окно (150/50 RR)
+            synchronized (slidingWindowList) {
+                slidingWindowList.add(rrMs);
+                while (slidingWindowList.size() > WINDOW_SIZE) {
+                    slidingWindowList.remove(0);
                 }
 
-                // 2. Оценка дыхательного цикла (10 сек)
+                counterSinceLastProcess++;
+                if (slidingWindowList.size() >= WINDOW_SIZE && counterSinceLastProcess >= STEP_SIZE) {
+                    counterSinceLastProcess = 0;
+                    processAndSaveWindow(new ArrayList<>(slidingWindowList));
+                }
+            }
+
+            // 2. Оценка дыхательного цикла (10 сек) - только во время тренировки
+            if (!isPostiTraceActive) {
                 synchronized (rsaCycleBuffer) {
                     rsaCycleBuffer.add(rrMs);
                     rsaCycleAccumulatedMs += rrMs;
@@ -462,31 +426,31 @@ public class HrvForegroundService extends Service {
                         evaluateCyclePhaseCorrection(cycleCopy);
                     }
                 }
+            }
 
-                // 3. МАКРО-УРОВЕНЬ: Накопление 300 RR для макро-дампа
-                synchronized (macroRrBuffer) {
-                    macroRrBuffer.add(rrMs);
-                    int instantHr = Math.round(60000.0f / rrMs);
-                    macroHrWindow.add(instantHr);
+            // 3. МАКРО-УРОВЕНЬ: Накопление 300 RR для макро-дампа
+            synchronized (macroRrBuffer) {
+                macroRrBuffer.add(rrMs);
+                int instantHr = Math.round(60000.0f / rrMs);
+                macroHrWindow.add(instantHr);
 
-                    int rrCount = macroRrBuffer.size();
-                    
-                    // Вызов колбэка для обновления прогресса строго каждые 10 интервалов
-                    if (callback != null && rrCount < TARGET_MACRO_RR_COUNT && (rrCount % 10 == 0)) {
-                        int currentHr = calculateAverageHr(macroHrWindow);
-                        HrvCalculator.Metrics partialMetrics = HrvCalculator.calculate(macroRrBuffer);
-                        callback.onMacroProgressUpdated(rrCount, TARGET_MACRO_RR_COUNT, currentHr, partialMetrics);
-                    }
+                int rrCount = macroRrBuffer.size();
+                
+                // Вызов колбэка для обновления прогресса строго каждые 10 интервалов
+                if (callback != null && rrCount < TARGET_MACRO_RR_COUNT && (rrCount % 10 == 0)) {
+                    int currentHr = calculateAverageHr(macroHrWindow);
+                    HrvCalculator.Metrics partialMetrics = HrvCalculator.calculate(macroRrBuffer);
+                    callback.onMacroProgressUpdated(rrCount, TARGET_MACRO_RR_COUNT, currentHr, partialMetrics);
+                }
 
-                    if (rrCount >= TARGET_MACRO_RR_COUNT) {
-                        List<Integer> dumpSnapshotData = new ArrayList<>(macroRrBuffer);
-                        int avgHr = calculateAverageHr(macroHrWindow);
+                if (rrCount >= TARGET_MACRO_RR_COUNT) {
+                    List<Integer> dumpSnapshotData = new ArrayList<>(macroRrBuffer);
+                    int avgHr = calculateAverageHr(macroHrWindow);
 
-                        macroRrBuffer.clear();
-                        macroHrWindow.clear();
+                    macroRrBuffer.clear();
+                    macroHrWindow.clear();
 
-                        processAndSaveMacroDump(dumpSnapshotData, avgHr);
-                    }
+                    processAndSaveMacroDump(dumpSnapshotData, avgHr);
                 }
             }
         }
@@ -506,30 +470,31 @@ public class HrvForegroundService extends Service {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(dumpData);
             if (metrics != null && metrics.isValid) {
                 globalUniqueCounter++;
-                trainingDumpCounter++;
-                currentBlockNumber++;
+                dumpCounter++;
+                if (!isPostiPhaseActive()) {
+                    currentBlockNumber++;
+                }
 
-                boolean isCycleComplete = (currentBlockNumber >= trainingTargetX);
-
+                boolean isCycleComplete = (!isPostiPhaseActive() && currentBlockNumber >= trainingTargetX);
                 boolean snapshotTestMode = isMayerTestMode;
 
                 float macroPhase = MayerWaveAnalyzer.calculateInitialPhase(dumpData, currentModulationPeriodMs);
 
-                QuantumContext quantum = new QuantumContext(globalUniqueCounter, trainingDumpCounter, currentBlockNumber, isCycleComplete, trainingTargetX, macroPhase);
+                QuantumContext quantum = new QuantumContext(globalUniqueCounter, dumpCounter, currentBlockNumber, isPostiTraceActive, trainingTargetX, macroPhase);
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
 
                 SessionSnapshot dumpSnapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
                         metrics,
                         currentModulationSec,
-                        false, // isPstiPhase
-                        true,  // isDumpSnapshot
+                        isPostiTraceActive,
+                        true,  // isMacroDump = true
                         snapshotTestMode,
                         globalUniqueCounter,
-                        trainingDumpCounter,
-                        0,     // testDumpIndex
+                        sliceCounter,
+                        dumpCounter,
                         currentBlockNumber,
-                        macroPhase // Передаем вычисленную фазу макро-дампа
+                        macroPhase
                 );
 
                 synchronized (snapshotBuffer) {
@@ -537,8 +502,8 @@ public class HrvForegroundService extends Service {
                 }
 
                 if (DEBUG) {
-                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Global #%d, Training #%d) | Тест Майера: %b | Блок %d/%d | Переход к PSTI: %b | RMSSD: %.1f ms | Фаза Майера: %.2f",
-                            globalUniqueCounter, trainingDumpCounter, snapshotTestMode, currentBlockNumber, trainingTargetX, isCycleComplete, metrics.rmssd, macroPhase));
+                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Global #%d, Dump #%d, PSTI: %b) | Тест Майера: %b | Блок %d/%d | RMSSD: %.1f ms | Фаза Майера: %.2f",
+                            globalUniqueCounter, dumpCounter, isPostiTraceActive, snapshotTestMode, currentBlockNumber, trainingTargetX, metrics.rmssd, macroPhase));
                 }
 
                 if (callback != null) {
@@ -561,6 +526,10 @@ public class HrvForegroundService extends Service {
         }
     }
 
+    private boolean isPstiPhaseActive() {
+        return isPostiTraceActive;
+    }
+
     private void evaluateCyclePhaseCorrection(List<Integer> cycleRrList) {
         if (isMayerTestMode) return;
         if (cycleRrList == null || cycleRrList.size() < 5) return;
@@ -578,10 +547,11 @@ public class HrvForegroundService extends Service {
         try {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(windowData);
             if (metrics != null && metrics.isValid) {
+                globalUniqueCounter++;
+                sliceCounter++;
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
                 int activeBlockNum = Math.max(1, currentBlockNumber);
 
-                // Вычисление мгновенной фазы Майера для микро-среза
                 float phim = MayerWaveAnalyzer.calculateInitialPhase(windowData, currentModulationPeriodMs);
 
                 SessionSnapshot snapshot = new SessionSnapshot(
@@ -589,13 +559,13 @@ public class HrvForegroundService extends Service {
                         metrics,
                         currentModulationSec,
                         isPostiTraceActive,
-                        false, // isDumpSnapshot
+                        false, // isMacroDump = false (микро-срез)
                         isMayerTestMode,
-                        0,     // globalUniqueIndex
-                        0,     // trainingDumpIndex
-                        0,     // testDumpIndex
+                        globalUniqueCounter,
+                        sliceCounter,
+                        dumpCounter,
                         activeBlockNum,
-                        phim   // Передаем рассчитанное значение PhM в строгий конструктор
+                        phim
                 );
                 synchronized (snapshotBuffer) {
                     snapshotBuffer.add(snapshot);
@@ -607,7 +577,7 @@ public class HrvForegroundService extends Service {
     }
 
     public List<Integer> getSessionRrData() {
-        return trainingSessionManager.getRawSessionData();
+        return sessionManager.getRawSessionData();
     }
 
     public boolean isRecording() {
