@@ -288,7 +288,7 @@ textParams.topMargin = topMarginPx;
         pacerHeaderLayout.setLayoutParams(headerParams);
 
         v.tvPhimIndex = new TextView(context);
-        v.tvPhimIndex.setText("PhM:[--]%  ");
+        v.tvPhimIndex.setText("PhM:[--]  "); // Убран знак процента из строки-заглушки
         v.tvPhimIndex.setTextSize(15);
         v.tvPhimIndex.setTextColor(0xFFFF6D00);
         pacerHeaderLayout.addView(v.tvPhimIndex);
