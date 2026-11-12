@@ -1051,6 +1051,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 int globalIdx = ++lastGlobalUniqueIndex;
                 int testIdx = ++testDumpCounter;
                 
+                // Вычисление фазы Майера для PSTI дампа
+                float phim = MayerWaveAnalyzer.calculateInitialPhase(snapshotRr, (long)(actualModulationSec * 1000f));
+                
                 SessionSnapshot postiSummarySnapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
                         postiMetrics,
@@ -1061,7 +1064,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         globalIdx,
                         0,     // trainingDumpIndex
                         testIdx,
-                        1      // blockNumber
+                        1,     // blockNumber
+                        phim   // Передаем обязательный параметр PhM
                 );
                 if (isBound && hrvService != null) {
                     hrvService.addSnapshot(postiSummarySnapshot);
