@@ -6,25 +6,25 @@ public class SessionSnapshot {
     private final HrvCalculator.Metrics metrics;
     private final float modulationSec;
     private final boolean isPstiPhase;
-    private final boolean isDumpSnapshot;
+    private final boolean isMacroDump;
     private final boolean isMayerTestMode;
     private final int globalUniqueIndex;
-    private final int trainingDumpIndex;
-    private final int testDumpIndex;
+    private final int sliceIndex;
+    private final int dumpIndex;
     private final int blockNumber;
     private final float phim;
 
-    // Строгий конструктор с обязательным параметром phim
+    // Строгий конструктор с обновленным набором параметров
     public SessionSnapshot(
             long timestamp,
             HrvCalculator.Metrics metrics,
             float modulationSec,
             boolean isPstiPhase,
-            boolean isDumpSnapshot,
+            boolean isMacroDump,
             boolean isMayerTestMode,
             int globalUniqueIndex,
-            int trainingDumpIndex,
-            int testDumpIndex,
+            int sliceIndex,
+            int dumpIndex,
             int blockNumber,
             float phim
     ) {
@@ -32,11 +32,11 @@ public class SessionSnapshot {
         this.metrics = metrics;
         this.modulationSec = modulationSec;
         this.isPstiPhase = isPstiPhase;
-        this.isDumpSnapshot = isDumpSnapshot;
+        this.isMacroDump = isMacroDump;
         this.isMayerTestMode = isMayerTestMode;
         this.globalUniqueIndex = globalUniqueIndex;
-        this.trainingDumpIndex = trainingDumpIndex;
-        this.testDumpIndex = testDumpIndex;
+        this.sliceIndex = sliceIndex;
+        this.dumpIndex = dumpIndex;
         this.blockNumber = blockNumber;
         this.phim = phim;
     }
@@ -70,10 +70,10 @@ public class SessionSnapshot {
     }
 
     /**
-     * Признак итогового снимка по завершении 300-ударного дампа
+     * Признак макро-дампа (false — микро-срез каждые 10 RR, true — макро-дамп каждые 300 RR)
      */
-    public boolean isDumpSnapshot() {
-        return isDumpSnapshot;
+    public boolean isMacroDump() {
+        return isMacroDump;
     }
 
     /**
@@ -84,24 +84,24 @@ public class SessionSnapshot {
     }
 
     /**
-     * Сквозной глобальный уникальный номер дампа сессии
+     * Сквозной глобальный уникальный номер элемента сессии
      */
     public int getGlobalUniqueIndex() {
         return globalUniqueIndex;
     }
 
     /**
-     * Порядковый номер тренировочного макро-дампа
+     * Сквозной порядковый номер микро-среза
      */
-    public int getTrainingDumpIndex() {
-        return trainingDumpIndex;
+    public int getSliceIndex() {
+        return sliceIndex;
     }
 
     /**
-     * Порядковый номер макро-дампа теста PSTI
+     * Унифицированный порядковый номер макро-дампа
      */
-    public int getTestDumpIndex() {
-        return testDumpIndex;
+    public int getDumpIndex() {
+        return dumpIndex;
     }
 
     /**
