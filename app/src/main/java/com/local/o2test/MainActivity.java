@@ -65,7 +65,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private boolean isCalibrationCompleted = false;
     private int sessionDumpCount = 0;
-    private int lastGlobalUniqueIndex = 0;
     private int testDumpCounter = 0;
     private long sessionStartTime = 0;
     private long postiStartTime = 0;
@@ -376,11 +375,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
                 int totalBlocks = trainingTargetX;
                 int currentBlockNum = context != null ? context.getBlockNumber() : ((sessionDumpCount % totalBlocks) + 1);
+                int currentDumpIndex = context != null ? context.getDumpIndex() : (sessionDumpCount + 1);
                 String blockInfo = String.format(Locale.US, "Блок %d/%d", currentBlockNum, totalBlocks);
 
-                // Синхронизируем глобальный уникальный индекс из контекста сервиса
+                // Синхронизируем фазовое значение из контекста сервиса
                 if (context != null) {
-                    lastGlobalUniqueIndex = context.getGlobalUniqueIndex();
                     float macroPhase = context.getMacroPhase();
                     runOnUiThread(() -> updatePhimIndexDisplay(macroPhase));
                 }
@@ -393,7 +392,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 sessionDumpCount++;
                 completedCyclesInCurrentDump = 0;
 
-                int currentDumpIndex = lastGlobalUniqueIndex;
                 if (DEBUG) {
                     onLog(String.format(Locale.US, "[STATE_MACHINE] Дамп #%d завершен (Блок %d/%d)", currentDumpIndex, currentBlockNum, totalBlocks));
                 } else {
@@ -939,7 +937,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = true;
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
-        lastGlobalUniqueIndex = 0;
         testDumpCounter = 0;
         completedCyclesInCurrentDump = 0;
         lastPstiScore = 0.0;
@@ -1047,7 +1044,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             if (postiMetrics != null && postiMetrics.isValid) {
                 float actualModulationSec = (isBound && hrvService != null) ? (hrvService.getModulationPeriodMs() / 1000.0f) : (fixedModulationPeriodMs / 1000.0f);
                 
-                int globalIdx = ++lastGlobalUniqueIndex;
                 int testIdx = ++testDumpCounter;
                 
                 // Вычисление фазы Майера для PSTI дампа
@@ -1060,7 +1056,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         true,  // isPstiPhase
                         true,  // isMacroDump
                         false, // isMayerTestMode
-                        globalIdx,
                         0,     // sliceIndex
                         testIdx, // dumpIndex
                         1,     // blockNumber
@@ -1075,7 +1070,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         testIdx, postiMetrics.rmssd, postiMetrics.pnn50, currentLfHfDisplayStr, postiMetrics.totalPower);
                 onLog(logMsg);
                 
-                onLog(String.format(Locale.US, "[Дамп #%d (Тест PSTI #%d) завершен]", globalIdx, testIdx));
+                onLog(String.format(Locale.US, "[Дамп (Тест PSTI #%d) завершен]", testIdx));
 
                 String rmssdStr = String.format(Locale.US, "%.1f ms", postiMetrics.rmssd);
                 String pnn50Str = String.format(Locale.US, "%.1f%%", postiMetrics.pnn50);
@@ -1157,7 +1152,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isTrainingModeActive = false;
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
-        lastGlobalUniqueIndex = 0;
         testDumpCounter = 0;
         completedCyclesInCurrentDump = 0;
         
