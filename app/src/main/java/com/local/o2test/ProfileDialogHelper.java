@@ -218,14 +218,6 @@ public class ProfileDialogHelper {
                                             }
                                             deleteFileWithMediaStore(context, file);
                                         }
-                                        // 3. Удаление тестового CSV (PSTI)
-                                        if (!TextUtils.isEmpty(session.getTestCsvPath())) {
-                                            File file = new File(session.getTestCsvPath());
-                                            if (file.exists()) {
-                                                file.delete();
-                                            }
-                                            deleteFileWithMediaStore(context, file);
-                                        }
                                     }
                                     
                                     db.profileDao().deleteProfileSync(profile.getId());
