@@ -8,13 +8,12 @@ public class SessionSnapshot {
     private final boolean isPstiPhase;
     private final boolean isMacroDump;
     private final boolean isMayerTestMode;
-    private final int globalUniqueIndex;
     private final int sliceIndex;
     private final int dumpIndex;
     private final int blockNumber;
     private final float phim;
 
-    // Строгий конструктор с обновленным набором параметров
+    // Строгий конструктор без устаревшего globalUniqueIndex
     public SessionSnapshot(
             long timestamp,
             HrvCalculator.Metrics metrics,
@@ -22,7 +21,6 @@ public class SessionSnapshot {
             boolean isPstiPhase,
             boolean isMacroDump,
             boolean isMayerTestMode,
-            int globalUniqueIndex,
             int sliceIndex,
             int dumpIndex,
             int blockNumber,
@@ -34,7 +32,6 @@ public class SessionSnapshot {
         this.isPstiPhase = isPstiPhase;
         this.isMacroDump = isMacroDump;
         this.isMayerTestMode = isMayerTestMode;
-        this.globalUniqueIndex = globalUniqueIndex;
         this.sliceIndex = sliceIndex;
         this.dumpIndex = dumpIndex;
         this.blockNumber = blockNumber;
@@ -70,7 +67,7 @@ public class SessionSnapshot {
     }
 
     /**
-     * Признак макро-дампа (false — микро-срез каждые 10 RR, true — макро-дамп каждые 300 RR)
+     * Признак макро-дампа (false — микро-срез, true — макро-дамп)
      */
     public boolean isMacroDump() {
         return isMacroDump;
@@ -81,13 +78,6 @@ public class SessionSnapshot {
      */
     public boolean isMayerTestMode() {
         return isMayerTestMode;
-    }
-
-    /**
-     * Сквозной глобальный уникальный номер элемента сессии
-     */
-    public int getGlobalUniqueIndex() {
-        return globalUniqueIndex;
     }
 
     /**
