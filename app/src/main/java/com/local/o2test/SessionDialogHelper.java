@@ -218,14 +218,12 @@ public class SessionDialogHelper {
                                 // 1. Удаление по прямому пути из сущности
                                 deleteFileAtPath(session.getPdfPath());
                                 deleteFileAtPath(session.getCsvPath());
-                                deleteFileAtPath(session.getTestCsvPath());
 
                                 // 2. Страховка для сессий из бэкапа: поиск и удаление файлов по имени во всех подпапках O2Test
                                 try {
                                     if (o2TestDir.exists() && o2TestDir.isDirectory()) {
                                         deleteFileByNameInDirectory(o2TestDir, session.getPdfPath());
                                         deleteFileByNameInDirectory(o2TestDir, session.getCsvPath());
-                                        deleteFileByNameInDirectory(o2TestDir, session.getTestCsvPath());
                                     }
                                 } catch (Exception e) {
                                     Log.e("SessionDelete", "Ошибка поиска файлов по имени: " + e.getMessage());
