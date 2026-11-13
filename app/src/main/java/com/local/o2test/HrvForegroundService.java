@@ -483,14 +483,15 @@ public class HrvForegroundService extends Service {
 
                 float macroPhase = MayerWaveAnalyzer.calculateInitialPhase(dumpData, currentModulationPeriodMs);
 
-                QuantumContext quantum = new QuantumContext(dumpCounter, currentBlockNumber, isPostiTraceActive, trainingTargetX, macroPhase);
+                // Передаем isCycleComplete в QuantumContext, чтобы MainActivity получила сигнал перехода в PSTI
+                QuantumContext quantum = new QuantumContext(dumpCounter, currentBlockNumber, isCycleComplete, trainingTargetX, macroPhase);
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
 
                 SessionSnapshot dumpSnapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
                         metrics,
                         currentModulationSec,
-                        isPostiTraceActive,
+                        isCycleComplete,
                         true,  // isMacroDump = true
                         snapshotTestMode,
                         sliceCounter,
@@ -504,8 +505,8 @@ public class HrvForegroundService extends Service {
                 }
 
                 if (DEBUG) {
-                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Dump #%d, PSTI: %b) | Тест Майера: %b | Блок %d/%d | RMSSD: %.1f ms | Фаза Майера: %.2f",
-                            dumpCounter, isPostiTraceActive, snapshotTestMode, currentBlockNumber, trainingTargetX, metrics.rmssd, macroPhase));
+                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Dump #%d, PSTI signal: %b) | Тест Майера: %b | Блок %d/%d | RMSSD: %.1f ms | Фаза Майера: %.2f",
+                            dumpCounter, isCycleComplete, snapshotTestMode, currentBlockNumber, trainingTargetX, metrics.rmssd, macroPhase));
                 }
 
                 if (callback != null) {
