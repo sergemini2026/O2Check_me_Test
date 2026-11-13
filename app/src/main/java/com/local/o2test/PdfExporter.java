@@ -273,7 +273,7 @@ public class PdfExporter {
                 }
             }
 
-            // МАКРО-УРОВЕНЬ ДЛЯ ГРАФИКОВ [Раздел 4] (фильтрация по isMacroDump)
+            // МАКРО-УРОВЕНЬ ДЛЯ ГРАФИКОВ [Раздел 4] (фильтрация по isMacroDump с сортировкой по автоинкреметному id)
             List<HrvSnapshotEntity> dumpSnapshots = new ArrayList<>();
             if (snapshots != null) {
                 for (HrvSnapshotEntity s : snapshots) {
@@ -282,7 +282,7 @@ public class PdfExporter {
                     }
                 }
                 Collections.sort(dumpSnapshots, Comparator
-                        .comparingInt(HrvSnapshotEntity::getGlobalUniqueIndex));
+                        .comparingLong(HrvSnapshotEntity::getId));
             }
 
             int dumpTotal = dumpSnapshots.size();
@@ -497,7 +497,7 @@ public class PdfExporter {
                 canvasN.drawText("SDNN", MARGIN + 85, startY, textPaint);
                 canvasN.drawText("SI", MARGIN + 120, startY, textPaint);
                 canvasN.drawText("IA", MARGIN + 155, startY, textPaint);
-                canvasN.drawText("PhM", MARGIN + 195, startY, textPaint);     // Колонка PhM в чистом виде (0.0 - 1.0)
+                canvasN.drawText("PhM", MARGIN + 195, startY, textPaint);
                 canvasN.drawText("LF/HF", MARGIN + 235, startY, textPaint);
                 canvasN.drawText("TP", MARGIN + 275, startY, textPaint);
                 canvasN.drawText("SampEn", MARGIN + 330, startY, textPaint);
@@ -564,7 +564,7 @@ public class PdfExporter {
                     canvasN.drawText(String.format(Locale.US, "%.1f", s.getSdnn()), MARGIN + 85, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.1f", s.getBaevskySi()), MARGIN + 120, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.0f%%", iaPct), MARGIN + 155, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getPhim()), MARGIN + 195, currentYLog, textPaint); // Вывод PhM в чистом виде (0.0 - 1.0)
+                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getPhim()), MARGIN + 195, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getLfHfRatio()), MARGIN + 235, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.0f", s.getTotalPower()), MARGIN + 275, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getSampleEntropy()), MARGIN + 330, currentYLog, textPaint);
