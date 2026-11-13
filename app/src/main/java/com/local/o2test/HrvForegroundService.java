@@ -374,8 +374,19 @@ public class HrvForegroundService extends Service {
         return isPostiTraceActive;
     }
 
+    public boolean isPstiPhaseActive() {
+        return isPostiTraceActive;
+    }
+
+    public List<DataPoint> getTrainingDataPoints() {
+        return getSessionDataPoints();
+    }
+
+    public List<DataPoint> getTestDataPoints() {
+        return new ArrayList<>();
+    }
+
     public List<Integer> getPostiRrData() {
-        // Возвращаем данные PSTI из общего сессионного менеджера или фильтруем по фазе
         return sessionManager.getRawSessionData();
     }
 
@@ -436,7 +447,6 @@ public class HrvForegroundService extends Service {
 
                 int rrCount = macroRrBuffer.size();
                 
-                // Вызов колбэка для обновления прогресса строго каждые 10 интервалов
                 if (callback != null && rrCount < TARGET_MACRO_RR_COUNT && (rrCount % 10 == 0)) {
                     int currentHr = calculateAverageHr(macroHrWindow);
                     HrvCalculator.Metrics partialMetrics = HrvCalculator.calculate(macroRrBuffer);
@@ -471,11 +481,11 @@ public class HrvForegroundService extends Service {
             if (metrics != null && metrics.isValid) {
                 globalUniqueCounter++;
                 dumpCounter++;
-                if (!isPostiPhaseActive()) {
+                if (!isPstiPhaseActive()) {
                     currentBlockNumber++;
                 }
 
-                boolean isCycleComplete = (!isPostiPhaseActive() && currentBlockNumber >= trainingTargetX);
+                boolean isCycleComplete = (!isPstiPhaseActive() && currentBlockNumber >= trainingTargetX);
                 boolean snapshotTestMode = isMayerTestMode;
 
                 float macroPhase = MayerWaveAnalyzer.calculateInitialPhase(dumpData, currentModulationPeriodMs);
@@ -524,10 +534,6 @@ public class HrvForegroundService extends Service {
         } catch (Exception e) {
             e.printStackTrace();
         }
-    }
-
-    private boolean isPstiPhaseActive() {
-        return isPostiTraceActive;
     }
 
     private void evaluateCyclePhaseCorrection(List<Integer> cycleRrList) {
