@@ -1057,9 +1057,13 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         System.currentTimeMillis(),
                         postiMetrics,
                         actualModulationSec,
+                        true,  // isPstiPhase
                         true,  // isMacroDump
+                        false, // isMayerTestMode
+                        globalIdx,
                         0,     // sliceIndex
-                        testIdx, // dumpIndex (используем testDumpCounter как индекс дампа для PSTI)
+                        testIdx, // dumpIndex
+                        1,     // blockNumber
                         phim
                 );
                 if (isBound && hrvService != null) {
