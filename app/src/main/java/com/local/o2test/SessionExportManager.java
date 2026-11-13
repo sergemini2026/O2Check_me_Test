@@ -205,7 +205,6 @@ public class SessionExportManager {
                                 snapshot.isPstiPhase(),
                                 snapshot.isMacroDump(),
                                 snapshot.isMayerTestMode(),
-                                snapshot.getGlobalUniqueIndex(),
                                 snapshot.getSliceIndex(),
                                 snapshot.getDumpIndex(),
                                 snapshot.getBlockNumber(),
