@@ -49,15 +49,14 @@ public class HrvForegroundService extends Service {
     private int rsaCycleAccumulatedMs = 0;
     private static final int TARGET_CYCLE_MS = 10000;
 
-    // --- МАКРО-СЛОЙ И СКВОЗНЫЕ СЧЕТЧИКИ ИНДЕКСОВ ---
+    // --- МАКРО-СЛОЙ И СЧЕТЧИКИ ИНДЕКСОВ ---
     private static final int TARGET_MACRO_RR_COUNT = 300;
     private final List<Integer> macroRrBuffer = Collections.synchronizedList(new ArrayList<>());
     private final List<Integer> macroHrWindow = Collections.synchronizedList(new ArrayList<>());
     
     private int trainingTargetX = 1;
-    private int globalUniqueCounter = 0;
     private int sliceCounter = 0;
-    private int dumpCounter = 0;
+    private int dumpCounter = 1;
     private int currentBlockNumber = 0;
 
     private boolean isRecording = false;
@@ -76,15 +75,13 @@ public class HrvForegroundService extends Service {
     private long currentModulationPeriodMs = 10000;
 
     public static class QuantumContext {
-        private final int globalUniqueIndex;
         private final int dumpIndex;
         private final int blockNumber;
         private final boolean isPstiPhase;
         private final int targetX;
         private final float macroPhase;
 
-        public QuantumContext(int globalUniqueIndex, int dumpIndex, int blockNumber, boolean isPstiPhase, int targetX, float macroPhase) {
-            this.globalUniqueIndex = globalUniqueIndex;
+        public QuantumContext(int dumpIndex, int blockNumber, boolean isPstiPhase, int targetX, float macroPhase) {
             this.dumpIndex = dumpIndex;
             this.blockNumber = blockNumber;
             this.isPstiPhase = isPstiPhase;
@@ -92,7 +89,6 @@ public class HrvForegroundService extends Service {
             this.macroPhase = macroPhase;
         }
 
-        public int getGlobalUniqueIndex() { return globalUniqueIndex; }
         public int getDumpIndex() { return dumpIndex; }
         public int getBlockNumber() { return blockNumber; }
         public boolean isPstiPhase() { return isPstiPhase; }
@@ -317,9 +313,8 @@ public class HrvForegroundService extends Service {
         synchronized (macroRrBuffer) { macroRrBuffer.clear(); }
         synchronized (macroHrWindow) { macroHrWindow.clear(); }
         
-        globalUniqueCounter = 0;
         sliceCounter = 0;
-        dumpCounter = 0;
+        dumpCounter = 1;
         currentBlockNumber = 0;
         isMayerTestMode = false;
 
@@ -479,8 +474,6 @@ public class HrvForegroundService extends Service {
         try {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(dumpData);
             if (metrics != null && metrics.isValid) {
-                globalUniqueCounter++;
-                dumpCounter++;
                 if (!isPstiPhaseActive()) {
                     currentBlockNumber++;
                 }
@@ -490,7 +483,7 @@ public class HrvForegroundService extends Service {
 
                 float macroPhase = MayerWaveAnalyzer.calculateInitialPhase(dumpData, currentModulationPeriodMs);
 
-                QuantumContext quantum = new QuantumContext(globalUniqueCounter, dumpCounter, currentBlockNumber, isPostiTraceActive, trainingTargetX, macroPhase);
+                QuantumContext quantum = new QuantumContext(dumpCounter, currentBlockNumber, isPostiTraceActive, trainingTargetX, macroPhase);
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
 
                 SessionSnapshot dumpSnapshot = new SessionSnapshot(
@@ -500,7 +493,6 @@ public class HrvForegroundService extends Service {
                         isPostiTraceActive,
                         true,  // isMacroDump = true
                         snapshotTestMode,
-                        globalUniqueCounter,
                         sliceCounter,
                         dumpCounter,
                         currentBlockNumber,
@@ -512,13 +504,16 @@ public class HrvForegroundService extends Service {
                 }
 
                 if (DEBUG) {
-                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Global #%d, Dump #%d, PSTI: %b) | Тест Майера: %b | Блок %d/%d | RMSSD: %.1f ms | Фаза Майера: %.2f",
-                            globalUniqueCounter, dumpCounter, isPostiTraceActive, snapshotTestMode, currentBlockNumber, trainingTargetX, metrics.rmssd, macroPhase));
+                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Dump #%d, PSTI: %b) | Тест Майера: %b | Блок %d/%d | RMSSD: %.1f ms | Фаза Майера: %.2f",
+                            dumpCounter, isPostiTraceActive, snapshotTestMode, currentBlockNumber, trainingTargetX, metrics.rmssd, macroPhase));
                 }
 
                 if (callback != null) {
                     callback.onMacroDumpCompleted(avgHr, metrics, TARGET_MACRO_RR_COUNT, quantum);
                 }
+
+                // Инвертируем/инкрементируем dumpCounter строго после фиксации текущего макро-дампа
+                dumpCounter++;
 
                 if (snapshotTestMode) {
                     isMayerTestMode = false;
@@ -553,7 +548,6 @@ public class HrvForegroundService extends Service {
         try {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(windowData);
             if (metrics != null && metrics.isValid) {
-                globalUniqueCounter++;
                 sliceCounter++;
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
                 int activeBlockNum = Math.max(1, currentBlockNumber);
@@ -567,7 +561,6 @@ public class HrvForegroundService extends Service {
                         isPostiTraceActive,
                         false, // isMacroDump = false (микро-срез)
                         isMayerTestMode,
-                        globalUniqueCounter,
                         sliceCounter,
                         dumpCounter,
                         activeBlockNum,
