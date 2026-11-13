@@ -26,11 +26,10 @@ data class HrvSnapshotEntity(
     val artifactsDetected: Int,
     val artifactPct: Double,
     val isPstiPhase: Boolean = false,
-    val isMacroDump: Boolean = false,        // false — микро-срез (каждые 10 RR), true — макро-дамп (каждые 300 RR)
+    val isMacroDump: Boolean = false,        // false — микро-срез, true — макро-дамп
     val isMayerTestMode: Boolean = false,
-    val globalUniqueIndex: Int = 0,
-    val sliceIndex: Int = 0,                // Сквозной порядковый номер микро-среза
-    val dumpIndex: Int = 0,                 // Унифицированный порядковый номер макро-дампа
+    val sliceIndex: Int = 0,                // Порядковый номер микро-среза
+    val dumpIndex: Int = 0,                 // Порядковый номер макро-дампа
     val blockNumber: Int = 1,
     val phim: Float                         // Мгновенная фаза Майера
 ) {
@@ -41,7 +40,6 @@ data class HrvSnapshotEntity(
         isPstiPhase: Boolean,
         isMacroDump: Boolean,
         isMayerTestMode: Boolean,
-        globalUniqueIndex: Int,
         sliceIndex: Int,
         dumpIndex: Int,
         blockNumber: Int,
@@ -67,7 +65,6 @@ data class HrvSnapshotEntity(
         isPstiPhase = isPstiPhase,
         isMacroDump = isMacroDump,
         isMayerTestMode = isMayerTestMode,
-        globalUniqueIndex = globalUniqueIndex,
         sliceIndex = sliceIndex,
         dumpIndex = dumpIndex,
         blockNumber = blockNumber,
