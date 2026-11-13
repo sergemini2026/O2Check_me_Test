@@ -781,15 +781,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private void updatePhimIndexDisplay(String phimValue) {
         cachedPhim = phimValue;
         if (ui.tvPhimIndex != null) {
-            ui.tvPhimIndex.setText(String.format(Locale.US, "PhM:[%s]%%  ", phimValue));
+            ui.tvPhimIndex.setText(String.format(Locale.US, "PhM:[%s]  ", phimValue));
         }
     }
 
     private void updatePhimIndexDisplay(float phimValue) {
-        int pct = Math.round(phimValue * 100.0f);
-        cachedPhim = String.valueOf(pct);
+        cachedPhim = String.format(Locale.US, "%.2f", phimValue);
         if (ui.tvPhimIndex != null) {
-            ui.tvPhimIndex.setText(String.format(Locale.US, "PhM:[%d]%%  ", pct));
+            ui.tvPhimIndex.setText(String.format(Locale.US, "PhM:[%.2f]  ", phimValue));
         }
     }
 
@@ -802,9 +801,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private void updateMayerFrequencyIndexDisplay(float modulationPeriodMs) {
         float frequencyHz = 1000.0f / modulationPeriodMs;
-        cachedFm = String.format(Locale.US, "%.3f Hz", frequencyHz);
+        cachedFm = String.format(Locale.US, "%.1f Hz", frequencyHz);
         if (ui.tvMayerFrequencyIndex != null) {
-            ui.tvMayerFrequencyIndex.setText(String.format(Locale.US, "FM:[%.3f Hz]  ", frequencyHz));
+            ui.tvMayerFrequencyIndex.setText(String.format(Locale.US, "FM:[%.1f Hz]  ", frequencyHz));
         }
     }
 
@@ -1058,14 +1057,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         System.currentTimeMillis(),
                         postiMetrics,
                         actualModulationSec,
-                        true,  // isPstiPhase
-                        true,  // isDumpSnapshot
-                        false, // isMayerTestMode
-                        globalIdx,
-                        0,     // trainingDumpIndex
-                        testIdx,
-                        1,     // blockNumber
-                        phim   // Передаем обязательный параметр PhM
+                        true,  // isMacroDump
+                        0,     // sliceIndex
+                        testIdx, // dumpIndex (используем testDumpCounter как индекс дампа для PSTI)
+                        phim
                 );
                 if (isBound && hrvService != null) {
                     hrvService.addSnapshot(postiSummarySnapshot);
