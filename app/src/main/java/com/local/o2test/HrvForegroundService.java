@@ -474,24 +474,24 @@ public class HrvForegroundService extends Service {
         try {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(dumpData);
             if (metrics != null && metrics.isValid) {
-                if (!isPstiPhaseActive()) {
+                boolean wasPstiPhase = isPstiPhaseActive();
+
+                if (!wasPstiPhase) {
                     currentBlockNumber++;
                 }
 
-                boolean isCycleComplete = (!isPstiPhaseActive() && currentBlockNumber >= trainingTargetX);
+                boolean isTrainingCycleComplete = (!wasPstiPhase && currentBlockNumber >= trainingTargetX);
                 boolean snapshotTestMode = isMayerTestMode;
 
                 float macroPhase = MayerWaveAnalyzer.calculateInitialPhase(dumpData, currentModulationPeriodMs);
-
-                // Передаем isCycleComplete в QuantumContext, чтобы MainActivity получила сигнал перехода в PSTI
-                QuantumContext quantum = new QuantumContext(dumpCounter, currentBlockNumber, isCycleComplete, trainingTargetX, macroPhase);
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
 
+                // Автономное формирование неизменяемого SessionSnapshot с текущим сквозным dumpIndex
                 SessionSnapshot dumpSnapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
                         metrics,
                         currentModulationSec,
-                        isCycleComplete,
+                        wasPstiPhase,
                         true,  // isMacroDump = true
                         snapshotTestMode,
                         sliceCounter,
@@ -505,15 +505,16 @@ public class HrvForegroundService extends Service {
                 }
 
                 if (DEBUG) {
-                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Dump #%d, PSTI signal: %b) | Тест Майера: %b | Блок %d/%d | RMSSD: %.1f ms | Фаза Майера: %.2f",
-                            dumpCounter, isCycleComplete, snapshotTestMode, currentBlockNumber, trainingTargetX, metrics.rmssd, macroPhase));
+                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Dump #%d, PSTI phase: %b) | Тест Майера: %b | Блок %d/%d | RMSSD: %.1f ms | Фаза Майера: %.2f",
+                            dumpCounter, wasPstiPhase, snapshotTestMode, currentBlockNumber, trainingTargetX, metrics.rmssd, macroPhase));
                 }
 
                 if (callback != null) {
+                    QuantumContext quantum = new QuantumContext(dumpCounter, currentBlockNumber, wasPstiPhase, trainingTargetX, macroPhase);
                     callback.onMacroDumpCompleted(avgHr, metrics, TARGET_MACRO_RR_COUNT, quantum);
                 }
 
-                // Инвертируем/инкрементируем dumpCounter строго после фиксации текущего макро-дампа
+                // Инкремент сквозного счетчика дампов
                 dumpCounter++;
 
                 if (snapshotTestMode) {
@@ -523,8 +524,14 @@ public class HrvForegroundService extends Service {
                     }
                 }
 
-                if (isCycleComplete) {
+                // Автономное переключение фаз внутри сервиса
+                if (wasPstiPhase) {
+                    // Завершился тест PSTI: возвращаем флаг в false и возобновляем тренировочный цикл
+                    stopPostiRecording();
+                } else if (isTrainingCycleComplete) {
+                    // Завершился тренировочный блок (например, 3-1): сбрасываем блоки и автоматически переходим в PSTI
                     currentBlockNumber = 0;
+                    startPostiRecording();
                 }
             }
         } catch (Exception e) {
