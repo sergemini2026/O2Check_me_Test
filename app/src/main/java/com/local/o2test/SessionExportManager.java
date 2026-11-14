@@ -231,6 +231,12 @@ public class SessionExportManager {
                     }
                 }
 
+                // Забор строго упорядоченного массива через новый SQL-запрос DAO для отчета
+                List<HrvSnapshotEntity> reportSnapshots = db.hrvSnapshotDao().getOrderedSnapshotsForReport();
+                if (reportSnapshots == null || reportSnapshots.isEmpty()) {
+                    reportSnapshots = entityList;
+                }
+
                 List<Integer> sessionRrList = new ArrayList<>();
                 for (DataPoint dp : trainingPoints) {
                     if (dp.rrMs > 0) {
@@ -259,6 +265,7 @@ public class SessionExportManager {
                     pstiHistory.add(lastPstiScore);
                 }
 
+                final List<HrvSnapshotEntity> finalReportSnapshots = reportSnapshots;
                 android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
                 mainHandler.post(() -> PdfExporter.generateHrvPdfReport(
                         context,
@@ -267,7 +274,7 @@ public class SessionExportManager {
                         trainingTargetX,
                         sessionStartTime,
                         endTime,
-                        entityList,
+                        finalReportSnapshots,
                         sessionRrList,
                         trainingPoints,
                         testPoints,
