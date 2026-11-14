@@ -65,7 +65,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private boolean isCalibrationCompleted = false;
     private int sessionDumpCount = 0;
-    private int testDumpCounter = 0;
     private long sessionStartTime = 0;
     private long postiStartTime = 0;
 
@@ -365,18 +364,13 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
             @Override
             public void onMacroDumpCompleted(int avgHr, HrvCalculator.Metrics hrv, int rrCount, HrvForegroundService.QuantumContext context) {
-                boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
-                
-                if (isPostiActive) {
-                    // Событие завершения PSTI дампа (событийное завершение фазы без таймеров)
-                    evaluateAndFinishPostiTrace();
-                    return;
-                }
+                boolean isPostiPhase = context != null && context.isPstiPhase();
 
                 int totalBlocks = trainingTargetX;
-                int currentBlockNum = context != null ? context.getBlockNumber() : ((sessionDumpCount % totalBlocks) + 1);
+                int currentBlockNum = context != null ? context.getBlockNumber() : 1;
                 int currentDumpIndex = context != null ? context.getDumpIndex() : (sessionDumpCount + 1);
-                String blockInfo = String.format(Locale.US, "Блок %d/%d", currentBlockNum, totalBlocks);
+                
+                String blockInfo = isPostiPhase ? "Тест PSTI" : String.format(Locale.US, "Блок %d/%d", currentBlockNum, totalBlocks);
 
                 // Синхронизируем фазовое значение из контекста сервиса
                 if (context != null) {
@@ -385,27 +379,38 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 }
 
                 String logMsg = String.format(Locale.US,
-                        "[Дамп ГОТОВ 100%%] %s | HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %s | TP: %.0f ms²",
-                        blockInfo, avgHr, hrv != null ? hrv.rmssd : 0.0, hrv != null ? hrv.pnn50 : 0.0, currentLfHfDisplayStr, hrv != null ? hrv.totalPower : 0.0);
+                        "[Дамп ГОТОВ 100%%] %s (#%d) | HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %s | TP: %.0f ms²",
+                        blockInfo, currentDumpIndex, avgHr, hrv != null ? hrv.rmssd : 0.0, hrv != null ? hrv.pnn50 : 0.0, currentLfHfDisplayStr, hrv != null ? hrv.totalPower : 0.0);
                 onLog(logMsg);
 
                 sessionDumpCount++;
                 completedCyclesInCurrentDump = 0;
 
-                if (DEBUG) {
-                    onLog(String.format(Locale.US, "[STATE_MACHINE] Дамп #%d завершен (Блок %d/%d)", currentDumpIndex, currentBlockNum, totalBlocks));
-                } else {
-                    onLog(String.format(Locale.US, "[Дамп #%d завершен]", currentDumpIndex));
-                }
-
                 if (progressManager != null) {
                     progressManager.restart();
                 }
 
-                if (context != null && context.isPstiPhase()) {
-                    startPostiTraceWindow();
+                if (isPostiPhase) {
+                    onLog(String.format(Locale.US, "[Дамп (Тест PSTI #%d) завершен]", currentDumpIndex));
+                    
+                    // После завершения PSTI дампа в сервисе: возобновляем сбор пульса и разблокируем тест
+                    if (polarManager != null) {
+                        polarManager.startCollection();
+                    }
+                    if (mayerTestManager != null) {
+                        mayerTestManager.setAvailable(true);
+                    }
+                    runOnUiThread(() -> {
+                        if (isRecording && isBound && hrvService != null) {
+                            startClockAndPacerAfterCalibration(0.0f);
+                        }
+                    });
                 } else {
-                    onLog("[Мониторинг] Продолжение сеанса дыхания...");
+                    if (context != null && hrvService != null && hrvService.isPstiPhaseActive()) {
+                        startPostiTraceWindow();
+                    } else {
+                        onLog("[Мониторинг] Продолжение сеанса дыхания...");
+                    }
                 }
 
                 runOnUiThread(() -> updateRightPanelStatus());
@@ -749,7 +754,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             }
         } else {
             if (isPostiActive) {
-                ui.tvStatusValue.setText(String.format(Locale.US, "Статус: Замер следа (PSTI) - Блок 1/1%s", pstiSuffix));
+                ui.tvStatusValue.setText(String.format(Locale.US, "Статус: Замер следа (PSTI)%s", pstiSuffix));
             } else if (isTrainingModeActive) {
                 int totalBlocks = trainingTargetX;
                 int currentBlockNum = (sessionDumpCount % totalBlocks) + 1;
@@ -937,7 +942,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = true;
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
-        testDumpCounter = 0;
         completedCyclesInCurrentDump = 0;
         lastPstiScore = 0.0;
         lastPstiRmssdRatio = 0.0;
@@ -1022,116 +1026,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         onLog("[PSTI] Модуляция остановлена. Запуск замера индекса консолидации барорефлекса PSTI в сервисе...");
     }
 
-    private void evaluateAndFinishPostiTrace() {
-        List<Integer> snapshotRr = new ArrayList<>();
-        if (isBound && hrvService != null) {
-            snapshotRr = hrvService.getPostiRrData();
-            hrvService.stopPostiRecording();
-        }
-
-        if (!snapshotRr.isEmpty()) {
-            List<Integer> baselineRr = new ArrayList<>();
-            if (isBound && hrvService != null) {
-                baselineRr = hrvService.getSessionRrData();
-            }
-
-            double testLfHf = calculateTestLfHfWithFiltering(snapshotRr);
-            cycleLfHfValuesList.add(testLfHf);
-            currentLfHfDisplayStr = String.format(Locale.US, "%.2f", testLfHf);
-            onLog(String.format(Locale.US, "[LF/HF ТЕСТ] Отфильтрованный LF/HF для тестового окна: %.2f", testLfHf));
-
-            HrvCalculator.Metrics postiMetrics = HrvCalculator.calculate(snapshotRr);
-            if (postiMetrics != null && postiMetrics.isValid) {
-                float actualModulationSec = (isBound && hrvService != null) ? (hrvService.getModulationPeriodMs() / 1000.0f) : (fixedModulationPeriodMs / 1000.0f);
-                
-                int testIdx = ++testDumpCounter;
-                
-                // Вычисление фазы Майера для PSTI дампа
-                float phim = MayerWaveAnalyzer.calculateInitialPhase(snapshotRr, (long)(actualModulationSec * 1000f));
-                
-                SessionSnapshot postiSummarySnapshot = new SessionSnapshot(
-                        System.currentTimeMillis(),
-                        postiMetrics,
-                        actualModulationSec,
-                        true,  // isPstiPhase
-                        true,  // isMacroDump
-                        false, // isMayerTestMode
-                        0,     // sliceIndex
-                        testIdx, // dumpIndex
-                        1,     // blockNumber
-                        phim
-                );
-                if (isBound && hrvService != null) {
-                    hrvService.addSnapshot(postiSummarySnapshot);
-                }
-
-                String logMsg = String.format(Locale.US,
-                        "[Дамп ГОТОВ 100%%] Тест PSTI #%d | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %s | TP: %.0f ms²",
-                        testIdx, postiMetrics.rmssd, postiMetrics.pnn50, currentLfHfDisplayStr, postiMetrics.totalPower);
-                onLog(logMsg);
-                
-                onLog(String.format(Locale.US, "[Дамп (Тест PSTI #%d) завершен]", testIdx));
-
-                String rmssdStr = String.format(Locale.US, "%.1f ms", postiMetrics.rmssd);
-                String pnn50Str = String.format(Locale.US, "%.1f%%", postiMetrics.pnn50);
-                
-                double iaNorm = (postiMetrics.lfPower + postiMetrics.hfPower > 0) ? (2.0 * postiMetrics.lfPower / (postiMetrics.lfPower + postiMetrics.hfPower)) : 1.0;
-                double iaPct = Math.max(0.0, Math.min(100.0, (iaNorm - 1.0) * 100.0));
-                String iaStr = String.format(Locale.US, "%.0f", iaPct);
-                
-                String tpStr = String.format(Locale.US, "%.0f ms²", postiMetrics.totalPower);
-                final String finalLfHfStr = currentLfHfDisplayStr;
-
-                runOnUiThread(() -> {
-                    updateMetricsDisplay(rmssdStr, pnn50Str, finalLfHfStr, tpStr);
-                    updateAttractorIndexDisplay(iaStr);
-                });
-            }
-
-            HrvCalculator.PstiResult pstiResult = HrvCalculator.calculatePsti(baselineRr, snapshotRr);
-            if (pstiResult.isValid) {
-                lastPstiScore = pstiResult.pstiScore;
-                lastPstiRmssdRatio = pstiResult.pstiRmssdRatio;
-                onLog(String.format(Locale.US, "[PSTI РЕЗУЛЬТАТ] Индекс консолидации барорефлекса PSTI: %.1f%% (RMSSD ratio: %.2f)",
-                        lastPstiScore, lastPstiRmssdRatio));
-            } else {
-                if (postiMetrics != null) {
-                    lastPstiScore = Math.min(100.0, (postiMetrics.rmssd / 50.0) * 50.0 + (Math.min(postiMetrics.totalPower, 2500.0) / 2500.0) * 50.0);
-                    lastPstiRmssdRatio = 1.0;
-                    onLog(String.format(Locale.US, "[PSTI РЕЗУЛЬТАТ (fallback)] Индекс консолидации PSTI: %.1f%%", lastPstiScore));
-                }
-            }
-        } else {
-            onLog("[PSTI] Окно замера завершено, но данные RR отсутствуют.");
-        }
-
-        sessionDumpCount = 0;
-
-        if (polarManager != null) {
-            polarManager.startCollection();
-        }
-
-        updateRightPanelStatus();
-        onLog("[PSTI] Завершено. Возобновление дыхательного контура и аудио...");
-
-        if (progressManager != null) {
-            progressManager.restart();
-        }
-
-        completedCyclesInCurrentDump = 0;
-
-        // Событийная разблокировка кнопки «Тест» после завершения расчетов и смены фазы PSTI
-        if (mayerTestManager != null) {
-            mayerTestManager.setAvailable(true);
-        }
-
-        runOnUiThread(() -> {
-            if (isRecording && isBound && hrvService != null) {
-                startClockAndPacerAfterCalibration(0.0f);
-            }
-        });
-    }
-
     private double calculateBaselineLfHf(List<Integer> rrList) {
         if (rrList == null || rrList.size() < 10) return 0.0;
         return HrvCalculator.calculateStandardLfHf(rrList);
@@ -1152,7 +1046,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isTrainingModeActive = false;
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
-        testDumpCounter = 0;
         completedCyclesInCurrentDump = 0;
         
         stopAudioAndClockInService();
@@ -1294,7 +1187,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                             phaseBuffer.add(rrMs);
                             int count = phaseBuffer.size();
 
-                   if (count < CALIBRATION_TARGET) {
+                            if (count < CALIBRATION_TARGET) {
                                 float percent = Math.min(100.0f, (count / (float) CALIBRATION_TARGET) * 100.0f);
                                 String statusText = String.format(Locale.US, "Идет сбор данных для фазовой автоподстройки: %.0f%%", percent);
                                 runOnUiThread(() -> {
@@ -1302,10 +1195,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                         ui.tvStatusValue.setText(statusText);
                                     }
                                 });
-                            }
-
-                   
-                          else {
+                            } else {
                                 isCalibrationCompleted = true;
                                 completedCyclesInCurrentDump = 0;
 
