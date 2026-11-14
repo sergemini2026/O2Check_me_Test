@@ -23,8 +23,10 @@ import java.io.OutputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 public class PdfExporter {
 
@@ -441,17 +443,22 @@ public class PdfExporter {
 
             document.finishPage(pagePoincare);
 
-            // ХРОНОЛОГИЧЕСКИЙ ЛОГ (Раздел 6): фильтрация микро-срезов и макро-дампов по единым флагам
+            // ХРОНОЛОГИЧЕСКИЙ ЛОГ (Раздел 6): детерминированная фильтрация без дублирования PSTI дампов
             List<HrvSnapshotEntity> logSnapshots = new ArrayList<>();
             if (snapshots != null) {
+                Set<Integer> processedPstiDumps = new HashSet<>();
                 for (HrvSnapshotEntity s : snapshots) {
                     if (!s.isPstiPhase()) {
                         if (!s.isMacroDump()) {
                             logSnapshots.add(s);
                         }
                     } else {
+                        // Для теста PSTI выводим строго одну итоговую строку по завершении макро-дампа
                         if (s.isMacroDump()) {
-                            logSnapshots.add(s);
+                            if (!processedPstiDumps.contains(s.getDumpIndex())) {
+                                processedPstiDumps.add(s.getDumpIndex());
+                                logSnapshots.add(s);
+                            }
                         }
                     }
                 }
