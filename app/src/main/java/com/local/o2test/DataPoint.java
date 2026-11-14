@@ -7,6 +7,7 @@ public class DataPoint {
     public int hr;
     public float pi;
     public int rrMs; // Поле для миллисекундных RR-интервалов
+    public long absoluteTime; // Абсолютное время в миллисекундах (System.currentTimeMillis())
 
     public DataPoint(String timestamp, int elapsedSec, int spo2, int hr, float pi, int rrMs) {
         this.timestamp = timestamp;
@@ -15,9 +16,17 @@ public class DataPoint {
         this.hr = hr;
         this.pi = pi;
         this.rrMs = rrMs;
+        this.absoluteTime = System.currentTimeMillis();
     }
 
     public DataPoint(int elapsedSec, int spo2, int hr, float pi, int rrMs) {
         this("", elapsedSec, spo2, hr, pi, rrMs);
+    }
+
+    /**
+     * Возвращает точную метку абсолютного времени в миллисекундах для синхронизации с Room и макро-дампами.
+     */
+    public long getTimestamp() {
+        return absoluteTime;
     }
 }
