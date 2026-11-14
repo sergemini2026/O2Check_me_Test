@@ -37,8 +37,15 @@ public class HrvForegroundService extends Service {
     // Единый менеджер сессии для непрерывного сбора сырых RR-интервалов
     private final HrvSessionManager sessionManager = new HrvSessionManager();
 
-    // Единый массив точек данных сессии со сквозной маркировкой
-    private final List<DataPoint> sessionDataPoints = Collections.synchronizedList(new ArrayList<>());
+    // Оперативный непрерывный буфер сырых секундных точек DataPoint
+    private final List<DataPoint> rawSessionDataPoints = Collections.synchronizedList(new ArrayList<>());
+
+    // Раздельные целевые коллекции для построения графиков и отчетов
+    private final List<DataPoint> trainingDataPoints = Collections.synchronizedList(new ArrayList<>());
+    private final List<DataPoint> testDataPoints = Collections.synchronizedList(new ArrayList<>());
+
+    // Время начала текущего макро-дампа (инициализируется моментом старта сессии)
+    private long currentDumpStartTime = 0L;
 
     private final List<Integer> slidingWindowList = Collections.synchronizedList(new ArrayList<>());
     private boolean isPostiTraceActive = false;
@@ -78,13 +85,15 @@ public class HrvForegroundService extends Service {
         private final int dumpIndex;
         private final int blockNumber;
         private final boolean isPstiPhase;
+        private final boolean nextIsPstiPhase;
         private final int targetX;
         private final float macroPhase;
 
-        public QuantumContext(int dumpIndex, int blockNumber, boolean isPstiPhase, int targetX, float macroPhase) {
+        public QuantumContext(int dumpIndex, int blockNumber, boolean isPstiPhase, boolean nextIsPstiPhase, int targetX, float macroPhase) {
             this.dumpIndex = dumpIndex;
             this.blockNumber = blockNumber;
             this.isPstiPhase = isPstiPhase;
+            this.nextIsPstiPhase = nextIsPstiPhase;
             this.targetX = targetX;
             this.macroPhase = macroPhase;
         }
@@ -92,6 +101,7 @@ public class HrvForegroundService extends Service {
         public int getDumpIndex() { return dumpIndex; }
         public int getBlockNumber() { return blockNumber; }
         public boolean isPstiPhase() { return isPstiPhase; }
+        public boolean isNextIsPstiPhase() { return nextIsPstiPhase; }
         public int getTargetX() { return targetX; }
         public float getMacroPhase() { return macroPhase; }
     }
@@ -306,7 +316,9 @@ public class HrvForegroundService extends Service {
 
     public void startSessionRecording() {
         sessionManager.resetSession();
-        synchronized (sessionDataPoints) { sessionDataPoints.clear(); }
+        synchronized (rawSessionDataPoints) { rawSessionDataPoints.clear(); }
+        synchronized (trainingDataPoints) { trainingDataPoints.clear(); }
+        synchronized (testDataPoints) { testDataPoints.clear(); }
         synchronized (slidingWindowList) { slidingWindowList.clear(); }
         synchronized (snapshotBuffer) { snapshotBuffer.clear(); }
         synchronized (rsaCycleBuffer) { rsaCycleBuffer.clear(); }
@@ -317,6 +329,8 @@ public class HrvForegroundService extends Service {
         dumpCounter = 1;
         currentBlockNumber = 0;
         isMayerTestMode = false;
+
+        currentDumpStartTime = System.currentTimeMillis();
 
         rsaCycleAccumulatedMs = 0;
         isPostiTraceActive = false;
@@ -374,11 +388,15 @@ public class HrvForegroundService extends Service {
     }
 
     public List<DataPoint> getTrainingDataPoints() {
-        return getSessionDataPoints();
+        synchronized (trainingDataPoints) {
+            return new ArrayList<>(trainingDataPoints);
+        }
     }
 
     public List<DataPoint> getTestDataPoints() {
-        return new ArrayList<>();
+        synchronized (testDataPoints) {
+            return new ArrayList<>(testDataPoints);
+        }
     }
 
     public List<Integer> getPostiRrData() {
@@ -387,14 +405,14 @@ public class HrvForegroundService extends Service {
 
     public void addDataPoint(DataPoint dp) {
         if (!isRecording) return;
-        synchronized (sessionDataPoints) {
-            sessionDataPoints.add(dp);
+        synchronized (rawSessionDataPoints) {
+            rawSessionDataPoints.add(dp);
         }
     }
 
     public List<DataPoint> getSessionDataPoints() {
-        synchronized (sessionDataPoints) {
-            return new ArrayList<>(sessionDataPoints);
+        synchronized (rawSessionDataPoints) {
+            return new ArrayList<>(rawSessionDataPoints);
         }
     }
 
@@ -486,9 +504,12 @@ public class HrvForegroundService extends Service {
                 float macroPhase = MayerWaveAnalyzer.calculateInitialPhase(dumpData, currentModulationPeriodMs);
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
 
+                // Точный момент завершения макро-дампа (мастер-таймлайн Room)
+                long dumpEndTime = System.currentTimeMillis();
+
                 // Автономное формирование неизменяемого SessionSnapshot с текущим сквозным dumpIndex
                 SessionSnapshot dumpSnapshot = new SessionSnapshot(
-                        System.currentTimeMillis(),
+                        dumpEndTime,
                         metrics,
                         currentModulationSec,
                         wasPstiPhase,
@@ -504,13 +525,37 @@ public class HrvForegroundService extends Service {
                     snapshotBuffer.add(dumpSnapshot);
                 }
 
+                // Нарезка и маршрутизация DataPoint строго по временным границам макро-дампа
+                sliceAndRouteDataPoints(currentDumpStartTime, dumpEndTime, wasPstiPhase);
+
+                // Смещаем границу начала следующего дампа на текущую точку завершения
+                currentDumpStartTime = dumpEndTime;
+
+                // Определяем следующую фазу заранее для передачи в QuantumContext (устранение гонки потоков)
+                boolean nextIsPstiPhase;
+                if (wasPstiPhase) {
+                    nextIsPstiPhase = false;
+                } else if (isTrainingCycleComplete) {
+                    nextIsPstiPhase = true;
+                } else {
+                    nextIsPstiPhase = false;
+                }
+
+                // Автономное переключение фаз внутри сервиса ДО вызова колбэка
+                if (wasPstiPhase) {
+                    stopPostiRecording();
+                } else if (isTrainingCycleComplete) {
+                    currentBlockNumber = 0;
+                    startPostiRecording();
+                }
+
                 if (DEBUG) {
                     Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Dump #%d, PSTI phase: %b) | Тест Майера: %b | Блок %d/%d | RMSSD: %.1f ms | Фаза Майера: %.2f",
                             dumpCounter, wasPstiPhase, snapshotTestMode, currentBlockNumber, trainingTargetX, metrics.rmssd, macroPhase));
                 }
 
                 if (callback != null) {
-                    QuantumContext quantum = new QuantumContext(dumpCounter, currentBlockNumber, wasPstiPhase, trainingTargetX, macroPhase);
+                    QuantumContext quantum = new QuantumContext(dumpCounter, currentBlockNumber, wasPstiPhase, nextIsPstiPhase, trainingTargetX, macroPhase);
                     callback.onMacroDumpCompleted(avgHr, metrics, TARGET_MACRO_RR_COUNT, quantum);
                 }
 
@@ -523,19 +568,39 @@ public class HrvForegroundService extends Service {
                         callback.onMayerTestModeAutoReset();
                     }
                 }
-
-                // Автономное переключение фаз внутри сервиса
-                if (wasPstiPhase) {
-                    // Завершился тест PSTI: возвращаем флаг в false и возобновляем тренировочный цикл
-                    stopPostiRecording();
-                } else if (isTrainingCycleComplete) {
-                    // Завершился тренировочный блок (например, 3-1): сбрасываем блоки и автоматически переходим в PSTI
-                    currentBlockNumber = 0;
-                    startPostiRecording();
-                }
             }
         } catch (Exception e) {
             e.printStackTrace();
+        }
+    }
+
+    /**
+     * Нарезка и маршрутизация секундных точек DataPoint по временным рамкам макро-дампа.
+     * Отсекает лишние хвосты на стыках и распределяет данные в целевые списки.
+     */
+    private void sliceAndRouteDataPoints(long startTime, long endTime, boolean isPsti) {
+        synchronized (rawSessionDataPoints) {
+            List<DataPoint> sliceList = new ArrayList<>();
+            for (DataPoint dp : rawSessionDataPoints) {
+                long dpTime = dp.getTimestamp();
+                if (dpTime >= startTime && dpTime <= endTime) {
+                    sliceList.add(dp);
+                }
+            }
+
+            if (!sliceList.isEmpty()) {
+                if (isPsti) {
+                    synchronized (testDataPoints) {
+                        testDataPoints.addAll(sliceList);
+                    }
+                } else {
+                    synchronized (trainingDataPoints) {
+                        trainingDataPoints.addAll(sliceList);
+                    }
+                }
+            }
+
+            rawSessionDataPoints.removeIf(dp -> dp.getTimestamp() <= endTime);
         }
     }
 
