@@ -22,8 +22,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -273,7 +271,7 @@ public class PdfExporter {
                 }
             }
 
-            // МАКРО-УРОВЕНЬ ДЛЯ ГРАФИКОВ [Раздел 4] (фильтрация по isMacroDump с сортировкой по автоинкреметному id)
+            // МАКРО-УРОВЕНЬ ДЛЯ ГРАФИКОВ [Раздел 4] (выборка дампов-границ по флагу isMacroDump из уже отсортированного списка)
             List<HrvSnapshotEntity> dumpSnapshots = new ArrayList<>();
             if (snapshots != null) {
                 for (HrvSnapshotEntity s : snapshots) {
@@ -281,8 +279,6 @@ public class PdfExporter {
                         dumpSnapshots.add(s);
                     }
                 }
-                Collections.sort(dumpSnapshots, Comparator
-                        .comparingLong(HrvSnapshotEntity::getId));
             }
 
             int dumpTotal = dumpSnapshots.size();
@@ -324,14 +320,10 @@ public class PdfExporter {
 
                 long dumpEndTime = (snapshot != null) ? snapshot.getTimestamp() : endTime;
                 long dumpStartTime;
-                if (d > 0) {
-                    if (d - 1 < dumpSnapshots.size() && dumpSnapshots.get(d - 1) != null) {
-                        dumpStartTime = dumpSnapshots.get(d - 1).getTimestamp();
-                    } else {
-                        dumpStartTime = startTime + (d - 1) * 300000L;
-                    }
+                if (d > 0 && d - 1 < dumpSnapshots.size() && dumpSnapshots.get(d - 1) != null) {
+                    dumpStartTime = dumpSnapshots.get(d - 1).getTimestamp();
                 } else {
-                    dumpStartTime = startTime > 0 ? startTime : (dumpEndTime - 300000L);
+                    dumpStartTime = startTime > 0 ? startTime : (dumpEndTime - 10000L);
                 }
 
                 List<DataPoint> activeSourcePoints = isPstiPhase ? testDataPoints : trainingDataPoints;
