@@ -365,6 +365,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             @Override
             public void onMacroDumpCompleted(int avgHr, HrvCalculator.Metrics hrv, int rrCount, HrvForegroundService.QuantumContext context) {
                 boolean isPostiPhase = context != null && context.isPstiPhase();
+                boolean nextIsPstiPhase = context != null && context.isNextIsPstiPhase();
 
                 int totalBlocks = trainingTargetX;
                 int currentBlockNum = context != null ? context.getBlockNumber() : 1;
@@ -383,7 +384,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         blockInfo, currentDumpIndex, avgHr, hrv != null ? hrv.rmssd : 0.0, hrv != null ? hrv.pnn50 : 0.0, currentLfHfDisplayStr, hrv != null ? hrv.totalPower : 0.0);
                 onLog(logMsg);
 
-                sessionDumpCount++;
+.                sessionDumpCount++;
                 completedCyclesInCurrentDump = 0;
 
                 if (progressManager != null) {
@@ -400,13 +401,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     if (mayerTestManager != null) {
                         mayerTestManager.setAvailable(true);
                     }
+                    onLog("[Мониторинг] Возврат к тренировочному циклу...");
                     runOnUiThread(() -> {
                         if (isRecording && isBound && hrvService != null) {
                             startClockAndPacerAfterCalibration(0.0f);
                         }
                     });
                 } else {
-                    if (context != null && hrvService != null && hrvService.isPstiPhaseActive()) {
+                    if (nextIsPstiPhase) {
                         startPostiTraceWindow();
                     } else {
                         onLog("[Мониторинг] Продолжение сеанса дыхания...");
