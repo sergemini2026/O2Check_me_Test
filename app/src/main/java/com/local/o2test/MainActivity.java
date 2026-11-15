@@ -1,3 +1,4 @@
+package com.local.o2test;
 
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -386,7 +387,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         blockInfo, currentDumpIndex, avgHr, hrv != null ? hrv.rmssd : 0.0, hrv != null ? hrv.pnn50 : 0.0, currentLfHfDisplayStr, hrv != null ? hrv.totalPower : 0.0);
                 onLog(logMsg);
 
-                sessionDumpCount++;
+                sessionDumpCount++; // <--- Точка удалена
                 completedCyclesInCurrentDump = 0;
 
                 if (progressManager != null) {
