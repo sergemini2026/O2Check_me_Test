@@ -34,10 +34,10 @@ interface HrvSnapshotDao {
     fun getSnapshotsByPhase(isPsti: Boolean): List<HrvSnapshotEntity>
 
     /**
-     * Упорядоченная выборка всех снимков сессии по сквозным индексам дампов и фазам (для отчета)
+     * Упорядоченная выборка всех снимков текущей сессии по временным границам (для отчета)
      */
-    @Query("SELECT * FROM hrv_snapshots ORDER BY dumpIndex ASC, timestamp ASC, id ASC")
-    fun getOrderedSnapshotsForReport(): List<HrvSnapshotEntity>
+    @Query("SELECT * FROM hrv_snapshots WHERE timestamp >= :startTime AND timestamp <= :endTime ORDER BY dumpIndex ASC, timestamp ASC, id ASC")
+    fun getOrderedSnapshotsForReport(startTime: Long, endTime: Long): List<HrvSnapshotEntity>
 
     /**
      * Выборка данных тренировочной фазы, отсортированная по дампам и времени
