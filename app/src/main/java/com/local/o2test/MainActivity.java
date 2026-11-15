@@ -1,4 +1,3 @@
-package com.local.o2test;
 
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -65,6 +64,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private boolean isCalibrationCompleted = false;
     private int sessionDumpCount = 0;
+    private int currentBlockNumber = 1;
     private long sessionStartTime = 0;
     private long postiStartTime = 0;
 
@@ -368,10 +368,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 boolean nextIsPstiPhase = context != null && context.isNextIsPstiPhase();
 
                 int totalBlocks = trainingTargetX;
-                int currentBlockNum = context != null ? context.getBlockNumber() : 1;
+                if (context != null) {
+                    currentBlockNumber = context.getBlockNumber();
+                }
                 int currentDumpIndex = context != null ? context.getDumpIndex() : (sessionDumpCount + 1);
                 
-                String blockInfo = isPostiPhase ? "Тест PSTI" : String.format(Locale.US, "Блок %d/%d", currentBlockNum, totalBlocks);
+                String blockInfo = isPostiPhase ? "Тест PSTI" : String.format(Locale.US, "Блок %d/%d", currentBlockNumber, totalBlocks);
 
                 // Синхронизируем фазовое значение из контекста сервиса
                 if (context != null) {
@@ -394,6 +396,15 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 if (isPostiPhase) {
                     onLog(String.format(Locale.US, "[Дамп (Тест PSTI #%d) завершен]", currentDumpIndex));
                     
+                    // Вычисление индекса консолидации барорефлекса PSTI
+                    if (hrv != null) {
+                        lastPstiScore = Math.min(100.0, (hrv.rmssd / 50.0) * 50.0 + (Math.min(hrv.totalPower, 2500.0) / 2500.0) * 50.0);
+                        lastPstiRmssdRatio = (baselineLfHf > 0 && hrv.lfHfRatio > 0) ? (hrv.lfHfRatio / baselineLfHf) : 1.0;
+                        
+                        onLog(String.format(Locale.US, "[PSTI РЕЗУЛЬТАТ] Индекс консолидации барорефлекса PSTI: %.1f%% (RMSSD ratio: %.2f)",
+                                lastPstiScore, lastPstiRmssdRatio));
+                    }
+                    
                     // После завершения PSTI дампа в сервисе: возобновляем сбор пульса и разблокируем тест
                     if (polarManager != null) {
                         polarManager.startCollection();
@@ -401,6 +412,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     if (mayerTestManager != null) {
                         mayerTestManager.setAvailable(true);
                     }
+                    currentBlockNumber = 1; // Сбрасываем номер блока на 1 при возврате к тренировочному циклу после теста
                     onLog("[Мониторинг] Возврат к тренировочному циклу...");
                     runOnUiThread(() -> {
                         if (isRecording && isBound && hrvService != null) {
@@ -759,7 +771,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 ui.tvStatusValue.setText(String.format(Locale.US, "Статус: Замер следа (PSTI)%s", pstiSuffix));
             } else if (isTrainingModeActive) {
                 int totalBlocks = trainingTargetX;
-                int currentBlockNum = (sessionDumpCount % totalBlocks) + 1;
+                int currentBlockNum = currentBlockNumber;
                 String blockInfo = String.format(Locale.US, "Блок %d/%d", currentBlockNum, totalBlocks);
                 ui.tvStatusValue.setText(String.format(Locale.US, "Статус: %s - %s%s", currentWorkoutMode, blockInfo, pstiSuffix));
             } else {
@@ -944,6 +956,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = true;
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
+        currentBlockNumber = 1;
         completedCyclesInCurrentDump = 0;
         lastPstiScore = 0.0;
         lastPstiRmssdRatio = 0.0;
@@ -1048,6 +1061,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isTrainingModeActive = false;
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
+        currentBlockNumber = 1;
         completedCyclesInCurrentDump = 0;
         
         stopAudioAndClockInService();
