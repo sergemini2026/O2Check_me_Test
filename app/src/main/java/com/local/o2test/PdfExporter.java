@@ -273,7 +273,7 @@ public class PdfExporter {
                 }
             }
 
-            // МАКРО-УРОВЕНЬ ДЛЯ ГРАФИКОВ [Раздел 4] (выборка дампов-границ по флагу isMacroDump из уже отсортированного списка)
+            // МАКРО-УРОВЕНЬ ДЛЯ ГРАФИКОВ [Раздел 4] (выборка дампов-границ строго по записям с флагом isMacroDump)
             List<HrvSnapshotEntity> dumpSnapshots = new ArrayList<>();
             if (snapshots != null) {
                 for (HrvSnapshotEntity s : snapshots) {
@@ -281,11 +281,6 @@ public class PdfExporter {
                         dumpSnapshots.add(s);
                     }
                 }
-            }
-
-            int dumpTotal = dumpSnapshots.size();
-            if (dumpTotal == 0) {
-                dumpTotal = (rawRrList != null && !rawRrList.isEmpty()) ? (int) Math.ceil((double) rawRrList.size() / 300.0) : 1;
             }
 
             if (currentY + 30 > PAGE_HEIGHT - MARGIN) {
@@ -303,7 +298,12 @@ public class PdfExporter {
             canvas1.drawText("4. Динамика SpO2 и ЧСС по дампам сессии (макро-уровень)", MARGIN, currentY, textPaint);
             currentY += 15;
 
-            for (int d = 0; d < dumpTotal; d++) {
+            // Объединяем точки для точной фильтрации по абсолютному времени (dp.getTimestamp())
+            List<DataPoint> allPoints = new ArrayList<>();
+            if (trainingDataPoints != null) allPoints.addAll(trainingDataPoints);
+            if (testDataPoints != null) allPoints.addAll(testDataPoints);
+
+            for (int d = 0; d < dumpSnapshots.size(); d++) {
                 if (currentY + 225 > PAGE_HEIGHT - MARGIN) {
                     document.finishPage(page1);
                     PdfDocument.PageInfo pageInfoN = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
@@ -313,38 +313,27 @@ public class PdfExporter {
                     currentY = 45;
                 }
 
-                HrvSnapshotEntity snapshot = (d < dumpSnapshots.size()) ? dumpSnapshots.get(d) : null;
+                HrvSnapshotEntity snapshot = dumpSnapshots.get(d);
                 
-                int dumpIdx = (snapshot != null) ? snapshot.getDumpIndex() : (d + 1);
-                boolean isPstiPhase = (snapshot != null) && snapshot.isPstiPhase();
-                int blockNumber = (snapshot != null) ? snapshot.getBlockNumber() : 1;
+                int dumpIdx = snapshot.getDumpIndex();
+                boolean isPstiPhase = snapshot.isPstiPhase();
+                int blockNumber = snapshot.getBlockNumber();
                 String phaseStr = isPstiPhase ? "Тест PSTI" : "Тренировка";
 
-                long dumpEndTime = (snapshot != null) ? snapshot.getTimestamp() : endTime;
+                long dumpEndTime = snapshot.getTimestamp();
                 long dumpStartTime;
-                if (d > 0 && d - 1 < dumpSnapshots.size() && dumpSnapshots.get(d - 1) != null) {
+                if (d > 0) {
                     dumpStartTime = dumpSnapshots.get(d - 1).getTimestamp();
                 } else {
-                    dumpStartTime = startTime > 0 ? startTime : (dumpEndTime - 10000L);
+                    dumpStartTime = startTime > 0 ? startTime : (dumpEndTime - 300000L);
                 }
 
-                List<DataPoint> activeSourcePoints = isPstiPhase ? testDataPoints : trainingDataPoints;
+                // Строгая фильтрация точек по таймлайну Room без достраивания и fallback-деления
                 List<DataPoint> dumpPoints = new ArrayList<>();
-                if (activeSourcePoints != null) {
-                    for (DataPoint dp : activeSourcePoints) {
-                        long dpTime = startTime + (dp.elapsedSec * 1000L);
-                        if (dpTime >= dumpStartTime && dpTime <= dumpEndTime) {
-                            dumpPoints.add(dp);
-                        }
-                    }
-                }
-
-                if (dumpPoints.isEmpty() && activeSourcePoints != null && !activeSourcePoints.isEmpty()) {
-                    int pointsPerDump = Math.max(1, activeSourcePoints.size() / dumpTotal);
-                    int pStart = d * pointsPerDump;
-                    int pEnd = Math.min(pStart + pointsPerDump, activeSourcePoints.size());
-                    if (pStart < activeSourcePoints.size()) {
-                        dumpPoints = activeSourcePoints.subList(pStart, pEnd);
+                for (DataPoint dp : allPoints) {
+                    long dpTime = dp.getTimestamp();
+                    if (dpTime >= dumpStartTime && dpTime <= dumpEndTime) {
+                        dumpPoints.add(dp);
                     }
                 }
 
@@ -363,31 +352,27 @@ public class PdfExporter {
                 drawHeartRateChart(canvas1, dumpPoints, MARGIN, currentY, PAGE_WIDTH - 2 * MARGIN, 90, Color.parseColor("#10B981"), "ЧСС (HR, уд/мин)", dumpStartTime, dumpEndTime);
                 currentY += 105;
 
-                if (snapshot != null) {
-                    SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.US);
-                    double lf = snapshot.getLfPower();
-                    double hf = snapshot.getHfPower();
-                    double lfHfVal = (lf + hf > 0) ? (2.0 * lf / (lf + hf)) : snapshot.getLfHfRatio();
-                    double iaPct = Math.max(0.0, Math.min(100.0, (lfHfVal - 1.0) * 100.0));
-                    float modSec = snapshot.getModulationSec() > 0 ? snapshot.getModulationSec() : 10.0f;
+                SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm:ss", Locale.US);
+                double lf = snapshot.getLfPower();
+                double hf = snapshot.getHfPower();
+                double lfHfVal = (lf + hf > 0) ? (2.0 * lf / (lf + hf)) : snapshot.getLfHfRatio();
+                double iaPct = Math.max(0.0, Math.min(100.0, (lfHfVal - 1.0) * 100.0));
+                float modSec = snapshot.getModulationSec() > 0 ? snapshot.getModulationSec() : 10.0f;
 
-                    String snapshotLine = String.format(Locale.US,
-                            "[%s] RMSSD:%.1f | SDNN:%.1f | SI:%.1f | IA:%.0f%% | LF/HF:%.2f | TP:%.0f | SampEn:%.2f | DFA:%.2f | T:%.1fс",
-                            timeFmt.format(new Date(snapshot.getTimestamp())), snapshot.getRmssd(), snapshot.getSdnn(),
-                            snapshot.getBaevskySi(), iaPct, snapshot.getLfHfRatio(), snapshot.getTotalPower(),
-                            snapshot.getSampleEntropy(), snapshot.getDfaAlpha1(), modSec);
+                String snapshotLine = String.format(Locale.US,
+                        "[%s] RMSSD:%.1f | SDNN:%.1f | SI:%.1f | IA:%.0f%% | LF/HF:%.2f | TP:%.0f | SampEn:%.2f | DFA:%.2f | T:%.1fс",
+                        timeFmt.format(new Date(snapshot.getTimestamp())), snapshot.getRmssd(), snapshot.getSdnn(),
+                        snapshot.getBaevskySi(), iaPct, snapshot.getLfHfRatio(), snapshot.getTotalPower(),
+                        snapshot.getSampleEntropy(), snapshot.getDfaAlpha1(), modSec);
 
-                    fillPaint.setColor(Color.parseColor("#F1F5F9"));
-                    canvas1.drawRect(MARGIN, currentY, PAGE_WIDTH - MARGIN, currentY + 14, fillPaint);
+                fillPaint.setColor(Color.parseColor("#F1F5F9"));
+                canvas1.drawRect(MARGIN, currentY, PAGE_WIDTH - MARGIN, currentY + 14, fillPaint);
 
-                    textPaint.setTextSize(7.5f);
-                    textPaint.setFakeBoldText(true);
-                    textPaint.setColor(Color.parseColor("#0F172A"));
-                    canvas1.drawText(snapshotLine, MARGIN + 4, currentY + 10, textPaint);
-                    currentY += 20;
-                } else {
-                    currentY += 10;
-                }
+                textPaint.setTextSize(7.5f);
+                textPaint.setFakeBoldText(true);
+                textPaint.setColor(Color.parseColor("#0F172A"));
+                canvas1.drawText(snapshotLine, MARGIN + 4, currentY + 10, textPaint);
+                currentY += 20;
             }
 
             document.finishPage(page1);
