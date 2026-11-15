@@ -231,8 +231,9 @@ public class SessionExportManager {
                     }
                 }
 
-                // Забор строго упорядоченного массива через новый SQL-запрос DAO для отчета
-                List<HrvSnapshotEntity> reportSnapshots = db.hrvSnapshotDao().getOrderedSnapshotsForReport();
+                // Забор строго упорядоченного массива через новый SQL-запрос DAO для отчета с фильтрацией по временному интервалу сессии
+              
+              List<HrvSnapshotEntity> reportSnapshots = db.hrvSnapshotDao().getOrderedSnapshotsForReport(sessionStartTime, endTime);
                 if (reportSnapshots == null || reportSnapshots.isEmpty()) {
                     reportSnapshots = entityList;
                 }
