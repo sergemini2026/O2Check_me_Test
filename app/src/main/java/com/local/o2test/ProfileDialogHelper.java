@@ -128,8 +128,8 @@ public class ProfileDialogHelper {
         List<String> profileNames = new ArrayList<>();
         for (ProfileEntity p : profiles) {
             String fullName = p.getFirstName() + (TextUtils.isEmpty(p.getLastName()) ? "" : " " + p.getLastName());
-            profileNames.add(String.format("ID: %d | %s | Возраст: %d | Вес: %.1fкг",
-                    p.getId(), fullName, p.getAge(), p.getWeightKg()));
+            profileNames.add(String.format("ID: %d | %s | Возраст: %d | Вес: %.1fкг | FM: %.2fГц",
+                    p.getId(), fullName, p.getAge(), p.getWeightKg(), p.getFm()));
         }
 
         ArrayAdapter<String> adapter = new ArrayAdapter<String>(context, android.R.layout.simple_list_item_1, profileNames) {
@@ -343,6 +343,12 @@ public class ProfileDialogHelper {
         inputDiaBp.setText(isEditMode ? String.valueOf(editingProfile.getBaselineDiastolicBp()) : "80");
         layout.addView(inputDiaBp);
 
+        final EditText inputFm = new EditText(context);
+        inputFm.setHint("Частота Майера FM (Гц)");
+        inputFm.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        inputFm.setText(isEditMode ? String.valueOf(editingProfile.getFm()) : "0.1");
+        layout.addView(inputFm);
+
         LinearLayout fitnessLayout = new LinearLayout(context);
         fitnessLayout.setOrientation(LinearLayout.HORIZONTAL);
         fitnessLayout.setPadding(0, 15, 0, 10);
@@ -402,13 +408,14 @@ public class ProfileDialogHelper {
             String gender = spinnerGender.getSelectedItem().toString();
             int sysBp = parseOrDefault(inputSysBp.getText().toString().trim(), 120);
             int diaBp = parseOrDefault(inputDiaBp.getText().toString().trim(), 80);
+            float fm = parseFloatOrDefault(inputFm.getText().toString().trim(), 0.1f);
             String fitness = spinnerFitness.getSelectedItem().toString();
             long profileId = isEditMode ? editingProfile.getId() : 0;
             long createdAt = isEditMode ? editingProfile.getCreatedAt() : System.currentTimeMillis();
 
             dbExecutor.execute(() -> {
                 try {
-                    ProfileEntity profile = new ProfileEntity(profileId, firstName, lastName, age, weight, height, sysBp, diaBp, fitness, gender, createdAt);
+                    ProfileEntity profile = new ProfileEntity(profileId, firstName, lastName, age, weight, height, sysBp, diaBp, fitness, gender, fm, createdAt);
                     String fullName = firstName + (lastName.isEmpty() ? "" : " " + lastName);
 
                     if (isEditMode) {
