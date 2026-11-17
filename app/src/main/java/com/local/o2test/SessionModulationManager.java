@@ -24,6 +24,21 @@ public class SessionModulationManager {
     }
 
     /**
+     * Установка периода на основе частоты в Герцах (с ограничением в пределах диапазона 6-14 секунд)
+     */
+    public void setModulationFrequencyHz(float frequencyHz) {
+        float clampedHz = Math.max(0.0714f, Math.min(0.1667f, frequencyHz));
+        this.currentModulationPeriodMs = (long) (1000.0f / clampedHz);
+    }
+
+    /**
+     * Получение текущей частоты в Герцах
+     */
+    public float getModulationFrequencyHz() {
+        return 1000.0f / currentModulationPeriodMs;
+    }
+
+    /**
      * Применение нового периода модуляции к активному сервису и часам
      */
     public void applyModulation(HrvForegroundService hrvService, boolean isBound) {
