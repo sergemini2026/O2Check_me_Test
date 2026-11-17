@@ -19,13 +19,19 @@ interface ProfileDao {
     @Update
     fun updateProfileSync(profile: ProfileEntity)
 
+    @Query("UPDATE profiles SET fm = :newFm WHERE id = :profileId")
+    suspend fun updateProfileFm(profileId: Long, newFm: Float)
+
+    @Query("UPDATE profiles SET fm = :newFm WHERE id = :profileId")
+    fun updateProfileFmSync(profileId: Long, newFm: Float)
+
     @Query("SELECT * FROM profiles ORDER BY id DESC")
     fun getAllProfiles(): Flow<List<ProfileEntity>>
 
     @Query("SELECT * FROM profiles ORDER BY id DESC")
     fun getAllProfilesSync(): List<ProfileEntity>
 
-    // Метод для поиска профилей по имени или фамилии (следующий шаг)
+    // Метод для поиска профилей по имени или фамилии
     @Query("SELECT * FROM profiles WHERE firstName LIKE '%' || :query || '%' OR lastName LIKE '%' || :query || '%' ORDER BY id DESC")
     fun searchProfilesSync(query: String): List<ProfileEntity>
 
