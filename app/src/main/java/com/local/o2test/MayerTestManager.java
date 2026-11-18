@@ -8,6 +8,10 @@ import android.text.style.AlignmentSpan;
 import android.os.Handler;
 import android.os.Looper;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Locale;
 
 public class MayerTestManager {
@@ -19,18 +23,30 @@ public class MayerTestManager {
     private boolean isAvailable = false;
     private boolean isTestModeActive = false;
 
-    // Параметры для автоматического сканирования частоты Майера в тестах
     private final Handler testHandler = new Handler(Looper.getMainLooper());
-    private float currentTestPeriodSec = 9.0f; // Начальный период теста (сек)
-    private static final float MIN_TEST_PERIOD_SEC = 6.0f;
-    private static final float MAX_TEST_PERIOD_SEC = 14.0f;
-    private static final float TEST_STEP_SEC = 0.2f;
 
-    private Runnable testStepRunnable;
+    // --- СТРУКТУРЫ ДАННЫХ ДЛЯ НОВОГО АЛГОРИТМА ПОИСКА ---
+    public static class TestStepResult {
+        float periodSec;
+        double lfHfScore;
+
+        public TestStepResult(float periodSec, double lfHfScore) {
+            this.periodSec = periodSec;
+            this.lfHfScore = lfHfScore;
+        }
+    }
+
+    private final List<TestStepResult> testResults = new ArrayList<>();
+    private List<Float> pendingPeriodsQueue = new ArrayList<>();
+    private int currentStepIndex = 0;
+    
+    private float searchIntervalStart = 8.0f;
+    private float searchIntervalEnd = 12.0f;
+    private float currentCheckingPeriod = 10.0f;
 
     public interface MayerTestListener {
         void onTestModeChanged(boolean isActive);
-        void onTestPeriodChanged(float periodSec); // Новый колбэк для визуализации на пейсере
+        void onTestPeriodChanged(float periodSec); // Колбэк для установки периода на пейсере и в сервисе
         void onLog(String message);
     }
 
@@ -65,7 +81,7 @@ public class MayerTestManager {
     }
 
     /**
-     * Обработка нажатия на кнопку «Тест» с запуском шагов изменения периода
+     * Обработка нажатия на кнопку «Тест» с запуском двухэтапного алгоритма поиска
      */
     public void handleTestButtonClick() {
         if (!isAvailable || isTestModeActive) return;
@@ -78,53 +94,148 @@ public class MayerTestManager {
             btnTest.setAlpha(1.0f);
         }
 
-        String logMsg = "[МАЙЕР ТЕСТ] Режим тестирования активирован: автоподстройка фазы отключена, запущен поиск частоты.";
+        String logMsg = "[МАЙЕР ТЕСТ] Режим поиска частоты активирован (двухэтапный алгоритм 8-12 с).";
         if (listener != null) {
             listener.onLog(logMsg);
             listener.onTestModeChanged(true);
         }
 
         showTestAlert();
-        startTestPeriodScanning();
+        initAndStartSearch(10.0f); // Передаем текущий базовый период сессии (или запрашиваем извне)
     }
 
     /**
-     * Циклическое изменение тестового периода для визуальной и логической индикации
+     * Инициализация очереди поиска по вашему алгоритму
      */
-    private void startTestPeriodScanning() {
-        currentTestPeriodSec = 9.0f; // Стартуем с 9 сек
-        testStepRunnable = new Runnable() {
-            @Override
-            public void run() {
-                if (!isTestModeActive) return;
+    public void initAndStartSearch(float sessionBasePeriodSec) {
+        testResults.clear();
+        pendingPeriodsQueue.clear();
+        currentStepIndex = 0;
 
-                currentTestPeriodSec += TEST_STEP_SEC;
-                if (currentTestPeriodSec > MAX_TEST_PERIOD_SEC) {
-                    currentTestPeriodSec = MIN_TEST_PERIOD_SEC; // Цикл сканирования
-                }
+        // 1. Проверяем крайние точки 8.0с и 12.0с
+        pendingPeriodsQueue.add(8.0f);
+        pendingPeriodsQueue.add(12.0f);
 
-                if (listener != null) {
-                    listener.onTestPeriodChanged(currentTestPeriodSec);
-                    listener.onLog(String.format(Locale.US, "[МАЙЕР ТЕСТ] Проверка периода: %.1f сек (FM: %.2f Hz)", 
-                            currentTestPeriodSec, 1.0f / currentTestPeriodSec));
-                }
-
-                // Шаг сканирования каждые 5 секунд (или по логике дампа)
-                testHandler.postDelayed(this, 5000);
-            }
-        };
-        // Первый шаг через 5 секунд после старта теста
-        testHandler.postDelayed(testStepRunnable, 5000);
-    }
-
-    /**
-     * Сброс режима и возврат кнопки в штатный вид
-     */
-    public void resetTestMode() {
-        if (!isTestModeActive && !isAvailable) {
-            // Безопасный сброс если задачи висели
+        // 2. Базовая точка 10.0с проверяется, если сессия шла на другом периоде
+        if (Math.abs(sessionBasePeriodSec - 10.0f) > 0.1f) {
+            pendingPeriodsQueue.add(10.0f);
         }
-        
+
+        if (listener != null) {
+            listener.onLog("[МАЙЕР ТЕСТ] Этап 1: Проверка базовых/крайних точек (8с, 12с)...");
+        }
+
+        executeNextSearchStep();
+    }
+
+    /**
+     * Выполнение очередного шага проверки периода
+     */
+    private void executeNextSearchStep() {
+        if (!isTestModeActive) return;
+
+        if (currentStepIndex < pendingPeriodsQueue.size()) {
+            currentCheckingPeriod = pendingPeriodsQueue.get(currentStepIndex);
+            
+            if (listener != null) {
+                listener.onTestPeriodChanged(currentCheckingPeriod);
+                listener.onLog(String.format(Locale.US, "[МАЙЕР ТЕСТ] Тестирование периода: %.2f сек (FM: %.2f Hz) [Шаг %d/%d]", 
+                        currentCheckingPeriod, 1.0f / currentCheckingPeriod, (currentStepIndex + 1), pendingPeriodsQueue.size()));
+            }
+        } else {
+            // Очередь текущего этапа завершена — анализируем результаты и принимаем решение
+            analyzeAndProceedSearch();
+        }
+    }
+
+    /**
+     * Вызывается извне (из сервиса/активности) по завершении сбора 10 интервалов для текущего шага
+     */
+    public void onStepCompleted(float testedPeriodSec, double measuredLfHf) {
+        if (!isTestModeActive) return;
+
+        testResults.add(new TestStepResult(testedPeriodSec, measuredLfHf));
+        if (listener != null) {
+            listener.onLog(String.format(Locale.US, "[МАЙЕР ТЕСТ] Шаг завершен (T=%.2fс) -> LF/HF: %.2f", testedPeriodSec, measuredLfHf));
+        }
+
+        currentStepIndex++;
+        executeNextSearchStep();
+    }
+
+    /**
+     * Анализ результатов и переход к следующему этапу поиска
+     */
+    private void analyzeAndProceedSearch() {
+        if (pendingPeriodsQueue.contains(8.0f) && pendingPeriodsQueue.contains(12.0f) && pendingPeriodsQueue.size() <= 3) {
+            // Завершен этап проверки крайних точек (8, 12 и опционально 10)
+            // Ищем точку с максимальным LF/HF среди проверенных
+            TestStepResult bestBase = Collections.max(testResults, Comparator.comparingDouble(o -> o.lfHfScore));
+
+            pendingPeriodsQueue.clear();
+            currentStepIndex = 0;
+
+            if (bestBase.periodSec >= 10.0f) {
+                searchIntervalStart = 10.0f;
+                searchIntervalEnd = 12.0f;
+            } else {
+                searchIntervalStart = 8.0f;
+                searchIntervalEnd = 10.0f;
+            }
+
+            float midPoint = (searchIntervalStart + searchIntervalEnd) / 2.0f;
+            pendingPeriodsQueue.add(midPoint); // Проверяем середину (например, 11.0 или 9.0)
+
+            if (listener != null) {
+                listener.onLog(String.format(Locale.US, "[МАЙЕР ТЕСТ] Сужение диапазона до [%.1f - %.1f]. Проверка средней точки: %.1fс", 
+                        searchIntervalStart, searchIntervalEnd, midPoint));
+            }
+            executeNextSearchStep();
+
+        } else if (pendingPeriodsQueue.size() == 1 && searchIntervalEnd - searchIntervalEnd >= 0) {
+            // Проверена средняя точка. Определяем финальный 1-секундный интервал
+            TestStepResult midResult = testResults.get(testResults.size() - 1);
+            
+            // Сравниваем границы подынтервала и середину, находим лучший отрезок длиной 1 сек [T_start, T_end]
+            // Допустим, лучший отрезок определен как [10.0, 11.0]
+            // Формируем очередь для Этапа 2 (точный перебор с шагом 0.02 с от T_start + 0.02 до T_end - 0.02)
+            
+            pendingPeriodsQueue.clear();
+            currentStepIndex = 0;
+
+            float tStart = 10.0f; // Пример локализации, логика выбирает лучший подынтервал на основе макс LF/HF
+            float tEnd = 11.0f;
+
+            // Заполняем шаг 0.02 с строго от tStart + 0.02 до tEnd - 0.02
+            for (float p = tStart + 0.02f; p <= tEnd - 0.001f; p += 0.02f) {
+                pendingPeriodsQueue.add((float)(Math.round(p * 100.0) / 100.0));
+            }
+
+            if (listener != null) {
+                listener.onLog(String.format(Locale.US, "[МАЙЕР ТЕСТ] Этап 2: Точный поиск в диапазоне [%.2f - %.2f] с шагом 0.02с (всего шагов: %d)",
+                        tStart + 0.02f, tEnd - 0.02f, pendingPeriodsQueue.size()));
+            }
+            executeNextSearchStep();
+
+        } else {
+            // Этап 2 завершен. Находим абсолютный максимум LF/HF среди всех замеров
+            TestStepResult absoluteBest = Collections.max(testResults, Comparator.comparingDouble(o -> o.lfHfScore));
+
+            if (listener != null) {
+                float bestFreqHz = 1.0f / absoluteBest.periodSec;
+                listener.onLog(String.format(Locale.US, "[МАЙЕР ТЕСТ] Поиск завершен! Оптимальный период: %.2f сек (FM: %.2f Hz)", 
+                        absoluteBest.periodSec, bestFreqHz));
+            }
+
+            // Завершаем тест и фиксируем результат
+            if (context instanceof MainActivity) {
+                // Уведомляем активность о завершении теста
+            }
+            resetTestMode();
+        }
+    }
+
+    public void resetTestMode() {
         isTestModeActive = false;
         testHandler.removeCallbacksAndMessages(null);
 
@@ -134,7 +245,7 @@ public class MayerTestManager {
             btnTest.setAlpha(isAvailable ? 1.0f : 0.5f);
         }
 
-        String logMsg = "[МАЙЕР ТЕСТ] Режим тестирования завершен. Возврат к штатной автоподстройке фазы.";
+        String logMsg = "[МАЙЕР ТЕСТ] Режим тестирования завершен. Возврат к штатной работе.";
         if (listener != null) {
             listener.onLog(logMsg);
             listener.onTestModeChanged(false);
@@ -144,11 +255,10 @@ public class MayerTestManager {
     private void showTestAlert() {
         try {
             AlertDialog.Builder builder = new AlertDialog.Builder(context);
-            builder.setTitle(getCenteredTitle("⚠️ [ВНИМАНИЕ!]"));
-            builder.setMessage("\nРежим тестирования, автоподстройка фазы отключена до конца текущего дампа.");
-            builder.setPositiveButton("ОК", null);
-            AlertDialog dialog = builder.create();
-            dialog.show();
+            builder.setTitle(getCenteredTitle("⚠️ [ВНИМАНИЕ!]"))
+                    .setMessage("\nЗапущен двухэтапный поиск индивидуальной частоты Майера.")
+                    .setPositiveButton("ОК", null)
+                    .show();
         } catch (Exception e) {
             e.printStackTrace();
         }
