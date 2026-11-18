@@ -16,6 +16,6 @@ data class ProfileEntity @JvmOverloads constructor(
     val baselineDiastolicBp: Int = 80,
     val fitnessLevel: String = "Средний",
     val gender: String = "Мужской",
-    val fm: Float = 0.1f, // Индивидуальная частота Майера (Гц), по умолчанию 0.1 Гц (период 10 с)
+    var fm: Float = 0.1f, // Индивидуальная частота Майера (Гц), по умолчанию 0.1 Гц (период 10 с) [изменяемое поле для сохранения результатов теста]
     val createdAt: Long = System.currentTimeMillis()
 )
