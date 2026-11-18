@@ -114,6 +114,7 @@ public class HrvForegroundService extends Service {
         default void onMacroDumpCompleted(int avgHr, HrvCalculator.Metrics hrv, int rrCount, QuantumContext context) {}
         default void onMayerTestModeAutoReset() {}
         default void onMacroProgressUpdated(int rrCount, int totalCount, int currentHr, HrvCalculator.Metrics partialMetrics) {}
+        default void onMayerTestCompleted(float calculatedFm) {}
     }
 
     public class LocalBinder extends Binder {
@@ -557,6 +558,12 @@ public class HrvForegroundService extends Service {
                 if (callback != null) {
                     QuantumContext quantum = new QuantumContext(dumpCounter, currentBlockNumber, wasPstiPhase, nextIsPstiPhase, trainingTargetX, macroPhase);
                     callback.onMacroDumpCompleted(avgHr, metrics, TARGET_MACRO_RR_COUNT, quantum);
+                    
+                    if (snapshotTestMode) {
+                        // Вызов колбэка завершения теста Майера с вычисленной частотой в Гц (на основе периода или фазы)
+                        float calculatedFm = 1000.0f / currentModulationPeriodMs;
+                        callback.onMayerTestCompleted(calculatedFm);
+                    }
                 }
 
                 // Инкремент сквозного счетчика дампов
