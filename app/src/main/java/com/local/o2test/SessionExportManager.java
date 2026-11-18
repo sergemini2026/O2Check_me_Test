@@ -13,6 +13,7 @@ import android.widget.Toast;
 
 import com.local.o2test.db.AppDatabase;
 import com.local.o2test.db.entity.HrvSnapshotEntity;
+import com.local.o2test.db.entity.ProfileEntity;
 import com.local.o2test.db.entity.SessionEntity;
 
 import java.io.File;
@@ -172,6 +173,10 @@ public class SessionExportManager {
                 AppDatabase db = AppDatabase.getInstance(context.getApplicationContext());
                 long endTime = System.currentTimeMillis();
 
+                // Получаем актуальный профиль из базы для извлечения сохраненного значения FM
+                ProfileEntity profile = db.profileDao().getProfileSync(activeProfileId);
+                final float profileFm = (profile != null && profile.getFm() > 0f) ? profile.getFm() : 0.1f;
+
                 SessionEntity session = new SessionEntity(
                         0,
                         activeProfileId,
@@ -231,9 +236,7 @@ public class SessionExportManager {
                     }
                 }
 
-                // Забор строго упорядоченного массива через новый SQL-запрос DAO для отчета с фильтрацией по временному интервалу сессии
-              
-              List<HrvSnapshotEntity> reportSnapshots = db.hrvSnapshotDao().getOrderedSnapshotsForReport(sessionStartTime, endTime);
+                List<HrvSnapshotEntity> reportSnapshots = db.hrvSnapshotDao().getOrderedSnapshotsForReport(sessionStartTime, endTime);
                 if (reportSnapshots == null || reportSnapshots.isEmpty()) {
                     reportSnapshots = entityList;
                 }
@@ -268,6 +271,8 @@ public class SessionExportManager {
 
                 final List<HrvSnapshotEntity> finalReportSnapshots = reportSnapshots;
                 android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
+                
+                // Передаем извлеченное значение profileFm в генератор PDF-отчета
                 mainHandler.post(() -> PdfExporter.generateHrvPdfReport(
                         context,
                         activeProfileName,
@@ -283,6 +288,7 @@ public class SessionExportManager {
                         lastPstiScore,
                         lastPstiRmssdRatio,
                         pstiHistory,
+                        profileFm, // <--- Передаем паспортный/тестовый FM профиля в PDF-экспортер
                         new PdfExporter.PdfExportCallback() {
                             @Override
                             public void onSuccess(String pdfFilePath, String fileNamePdf) {
