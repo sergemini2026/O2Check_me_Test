@@ -38,6 +38,9 @@ interface ProfileDao {
     @Query("SELECT * FROM profiles WHERE id = :id")
     suspend fun getProfileById(id: Long): ProfileEntity?
 
+    @Query("SELECT * FROM profiles WHERE id = :id")
+    fun getProfileSync(id: Long): ProfileEntity?
+
     @Query("DELETE FROM profiles WHERE id = :id")
     suspend fun deleteProfile(id: Long)
 
