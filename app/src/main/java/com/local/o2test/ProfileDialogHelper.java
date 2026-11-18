@@ -30,6 +30,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 
@@ -80,7 +81,7 @@ public class ProfileDialogHelper {
         title.setTextSize(18);
         title.setPadding(10, 10, 10, 15);
         title.setTextColor(0xFFFFFFFF);
-        title.setGravity(Gravity.CENTER); // Центрирование заголовка
+        title.setGravity(Gravity.CENTER);
         rootLayout.addView(title);
 
         ListView listView = new ListView(context);
@@ -202,20 +203,14 @@ public class ProfileDialogHelper {
                                     
                                     List<SessionEntity> sessions = db.sessionDao().getSessionsByProfileSync(profile.getId());
                                     for (SessionEntity session : sessions) {
-                                        // 1. Удаление PDF-отчета
                                         if (!TextUtils.isEmpty(session.getPdfPath())) {
                                             File file = new File(session.getPdfPath());
-                                            if (file.exists()) {
-                                                file.delete();
-                                            }
+                                            if (file.exists()) file.delete();
                                             deleteFileWithMediaStore(context, file);
                                         }
-                                        // 2. Удаление тренировочного CSV
                                         if (!TextUtils.isEmpty(session.getCsvPath())) {
                                             File file = new File(session.getCsvPath());
-                                            if (file.exists()) {
-                                                file.delete();
-                                            }
+                                            if (file.exists()) file.delete();
                                             deleteFileWithMediaStore(context, file);
                                         }
                                     }
@@ -343,11 +338,14 @@ public class ProfileDialogHelper {
         inputDiaBp.setText(isEditMode ? String.valueOf(editingProfile.getBaselineDiastolicBp()) : "80");
         layout.addView(inputDiaBp);
 
-        final EditText inputFm = new EditText(context);
-        inputFm.setHint("Частота Майера FM (Гц)");
-        inputFm.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        inputFm.setText(isEditMode ? String.valueOf(editingProfile.getFm()) : "0.1");
-        layout.addView(inputFm);
+        // --- ИЗМЕНЕНИЕ: Поле частоты Майера (FM) переведено в режим READ-ONLY (TextView) ---
+        final float currentFm = isEditMode ? editingProfile.getFm() : 0.1f;
+        final TextView tvFmLabel = new TextView(context);
+        tvFmLabel.setText(String.format(Locale.US, "Частота Майера FM: %.2f Гц (авто)", currentFm));
+        tvFmLabel.setTextSize(14f);
+        tvFmLabel.setTextColor(0xFFAAAAAA);
+        tvFmLabel.setPadding(5, 15, 5, 10);
+        layout.addView(tvFmLabel);
 
         LinearLayout fitnessLayout = new LinearLayout(context);
         fitnessLayout.setOrientation(LinearLayout.HORIZONTAL);
@@ -408,7 +406,10 @@ public class ProfileDialogHelper {
             String gender = spinnerGender.getSelectedItem().toString();
             int sysBp = parseOrDefault(inputSysBp.getText().toString().trim(), 120);
             int diaBp = parseOrDefault(inputDiaBp.getText().toString().trim(), 80);
-            float fm = parseFloatOrDefault(inputFm.getText().toString().trim(), 0.1f);
+            
+            // Берем FM строго из существующего профиля или дефолтный 0.1f (пользователь больше не вводит его вручную)
+            float fm = isEditMode ? editingProfile.getFm() : 0.1f;
+            
             String fitness = spinnerFitness.getSelectedItem().toString();
             long profileId = isEditMode ? editingProfile.getId() : 0;
             long createdAt = isEditMode ? editingProfile.getCreatedAt() : System.currentTimeMillis();
