@@ -57,6 +57,7 @@ public class PdfExporter {
             double pstiScore,
             double pstiRmssdRatio,
             List<Double> pstiHistory,
+            float profileFm, // <--- Добавлен параметр паспортного/тестового FM профиля
             PdfExportCallback callback
     ) {
         PdfDocument document = new PdfDocument();
@@ -273,7 +274,6 @@ public class PdfExporter {
                 }
             }
 
-            // МАКРО-УРОВЕНЬ ДЛЯ ГРАФИКОВ [Раздел 4] (выборка дампов-границ строго по записям с флагом isMacroDump)
             List<HrvSnapshotEntity> dumpSnapshots = new ArrayList<>();
             if (snapshots != null) {
                 for (HrvSnapshotEntity s : snapshots) {
@@ -298,7 +298,6 @@ public class PdfExporter {
             canvas1.drawText("4. Динамика SpO2 и ЧСС по дампам сессии (макро-уровень)", MARGIN, currentY, textPaint);
             currentY += 15;
 
-            // Объединяем точки для точной фильтрации по абсолютному времени (dp.getTimestamp())
             List<DataPoint> allPoints = new ArrayList<>();
             if (trainingDataPoints != null) allPoints.addAll(trainingDataPoints);
             if (testDataPoints != null) allPoints.addAll(testDataPoints);
@@ -328,7 +327,6 @@ public class PdfExporter {
                     dumpStartTime = startTime > 0 ? startTime : (dumpEndTime - 300000L);
                 }
 
-                // Строгая фильтрация точек по таймлайну Room без достраивания и fallback-деления
                 List<DataPoint> dumpPoints = new ArrayList<>();
                 for (DataPoint dp : allPoints) {
                     long dpTime = dp.getTimestamp();
@@ -428,7 +426,6 @@ public class PdfExporter {
 
             document.finishPage(pagePoincare);
 
-            // ХРОНОЛОГИЧЕСКИЙ ЛОГ (Раздел 6): детерминированная фильтрация без дублирования PSTI дампов
             List<HrvSnapshotEntity> logSnapshots = new ArrayList<>();
             if (snapshots != null) {
                 Set<Integer> processedPstiDumps = new HashSet<>();
@@ -438,7 +435,6 @@ public class PdfExporter {
                             logSnapshots.add(s);
                         }
                     } else {
-                        // Для теста PSTI выводим строго одну итоговую строку по завершении макро-дампа
                         if (s.isMacroDump()) {
                             if (!processedPstiDumps.contains(s.getDumpIndex())) {
                                 processedPstiDumps.add(s.getDumpIndex());
@@ -476,17 +472,20 @@ public class PdfExporter {
                 textPaint.setTextSize(8.0f);
                 textPaint.setFakeBoldText(true);
                 textPaint.setColor(Color.parseColor("#0F172A"));
+                
+                // РАСШИРЕННАЯ ШАПКА ТАБЛИЦЫ С КОЛОНКОЙ FM
                 canvasN.drawText("Время", MARGIN, startY, textPaint);
-                canvasN.drawText("RMSSD", MARGIN + 45, startY, textPaint);
-                canvasN.drawText("SDNN", MARGIN + 85, startY, textPaint);
-                canvasN.drawText("SI", MARGIN + 120, startY, textPaint);
-                canvasN.drawText("IA", MARGIN + 155, startY, textPaint);
-                canvasN.drawText("PhM", MARGIN + 195, startY, textPaint);
-                canvasN.drawText("LF/HF", MARGIN + 235, startY, textPaint);
-                canvasN.drawText("TP", MARGIN + 275, startY, textPaint);
-                canvasN.drawText("SampEn", MARGIN + 330, startY, textPaint);
-                canvasN.drawText("DFA α1", MARGIN + 385, startY, textPaint);
-                canvasN.drawText("Модуляция", MARGIN + 435, startY, textPaint);
+                canvasN.drawText("RMSSD", MARGIN + 42, startY, textPaint);
+                canvasN.drawText("SDNN", MARGIN + 78, startY, textPaint);
+                canvasN.drawText("SI", MARGIN + 112, startY, textPaint);
+                canvasN.drawText("IA", MARGIN + 144, startY, textPaint);
+                canvasN.drawText("PhM", MARGIN + 178, startY, textPaint);
+                canvasN.drawText("FM", MARGIN + 212, startY, textPaint);     // <--- Новая колонка FM
+                canvasN.drawText("LF/HF", MARGIN + 248, startY, textPaint);
+                canvasN.drawText("TP", MARGIN + 290, startY, textPaint);
+                canvasN.drawText("SampEn", MARGIN + 340, startY, textPaint);
+                canvasN.drawText("DFA α1", MARGIN + 392, startY, textPaint);
+                canvasN.drawText("Модуляция", MARGIN + 440, startY, textPaint);
 
                 strokePaint.setColor(Color.parseColor("#CBD5E1"));
                 strokePaint.setStrokeWidth(1f);
@@ -543,19 +542,21 @@ public class PdfExporter {
 
                     double iaPct = Math.max(0.0, Math.min(100.0, (logLfHf - 1.0) * 100.0));
 
+                    // ВЫВОД ЗНАЧЕНИЙ В СТРОКУ ТАБЛИЦЫ С УЧЕТОМ НОВОЙ КОЛОНКИ FM
                     canvasN.drawText(timeFormat.format(new Date(s.getTimestamp())), MARGIN, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getRmssd()), MARGIN + 45, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getSdnn()), MARGIN + 85, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getBaevskySi()), MARGIN + 120, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.0f%%", iaPct), MARGIN + 155, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getPhim()), MARGIN + 195, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getLfHfRatio()), MARGIN + 235, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.0f", s.getTotalPower()), MARGIN + 275, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getSampleEntropy()), MARGIN + 330, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getDfaAlpha1()), MARGIN + 385, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getRmssd()), MARGIN + 42, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getSdnn()), MARGIN + 78, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f", s.getBaevskySi()), MARGIN + 112, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.0f%%", iaPct), MARGIN + 144, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getPhim()), MARGIN + 178, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.2f", profileFm), MARGIN + 212, currentYLog, textPaint); // <--- Вывод актуального FM из профиля
+                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getLfHfRatio()), MARGIN + 248, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.0f", s.getTotalPower()), MARGIN + 290, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getSampleEntropy()), MARGIN + 340, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.2f", s.getDfaAlpha1()), MARGIN + 392, currentYLog, textPaint);
 
                     float modSec = s.getModulationSec() > 0 ? s.getModulationSec() : 10.0f;
-                    canvasN.drawText(String.format(Locale.US, "%.1f с", modSec), MARGIN + 435, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.1f с", modSec), MARGIN + 440, currentYLog, textPaint);
 
                     currentYLog += 18;
                     rowsOnPage++;
