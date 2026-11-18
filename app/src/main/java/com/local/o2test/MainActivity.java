@@ -26,6 +26,9 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.local.o2test.db.AppDatabase;
+import com.local.o2test.db.entity.ProfileEntity;
+
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -345,6 +348,43 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             }
 
             @Override
+            public void onMayerTestCompleted(float calculatedFm) {
+                runOnUiThread(() -> {
+                    // 1. Обновляем UI (FM в скобках, Hz снаружи)
+                    updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.2f", calculatedFm));
+                    
+                    // 2. Устанавливаем оперативную частоту сессии и положение указателя пейсера
+                    modulationManager.setModulationFrequencyHz(calculatedFm);
+                    modulationManager.applyModulation(hrvService, isBound);
+                    if (ui.pacerView != null) {
+                        ui.pacerView.setPointerValue(modulationManager.getModulationPeriodSec());
+                    }
+                    
+                    onLog(String.format(Locale.US, "[МАЙЕР ТЕСТ] Индивидуальный FM успешно определен: %.2f Hz", calculatedFm));
+                    Toast.makeText(MainActivity.this, String.format(Locale.US, "Найден индивидуальный FM: %.2f Hz", calculatedFm), Toast.LENGTH_LONG).show();
+                });
+
+                // 3. Сохраняем вычисленный FM в Room-базу для активного профиля
+                if (activeProfileId != -1L) {
+                    dbExecutor.execute(() -> {
+                        try {
+                            AppDatabase db = AppDatabase.getInstance(MainActivity.this);
+                            ProfileEntity profile = db.profileDao().getProfileSync(activeProfileId);
+                            if (profile != null) {
+                                profile.setFm(calculatedFm);
+                                db.profileDao().updateProfileSync(profile);
+                                if (DEBUG) {
+                                    onLog(String.format(Locale.US, "[БД] Паспортный FM (%.2f Hz) сохранен в профиль ID: %d", calculatedFm, activeProfileId));
+                                }
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    });
+                }
+            }
+
+            @Override
             public void onMacroProgressUpdated(int rrCount, int totalCount, int currentHr, HrvCalculator.Metrics partialMetrics) {
                 float percent = Math.min(100.0f, (rrCount / (float) totalCount) * 100.0f);
                 int remainingBeats = Math.max(0, totalCount - rrCount);
@@ -387,7 +427,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         blockInfo, currentDumpIndex, avgHr, hrv != null ? hrv.rmssd : 0.0, hrv != null ? hrv.pnn50 : 0.0, currentLfHfDisplayStr, hrv != null ? hrv.totalPower : 0.0);
                 onLog(logMsg);
 
-                sessionDumpCount++; // <--- Точка удалена
+                sessionDumpCount++;
                 completedCyclesInCurrentDump = 0;
 
                 if (progressManager != null) {
@@ -813,15 +853,15 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private void updateMayerFrequencyIndexDisplay(String fmValue) {
         cachedFm = fmValue;
         if (ui.tvMayerFrequencyIndex != null) {
-            ui.tvMayerFrequencyIndex.setText(String.format(Locale.US, "FM:[%s]  ", fmValue));
+            ui.tvMayerFrequencyIndex.setText(String.format(Locale.US, "FM:[%s] Hz  ", fmValue));
         }
     }
 
     private void updateMayerFrequencyIndexDisplay(float modulationPeriodMs) {
         float frequencyHz = 1000.0f / modulationPeriodMs;
-        cachedFm = String.format(Locale.US, "%.1f Hz", frequencyHz);
+        cachedFm = String.format(Locale.US, "%.2f", frequencyHz);
         if (ui.tvMayerFrequencyIndex != null) {
-            ui.tvMayerFrequencyIndex.setText(String.format(Locale.US, "FM:[%.1f Hz]  ", frequencyHz));
+            ui.tvMayerFrequencyIndex.setText(String.format(Locale.US, "FM:[%.2f] Hz  ", frequencyHz));
         }
     }
 
@@ -863,7 +903,34 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 updateMetricsDisplay("--", "--", "--", "--");
                 updateAttractorIndexDisplay("--");
                 updatePhimIndexDisplay("--");
-                updateMayerFrequencyIndexDisplay("--");
+
+                // Шаг 6: Автоматическая инициализация сессии, статуса и пейсера по сохраненному в профиле FM
+                dbExecutor.execute(() -> {
+                    try {
+                        AppDatabase db = AppDatabase.getInstance(MainActivity.this);
+                        ProfileEntity profile = db.profileDao().getProfileSync(profileId);
+                        final float profileFm = (profile != null && profile.getFm() > 0f) ? profile.getFm() : 0.1f;
+
+                        runOnUiThread(() -> {
+                            // Обновляем строку статуса (FM в скобках, Hz снаружи)
+                            updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.2f", profileFm));
+
+                            // Переводим менеджер модуляции и указатель пейсера на значение профиля
+                            modulationManager.setModulationFrequencyHz(profileFm);
+                            modulationManager.applyModulation(hrvService, isBound);
+                            if (ui.pacerView != null) {
+                                ui.pacerView.setPointerValue(modulationManager.getModulationPeriodSec());
+                            }
+
+                            if (DEBUG) {
+                                onLog(String.format(Locale.US, "[ПРОФИЛЬ] Инициализирован FM из базы: %.2f Hz", profileFm));
+                            }
+                        });
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                });
+
                 if (DEBUG) {
                     onLog("[GATEKEEPER] Активный профиль авторизован: " + profileName + " (ID: " + profileId + ")");
                 } else {
@@ -965,6 +1032,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         cycleLfHfValuesList.clear();
         currentLfHfDisplayStr = "--";
 
+        // Шаг 6: Гарантированный старт с актуальным периодом модуляции (из modulationManager)
         fixedModulationPeriodMs = (isBound && hrvService != null) ? hrvService.getModulationPeriodMs() : modulationManager.getModulationPeriodMs();
 
         if (progressManager != null) {
