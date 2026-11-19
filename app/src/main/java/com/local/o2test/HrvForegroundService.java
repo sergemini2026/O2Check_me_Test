@@ -52,6 +52,14 @@ public class HrvForegroundService extends Service {
     private boolean postiCompletionTriggered = false;
     private boolean isMayerTestMode = false;
 
+    // --- ПОЛЯ ДЛЯ ПОШАГОВОГО ТЕСТИРОВАНИЯ МАЙЕРА ---
+    private boolean isMayerStepActive = false;
+    private float currentMayerTestPeriodSec = 10.0f;
+    private final List<Integer> mayerStepRrBuffer = Collections.synchronizedList(new ArrayList<>());
+    private int mayerStepCompletedCycles = 0;
+    private final int mayerStepTargetCycles = 10;
+    private int mayerStepAccumulatedMs = 0;
+
     private final List<Integer> rsaCycleBuffer = Collections.synchronizedList(new ArrayList<>());
     private int rsaCycleAccumulatedMs = 0;
     private static final int TARGET_CYCLE_MS = 10000;
@@ -115,6 +123,7 @@ public class HrvForegroundService extends Service {
         default void onMayerTestModeAutoReset() {}
         default void onMacroProgressUpdated(int rrCount, int totalCount, int currentHr, HrvCalculator.Metrics partialMetrics) {}
         default void onMayerTestCompleted(float calculatedFm) {}
+        default void onMayerStepCompleted(float testedPeriodSec, double measuredLfHf) {}
     }
 
     public class LocalBinder extends Binder {
@@ -242,6 +251,30 @@ public class HrvForegroundService extends Service {
         return isMayerTestMode;
     }
 
+    /**
+     * Запуск пошагового замера для конкретного периода в тесте Майера
+     */
+    public void startMayerTestStep(float periodSec) {
+        this.currentMayerTestPeriodSec = periodSec;
+        this.currentModulationPeriodMs = (long) (periodSec * 1000.0);
+        
+        if (serviceMasterClock != null) {
+            serviceMasterClock.setBaseDurationMs(currentModulationPeriodMs);
+        }
+        
+        synchronized (mayerStepRrBuffer) {
+            mayerStepRrBuffer.clear();
+        }
+        mayerStepCompletedCycles = 0;
+        mayerStepAccumulatedMs = 0;
+        isMayerStepActive = true;
+
+        if (DEBUG) {
+            Log.d(TAG, String.format(Locale.US, "[MAYER_STEP] Запущен шаг теста для периода T=%.2fс (цель: %d циклов)", 
+                    periodSec, mayerStepTargetCycles));
+        }
+    }
+
     public void setAudioResource(int resId) {
         this.currentAudioResId = resId;
         if (isRecording) {
@@ -330,6 +363,7 @@ public class HrvForegroundService extends Service {
         dumpCounter = 1;
         currentBlockNumber = 0;
         isMayerTestMode = false;
+        isMayerStepActive = false;
 
         currentDumpStartTime = System.currentTimeMillis();
 
@@ -346,6 +380,7 @@ public class HrvForegroundService extends Service {
         isPostiTraceActive = false;
         postiCompletionTriggered = false;
         isMayerTestMode = false;
+        isMayerStepActive = false;
         stopAudioAndClock();
         
         synchronized (slidingWindowList) {
@@ -423,6 +458,45 @@ public class HrvForegroundService extends Service {
         sessionManager.addRrInterval(rrMs);
 
         if (rrMs > 300 && rrMs < 2000) {
+            // Если активен пошаговый тест частоты Майера
+            if (isMayerTestMode && isMayerStepActive) {
+                synchronized (mayerStepRrBuffer) {
+                    mayerStepRrBuffer.add(rrMs);
+                    mayerStepAccumulatedMs += rrMs;
+
+                    long targetCycleDurationMs = (long) (currentMayerTestPeriodSec * 1000.0);
+                    if (mayerStepAccumulatedMs >= targetCycleDurationMs) {
+                        mayerStepAccumulatedMs = 0;
+                        mayerStepCompletedCycles++;
+
+                        if (DEBUG) {
+                            Log.d(TAG, String.format(Locale.US, "[MAYER_STEP] Завершен цикл %d/%d для периода T=%.2fс", 
+                                    mayerStepCompletedCycles, mayerStepTargetCycles, currentMayerTestPeriodSec));
+                        }
+
+                        if (mayerStepCompletedCycles >= mayerStepTargetCycles) {
+                            isMayerStepActive = false;
+
+                            List<Integer> stepDataCopy = new ArrayList<>(mayerStepRrBuffer);
+                            mayerStepRrBuffer.clear();
+
+                            HrvCalculator.Metrics stepMetrics = HrvCalculator.calculate(stepDataCopy);
+                            double measuredLfHf = (stepMetrics != null) ? stepMetrics.lfHfRatio : 0.0;
+
+                            if (DEBUG) {
+                                Log.d(TAG, String.format(Locale.US, "[MAYER_STEP] Шаг ТЕСТА завершен! Период: %.2fс, LF/HF: %.2f", 
+                                        currentMayerTestPeriodSec, measuredLfHf));
+                            }
+
+                            if (callback != null) {
+                                callback.onMayerStepCompleted(currentMayerTestPeriodSec, measuredLfHf);
+                            }
+                        }
+                    }
+                }
+                return;
+            }
+
             // 1. МИКРО-УРОВЕНЬ: Скользящее окно (150/50 RR)
             synchronized (slidingWindowList) {
                 slidingWindowList.add(rrMs);
@@ -505,16 +579,14 @@ public class HrvForegroundService extends Service {
                 float macroPhase = MayerWaveAnalyzer.calculateInitialPhase(dumpData, currentModulationPeriodMs);
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
 
-                // Точный момент завершения макро-дампа (мастер-таймлайн Room)
                 long dumpEndTime = System.currentTimeMillis();
 
-                // Автономное формирование неизменяемого SessionSnapshot с текущим сквозным dumpIndex
                 SessionSnapshot dumpSnapshot = new SessionSnapshot(
                         dumpEndTime,
                         metrics,
                         currentModulationSec,
                         wasPstiPhase,
-                        true,  // isMacroDump = true
+                        true,
                         snapshotTestMode,
                         sliceCounter,
                         dumpCounter,
@@ -526,13 +598,9 @@ public class HrvForegroundService extends Service {
                     snapshotBuffer.add(dumpSnapshot);
                 }
 
-                // Нарезка и маршрутизация DataPoint строго по временным границам макро-дампа
                 sliceAndRouteDataPoints(currentDumpStartTime, dumpEndTime, wasPstiPhase);
-
-                // Смещаем границу начала следующего дампа на текущую точку завершения
                 currentDumpStartTime = dumpEndTime;
 
-                // Определяем следующую фазу заранее для передачи в QuantumContext (устранение гонки потоков)
                 boolean nextIsPstiPhase;
                 if (wasPstiPhase) {
                     nextIsPstiPhase = false;
@@ -542,7 +610,6 @@ public class HrvForegroundService extends Service {
                     nextIsPstiPhase = false;
                 }
 
-                // Автономное переключение фаз внутри сервиса ДО вызова колбэка
                 if (wasPstiPhase) {
                     stopPostiRecording();
                 } else if (isTrainingCycleComplete) {
@@ -560,17 +627,16 @@ public class HrvForegroundService extends Service {
                     callback.onMacroDumpCompleted(avgHr, metrics, TARGET_MACRO_RR_COUNT, quantum);
                     
                     if (snapshotTestMode) {
-                        // Вызов колбэка завершения теста Майера с вычисленной частотой в Гц (на основе периода или фазы)
                         float calculatedFm = 1000.0f / currentModulationPeriodMs;
                         callback.onMayerTestCompleted(calculatedFm);
                     }
                 }
 
-                // Инкремент сквозного счетчика дампов
                 dumpCounter++;
 
                 if (snapshotTestMode) {
                     isMayerTestMode = false;
+                    isMayerStepActive = false;
                     if (callback != null) {
                         callback.onMayerTestModeAutoReset();
                     }
@@ -581,10 +647,6 @@ public class HrvForegroundService extends Service {
         }
     }
 
-    /**
-     * Нарезка и маршрутизация секундных точек DataPoint по временным рамкам макро-дампа.
-     * Отсекает лишние хвосты на стыках и распределяет данные в целевые списки.
-     */
     private void sliceAndRouteDataPoints(long startTime, long endTime, boolean isPsti) {
         synchronized (rawSessionDataPoints) {
             List<DataPoint> sliceList = new ArrayList<>();
@@ -639,7 +701,7 @@ public class HrvForegroundService extends Service {
                         metrics,
                         currentModulationSec,
                         isPostiTraceActive,
-                        false, // isMacroDump = false (микро-срез)
+                        false,
                         isMayerTestMode,
                         sliceCounter,
                         dumpCounter,
