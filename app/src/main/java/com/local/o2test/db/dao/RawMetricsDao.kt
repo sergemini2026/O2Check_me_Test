@@ -15,6 +15,28 @@ interface RawMetricsDao {
     @Query("SELECT * FROM raw_metrics WHERE sessionId = :sessionId ORDER BY timestamp ASC")
     fun getMetricsForSession(sessionId: Long): Flow<List<RawMetricsEntity>>
 
+    @Query("""
+        SELECT * FROM (
+            SELECT * FROM raw_metrics
+            WHERE timestamp >= :fromTimestamp
+            ORDER BY timestamp DESC, id DESC
+            LIMIT :limit
+        )
+        ORDER BY timestamp ASC, id ASC
+    """)
+    fun getRecentRawMetricsFromTimeSync(fromTimestamp: Long, limit: Int): List<RawMetricsEntity>
+
+    @Query("""
+        SELECT * FROM (
+            SELECT * FROM raw_metrics
+            WHERE sessionId = :sessionId
+            ORDER BY timestamp DESC, id DESC
+            LIMIT :limit
+        )
+        ORDER BY timestamp ASC, id ASC
+    """)
+    fun getRecentRawMetricsBySessionSync(sessionId: Long, limit: Int): List<RawMetricsEntity>
+
     @Query("DELETE FROM raw_metrics WHERE sessionId = :sessionId")
     suspend fun deleteMetricsForSession(sessionId: Long)
 }
