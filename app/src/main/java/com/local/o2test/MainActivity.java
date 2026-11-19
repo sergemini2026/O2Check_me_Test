@@ -83,6 +83,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private double lastPstiScore = 0.0;
     private double lastPstiRmssdRatio = 0.0;
+    private String lastMayerConvergenceSummary = "";
 
     private double baselineLfHf = 0.0;
     private final List<Double> cycleLfHfValuesList = new ArrayList<>();
@@ -231,7 +232,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
             @Override
             public List<Integer> getValidRrIntervalsForTest() {
-                // Берем валидные RR-интервалы (после фильтрации артефактов) из активного сервиса[span_0](start_span)[span_0](end_span)[span_1](start_span)[span_1](end_span)
+                // Берем валидные RR-интервалы (после фильтрации артефактов) из активного сервиса
                 if (isBound && hrvService != null) {
                     return hrvService.getFilteredSessionRrData();
                 }
@@ -258,6 +259,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             @Override
             public void onMayerTestCompleted(float calculatedFmHz) {
                 applyCalculatedMayerFrequency(calculatedFmHz);
+            }
+
+            @Override
+            public void onMayerTestConvergenceSummary(String summary) {
+                lastMayerConvergenceSummary = (summary != null) ? summary.trim() : "";
             }
         };
     }
@@ -827,6 +833,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 lastPstiRmssdRatio,
                 baselineLfHf,
                 cycleLfHfStr,
+                lastMayerConvergenceSummary,
                 dbExecutor,
                 hrvService,
                 isBound,
@@ -1067,6 +1074,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         completedCyclesInCurrentDump = 0;
         lastPstiScore = 0.0;
         lastPstiRmssdRatio = 0.0;
+        lastMayerConvergenceSummary = "";
         baselineLfHf = 0.0;
         cycleLfHfValuesList.clear();
         currentLfHfDisplayStr = "--";
@@ -1175,6 +1183,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         sessionDumpCount = 0;
         currentBlockNumber = 1;
         completedCyclesInCurrentDump = 0;
+        lastMayerConvergenceSummary = "";
 
         stopAudioAndClockInService();
 
