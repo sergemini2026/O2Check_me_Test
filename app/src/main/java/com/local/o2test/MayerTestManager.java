@@ -16,11 +16,11 @@ import java.util.concurrent.Executors;
 
 public class MayerTestManager {
 
-    private static final int REQUIRED_RR_COUNT = 10;
+    private static final int REQUIRED_RR_COUNT = 50;
     private static final float STAGE1_LOW_SEC = 8.0f;
     private static final float STAGE1_MID_SEC = 10.0f;
     private static final float STAGE1_HIGH_SEC = 12.0f;
-    private static final float STAGE2_STEP_SEC = 0.2f;
+    private static final float HALF_SECOND_STEP_SEC = 0.5f;
 
     private enum SearchPhase {
         IDLE,
@@ -28,7 +28,19 @@ public class MayerTestManager {
         STAGE1_CHECK_HIGH,
         STAGE1_CHECK_BASE_TEN,
         STAGE1_CHECK_MIDPOINT,
-        STAGE2_FINE_SCAN
+        STAGE2_CHECK_HALF_SEC
+    }
+
+    public static class MeasuredPoint {
+        public final float periodSec;
+        public final float freqHz;
+        public final float lfHf;
+
+        public MeasuredPoint(float periodSec, float freqHz, float lfHf) {
+            this.periodSec = periodSec;
+            this.freqHz = freqHz;
+            this.lfHf = lfHf;
+        }
     }
 
     private final Context context;
@@ -50,11 +62,10 @@ public class MayerTestManager {
     private float lfHfAt12 = -1.0f;
     private float midPointSec = 9.0f;
     private float lfHfAtMid = -1.0f;
+    private float halfSecPointSec = 9.5f;
+    private float lfHfAtHalfSec = -1.0f;
 
-    private float intervalStartSec = 9.0f;
-    private float intervalEndSec = 10.0f;
-    private final List<Float> stage2Candidates = new ArrayList<>();
-    private int stage2Index = 0;
+    private final List<MeasuredPoint> measuredSeries = new ArrayList<>();
 
     private float currentCandidatePeriodSec = 8.0f;
     private float bestPeriodSec = 10.0f;
@@ -65,6 +76,7 @@ public class MayerTestManager {
         void onLog(String message);
         default void onTestPeriodChanged(float periodSec) {}
         default void onMayerTestCompleted(float calculatedFmHz) {}
+        default void onMayerTestConvergenceSummary(String summary) {}
         default List<Integer> getValidRrIntervalsForTest() {
             return null;
         }
@@ -166,10 +178,9 @@ public class MayerTestManager {
         lfHfAt12 = -1.0f;
         midPointSec = 9.0f;
         lfHfAtMid = -1.0f;
-        intervalStartSec = 9.0f;
-        intervalEndSec = 10.0f;
-        stage2Candidates.clear();
-        stage2Index = 0;
+        halfSecPointSec = 9.5f;
+        lfHfAtHalfSec = -1.0f;
+        measuredSeries.clear();
         bestLfHfValue = -1.0;
     }
 
@@ -213,6 +224,9 @@ public class MayerTestManager {
     private void advanceSearchWithMeasurement(double measuredLfHf) {
         if (!isTestModeActive) return;
 
+        float freqHz = 1.0f / currentCandidatePeriodSec;
+        measuredSeries.add(new MeasuredPoint(currentCandidatePeriodSec, freqHz, (float) measuredLfHf));
+
         if (measuredLfHf > bestLfHfValue) {
             bestLfHfValue = measuredLfHf;
             bestPeriodSec = currentCandidatePeriodSec;
@@ -223,7 +237,7 @@ public class MayerTestManager {
                     Locale.US,
                     "[МАЙЕР ТЕСТ] Точка T=%.1f с (%.2f Hz) | LF/HF=%.3f",
                     currentCandidatePeriodSec,
-                    1.0f / currentCandidatePeriodSec,
+                    freqHz,
                     measuredLfHf
             ));
         }
@@ -238,12 +252,11 @@ public class MayerTestManager {
 
             case STAGE1_CHECK_HIGH:
                 lfHfAt12 = (float) measuredLfHf;
-                if (Math.abs(initialPeriodSec - STAGE1_MID_SEC) > 0.05f) {
+                if (lfHfAt10 < 0.0f) {
                     searchPhase = SearchPhase.STAGE1_CHECK_BASE_TEN;
                     currentCandidatePeriodSec = STAGE1_MID_SEC;
                     notifyPeriodAndContinue();
                 } else {
-                    lfHfAt10 = -1.0f;
                     prepareMidpointFromBounds();
                 }
                 break;
@@ -255,17 +268,12 @@ public class MayerTestManager {
 
             case STAGE1_CHECK_MIDPOINT:
                 lfHfAtMid = (float) measuredLfHf;
-                selectOneSecondIntervalAndStartStage2();
+                selectHalfSecondPointAndStartStage2();
                 break;
 
-            case STAGE2_FINE_SCAN:
-                stage2Index++;
-                if (stage2Index < stage2Candidates.size()) {
-                    currentCandidatePeriodSec = stage2Candidates.get(stage2Index);
-                    notifyPeriodAndContinue();
-                } else {
-                    completeTestWithBestPeriod();
-                }
+            case STAGE2_CHECK_HALF_SEC:
+                lfHfAtHalfSec = (float) measuredLfHf;
+                evaluateConvergenceAndComplete();
                 break;
 
             case IDLE:
@@ -275,68 +283,35 @@ public class MayerTestManager {
     }
 
     private void prepareMidpointFromBounds() {
-        boolean pickHighRange;
-        if (lfHfAt10 >= 0.0f) {
-            float lowAnchor = Math.max(lfHfAt8, lfHfAt10);
-            float highAnchor = Math.max(lfHfAt12, lfHfAt10);
-            pickHighRange = highAnchor > lowAnchor;
-        } else {
-            pickHighRange = lfHfAt12 > lfHfAt8;
-        }
+        float lowRangeScore = Math.max(lfHfAt8, lfHfAt10);
+        float highRangeScore = Math.max(lfHfAt12, lfHfAt10);
+        boolean pickHighRange = highRangeScore > lowRangeScore;
 
         searchPhase = SearchPhase.STAGE1_CHECK_MIDPOINT;
-        if (pickHighRange) {
-            midPointSec = 11.0f;
-        } else {
-            midPointSec = 9.0f;
-        }
+        midPointSec = pickHighRange ? 11.0f : 9.0f;
         currentCandidatePeriodSec = midPointSec;
         notifyPeriodAndContinue();
     }
 
-    private void selectOneSecondIntervalAndStartStage2() {
+    private void selectHalfSecondPointAndStartStage2() {
         if (midPointSec < 10.0f) {
-            // Диапазон [8.0, 10.0], средняя точка 9.0: сравниваем [8.0..9.0] и [9.0..10.0]
+            // Выбран поддиапазон [8.0..10.0], измерена средняя 9.0: сравниваем [8.0..9.0] и [9.0..10.0]
             float leftScore = Math.max(lfHfAt8, lfHfAtMid);
-            float rightScore = lfHfAt10 >= 0.0f ? Math.max(lfHfAtMid, lfHfAt10) : lfHfAtMid;
-            if (rightScore > leftScore) {
-                intervalStartSec = 9.0f;
-                intervalEndSec = 10.0f;
-            } else {
-                intervalStartSec = 8.0f;
-                intervalEndSec = 9.0f;
-            }
+            float rightScore = Math.max(lfHfAtMid, lfHfAt10);
+            halfSecPointSec = (rightScore > leftScore) ? 9.5f : 8.5f;
         } else {
-            // Диапазон [10.0, 12.0], средняя точка 11.0: сравниваем [10.0..11.0] и [11.0..12.0]
-            float leftScore = lfHfAt10 >= 0.0f ? Math.max(lfHfAt10, lfHfAtMid) : lfHfAtMid;
+            // Выбран поддиапазон [10.0..12.0], измерена средняя 11.0: сравниваем [10.0..11.0] и [11.0..12.0]
+            float leftScore = Math.max(lfHfAt10, lfHfAtMid);
             float rightScore = Math.max(lfHfAtMid, lfHfAt12);
-            if (rightScore > leftScore) {
-                intervalStartSec = 11.0f;
-                intervalEndSec = 12.0f;
-            } else {
-                intervalStartSec = 10.0f;
-                intervalEndSec = 11.0f;
-            }
+            halfSecPointSec = (rightScore > leftScore) ? 11.5f : 10.5f;
         }
 
-        stage2Candidates.clear();
-        int steps = Math.round((intervalEndSec - intervalStartSec) / STAGE2_STEP_SEC);
-        for (int i = 0; i <= steps; i++) {
-            float candidate = Math.round((intervalStartSec + i * STAGE2_STEP_SEC) * 10.0f) / 10.0f;
-            if (Math.abs(candidate - currentCandidatePeriodSec) > 0.01f) {
-                stage2Candidates.add(candidate);
-            }
-        }
+        // Гарантируем шаг 0.5 с в выбранном односекундном интервале
+        halfSecPointSec = Math.round(halfSecPointSec / HALF_SECOND_STEP_SEC) * HALF_SECOND_STEP_SEC;
 
-        searchPhase = SearchPhase.STAGE2_FINE_SCAN;
-        stage2Index = 0;
-
-        if (!stage2Candidates.isEmpty()) {
-            currentCandidatePeriodSec = stage2Candidates.get(0);
-            notifyPeriodAndContinue();
-        } else {
-            completeTestWithBestPeriod();
-        }
+        searchPhase = SearchPhase.STAGE2_CHECK_HALF_SEC;
+        currentCandidatePeriodSec = halfSecPointSec;
+        notifyPeriodAndContinue();
     }
 
     private void notifyPeriodAndContinue() {
@@ -347,9 +322,60 @@ public class MayerTestManager {
         evaluateNextValidRrWindow();
     }
 
-    private void completeTestWithBestPeriod() {
-        float finalPeriod = bestPeriodSec > 0f ? bestPeriodSec : initialPeriodSec;
-        float calculatedFmHz = 1.0f / finalPeriod;
+    private void evaluateConvergenceAndComplete() {
+        MeasuredPoint maxPoint = null;
+        double sumLfHf = 0.0;
+        for (MeasuredPoint pt : measuredSeries) {
+            sumLfHf += pt.lfHf;
+            if (maxPoint == null || pt.lfHf > maxPoint.lfHf) {
+                maxPoint = pt;
+            }
+        }
+
+        double meanLfHf = !measuredSeries.isEmpty() ? (sumLfHf / measuredSeries.size()) : 0.0;
+        float maxLfHf = maxPoint != null ? maxPoint.lfHf : 0.0f;
+
+        boolean hasPositivePeak = maxPoint != null && maxLfHf > 0.0f;
+        boolean hasProminence = hasPositivePeak && (meanLfHf <= 1e-6 || maxLfHf >= meanLfHf * 1.25);
+        float refinedMax = Math.max(Math.max(0.0f, lfHfAtMid), Math.max(0.0f, lfHfAtHalfSec));
+        boolean hasRefinedSupport = hasPositivePeak
+                && (refinedMax >= meanLfHf * 1.05
+                || (maxPoint != null && Math.abs(maxPoint.periodSec - halfSecPointSec) <= 1.0f));
+
+        float selectedPeriod;
+        String summary;
+
+        if (hasPositivePeak && hasProminence && hasRefinedSupport) {
+            selectedPeriod = maxPoint.periodSec;
+            float selectedFreq = 1.0f / selectedPeriod;
+            summary = String.format(
+                    Locale.US,
+                    "Сходимость подтверждена: оптимум T=%.1f с (%.2f Hz), max LF/HF=%.3f при среднем %.3f.",
+                    selectedPeriod,
+                    selectedFreq,
+                    maxLfHf,
+                    meanLfHf
+            );
+        } else {
+            if (initialPeriodSec > 0f) {
+                selectedPeriod = initialPeriodSec;
+            } else if (hasPositivePeak) {
+                selectedPeriod = maxPoint.periodSec;
+            } else {
+                selectedPeriod = STAGE1_MID_SEC;
+            }
+            float selectedFreq = 1.0f / selectedPeriod;
+            summary = String.format(
+                    Locale.US,
+                    "Сходимость не подтверждена (ряд плоский/неоднородный, max LF/HF=%.3f при среднем %.3f): применен базовый период T=%.1f с (%.2f Hz).",
+                    maxLfHf,
+                    meanLfHf,
+                    selectedPeriod,
+                    selectedFreq
+            );
+        }
+
+        float calculatedFmHz = 1.0f / selectedPeriod;
 
         isTestModeActive = false;
         resetSearchState();
@@ -361,6 +387,8 @@ public class MayerTestManager {
         }
 
         if (listener != null) {
+            listener.onLog("[МАЙЕР ТЕСТ] " + summary);
+            listener.onMayerTestConvergenceSummary(summary);
             listener.onTestModeChanged(false);
             listener.onMayerTestCompleted(calculatedFmHz);
         }
