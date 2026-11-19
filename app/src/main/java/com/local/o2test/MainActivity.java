@@ -48,7 +48,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private static final String PREF_NAME = "O2AppPrefs";
     private static final int PI_SMOOTHING_WINDOW = 5;
     private static final int CALIBRATION_TARGET = 100;
-    private static final int TARGET_RR_PER_DUMP = 300;     
+    private static final int TARGET_RR_PER_DUMP = 300;
 
     private O2BleManager bleManager;
     private PolarH10Manager polarManager;
@@ -63,7 +63,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private boolean isRecording = false;
     private boolean isTrainingModeActive = false;
-    private boolean isTrainingSelected = false; 
+    private boolean isTrainingSelected = false;
     private int trainingTargetX = 1;
 
     private boolean isCalibrationCompleted = false;
@@ -126,7 +126,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             HrvForegroundService.LocalBinder binder = (HrvForegroundService.LocalBinder) service;
             hrvService = binder.getService();
             isBound = true;
-            
+
             if (DEBUG) {
                 onLog("[SERVICE] Сервис успешно привязан к MainActivity");
             }
@@ -141,6 +141,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 ui.btnHeart.setAlpha(isProfileAuthorized && isTrainingSelected ? 1.0f : 0.5f);
             }
         }
+
         @Override
         public void onServiceDisconnected(ComponentName name) {
             isBound = false;
@@ -209,6 +210,86 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     };
 
+    private MayerTestManager.MayerTestListener createMayerTestListener() {
+        return new MayerTestManager.MayerTestListener() {
+            @Override
+            public void onTestModeChanged(boolean isActive) {
+                if (isActive && mayerTestManager != null) {
+                    long startAnchor = sessionStartTime > 0L ? sessionStartTime : System.currentTimeMillis();
+                    float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : 10.0f;
+                    mayerTestManager.configureSessionContext(startAnchor, basePeriodSec);
+                }
+                if (isBound && hrvService != null) {
+                    hrvService.setMayerTestMode(isActive);
+                }
+            }
+
+            @Override
+            public void onLog(String message) {
+                MainActivity.this.onLog(message);
+            }
+
+            @Override
+            public void onTestPeriodChanged(float periodSec) {
+                if (periodSec <= 0f) return;
+                float freqHz = 1.0f / periodSec;
+                long periodMs = (long) (periodSec * 1000.0f);
+                runOnUiThread(() -> {
+                    updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.2f", freqHz));
+                    if (modulationManager != null) {
+                        modulationManager.setModulationPeriodMs(periodMs);
+                        modulationManager.applyModulation(hrvService, isBound);
+                    }
+                    if (ui != null && ui.pacerView != null) {
+                        ui.pacerView.setPointerValue(periodSec);
+                    }
+                });
+            }
+
+            @Override
+            public void onMayerTestCompleted(float calculatedFmHz) {
+                applyCalculatedMayerFrequency(calculatedFmHz);
+            }
+        };
+    }
+
+    private void applyCalculatedMayerFrequency(float calculatedFm) {
+        if (calculatedFm <= 0f) return;
+
+        runOnUiThread(() -> {
+            updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.2f", calculatedFm));
+
+            if (modulationManager != null) {
+                modulationManager.setModulationFrequencyHz(calculatedFm);
+                modulationManager.applyModulation(hrvService, isBound);
+                if (ui != null && ui.pacerView != null) {
+                    ui.pacerView.setPointerValue(modulationManager.getModulationPeriodSec());
+                }
+            }
+
+            onLog(String.format(Locale.US, "[МАЙЕР ТЕСТ] Индивидуальный FM успешно определен: %.2f Hz", calculatedFm));
+            Toast.makeText(MainActivity.this, String.format(Locale.US, "Найден индивидуальный FM: %.2f Hz", calculatedFm), Toast.LENGTH_LONG).show();
+        });
+
+        if (activeProfileId != -1L) {
+            dbExecutor.execute(() -> {
+                try {
+                    AppDatabase db = AppDatabase.getInstance(MainActivity.this);
+                    ProfileEntity profile = db.profileDao().getProfileSync(activeProfileId);
+                    if (profile != null) {
+                        profile.setFm(calculatedFm);
+                        db.profileDao().updateProfileSync(profile);
+                        if (DEBUG) {
+                            onLog(String.format(Locale.US, "[БД] Паспортный FM (%.2f Hz) сохранен в профиль ID: %d", calculatedFm, activeProfileId));
+                        }
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            });
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -224,19 +305,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         progressManager = new BreatheProgressManager(ui.pacerView);
 
         // Инициализация менеджера кнопки «Тест» (MayerTestManager)
-        mayerTestManager = new MayerTestManager(this, ui.btnTest, new MayerTestManager.MayerTestListener() {
-            @Override
-            public void onTestModeChanged(boolean isActive) {
-                if (isBound && hrvService != null) {
-                    hrvService.setMayerTestMode(isActive);
-                }
-            }
-
-            @Override
-            public void onLog(String message) {
-                MainActivity.this.onLog(message);
-            }
-        });
+        mayerTestManager = new MayerTestManager(this, ui.btnTest, createMayerTestListener());
 
         UiBuilder.updateStatusHeader(ui.tvLiveMetrics, 0, 0, 0f, 0, 0);
 
@@ -276,19 +345,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             boolean wasAvailable = mayerTestManager != null && mayerTestManager.isAvailable();
             boolean wasActive = mayerTestManager != null && mayerTestManager.isMayerTestModeActive();
 
-            mayerTestManager = new MayerTestManager(this, ui.btnTest, new MayerTestManager.MayerTestListener() {
-                @Override
-                public void onTestModeChanged(boolean isActive) {
-                    if (isBound && hrvService != null) {
-                        hrvService.setMayerTestMode(isActive);
-                    }
-                }
-
-                @Override
-                public void onLog(String message) {
-                    MainActivity.this.onLog(message);
-                }
-            });
+            mayerTestManager = new MayerTestManager(this, ui.btnTest, createMayerTestListener());
+            long startAnchor = sessionStartTime > 0L ? sessionStartTime : System.currentTimeMillis();
+            float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : 10.0f;
+            mayerTestManager.configureSessionContext(startAnchor, basePeriodSec);
 
             if (wasAvailable) {
                 mayerTestManager.setAvailable(true);
@@ -349,39 +409,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
             @Override
             public void onMayerTestCompleted(float calculatedFm) {
-                runOnUiThread(() -> {
-                    // 1. Обновляем UI (FM в скобках, Hz снаружи)
-                    updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.2f", calculatedFm));
-                    
-                    // 2. Устанавливаем оперативную частоту сессии и положение указателя пейсера
-                    modulationManager.setModulationFrequencyHz(calculatedFm);
-                    modulationManager.applyModulation(hrvService, isBound);
-                    if (ui.pacerView != null) {
-                        ui.pacerView.setPointerValue(modulationManager.getModulationPeriodSec());
-                    }
-                    
-                    onLog(String.format(Locale.US, "[МАЙЕР ТЕСТ] Индивидуальный FM успешно определен: %.2f Hz", calculatedFm));
-                    Toast.makeText(MainActivity.this, String.format(Locale.US, "Найден индивидуальный FM: %.2f Hz", calculatedFm), Toast.LENGTH_LONG).show();
-                });
-
-                // 3. Сохраняем вычисленный FM в Room-базу для активного профиля
-                if (activeProfileId != -1L) {
-                    dbExecutor.execute(() -> {
-                        try {
-                            AppDatabase db = AppDatabase.getInstance(MainActivity.this);
-                            ProfileEntity profile = db.profileDao().getProfileSync(activeProfileId);
-                            if (profile != null) {
-                                profile.setFm(calculatedFm);
-                                db.profileDao().updateProfileSync(profile);
-                                if (DEBUG) {
-                                    onLog(String.format(Locale.US, "[БД] Паспортный FM (%.2f Hz) сохранен в профиль ID: %d", calculatedFm, activeProfileId));
-                                }
-                            }
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                    });
-                }
+                applyCalculatedMayerFrequency(calculatedFm);
             }
 
             @Override
@@ -413,7 +441,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     currentBlockNumber = context.getBlockNumber();
                 }
                 int currentDumpIndex = context != null ? context.getDumpIndex() : (sessionDumpCount + 1);
-                
+
                 String blockInfo = isPostiPhase ? "Тест PSTI" : String.format(Locale.US, "Блок %d/%d", currentBlockNumber, totalBlocks);
 
                 // Синхронизируем фазовое значение из контекста сервиса
@@ -436,16 +464,16 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
                 if (isPostiPhase) {
                     onLog(String.format(Locale.US, "[Дамп (Тест PSTI #%d) завершен]", currentDumpIndex));
-                    
+
                     // Вычисление индекса консолидации барорефлекса PSTI
                     if (hrv != null) {
                         lastPstiScore = Math.min(100.0, (hrv.rmssd / 50.0) * 50.0 + (Math.min(hrv.totalPower, 2500.0) / 2500.0) * 50.0);
                         lastPstiRmssdRatio = (baselineLfHf > 0 && hrv.lfHfRatio > 0) ? (hrv.lfHfRatio / baselineLfHf) : 1.0;
-                        
+
                         onLog(String.format(Locale.US, "[PSTI РЕЗУЛЬТАТ] Индекс консолидации барорефлекса PSTI: %.1f%% (RMSSD ratio: %.2f)",
                                 lastPstiScore, lastPstiRmssdRatio));
                     }
-                    
+
                     // После завершения PSTI дампа в сервисе: возобновляем сбор пульса и разблокируем тест
                     if (polarManager != null) {
                         polarManager.startCollection();
@@ -473,11 +501,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 if (hrv != null) {
                     String rmssdStr = String.format(Locale.US, "%.1f ms", hrv.rmssd);
                     String pnn50Str = String.format(Locale.US, "%.1f%%", hrv.pnn50);
-                    
+
                     double iaNorm = (hrv.lfPower + hrv.hfPower > 0) ? (2.0 * hrv.lfPower / (hrv.lfPower + hrv.hfPower)) : 1.0;
                     double iaPct = Math.max(0.0, Math.min(100.0, (iaNorm - 1.0) * 100.0));
                     String iaStr = String.format(Locale.US, "%.0f", iaPct);
-                    
+
                     String tpStr = String.format(Locale.US, "%.0f ms²", hrv.totalPower);
 
                     final String finalLfHfStr = currentLfHfDisplayStr;
@@ -524,7 +552,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     Toast.makeText(this, "Сначала выберите тип тренировки в меню!", Toast.LENGTH_SHORT).show();
                     return;
                 }
-                
+
                 boolean isPolarConnected = polarManager != null && polarManager.isConnected();
                 if (!isRecording && !isPolarConnected) {
                     showSensorNotConnectedAlert();
@@ -547,7 +575,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     openProfilesManager();
                     return;
                 }
-                
+
                 if (!isLocationEnabled(this)) {
                     Toast.makeText(this, "Для работы Bluetooth необходимо включить геолокацию!", Toast.LENGTH_LONG).show();
                     try {
@@ -674,7 +702,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                 ui.btnHeart.setAlpha(1.0f);
                             }
                             updateRightPanelStatus();
-                            
+
                             if (DEBUG) {
                                 onLog(String.format(Locale.US, "[ТРЕНИРОВКА ВЫБРАНА] %s | Целевой x = %d", currentWorkoutMode, trainingTargetX));
                             } else {
@@ -798,7 +826,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private void updateRightPanelStatus() {
         if (ui.tvStatusValue == null) return;
         boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
-        
+
         String pstiSuffix = (lastPstiScore > 0.0) ? String.format(Locale.US, " PSTI [%.1f%%]", lastPstiScore) : "";
 
         if (!isRecording) {
@@ -898,7 +926,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 activeProfileId = profileId;
                 activeProfileName = profileName;
                 isProfileAuthorized = true;
-                
+
                 setInterfaceAuthorizedState(true);
                 updateMetricsDisplay("--", "--", "--", "--");
                 updateAttractorIndexDisplay("--");
@@ -1043,30 +1071,34 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             hrvService.stopPostiRecording();
             hrvService.setPresetPattern(trainingTargetX);
             hrvService.startSessionRecording();
-            
+
             modulationManager.applyModulation(hrvService, isBound);
             hrvService.setCallback(createServiceCallback());
         }
-        
+
         if (polarManager != null) {
             polarManager.startCollection();
         }
 
         sessionStartTime = System.currentTimeMillis();
+        if (mayerTestManager != null) {
+            mayerTestManager.configureSessionContext(sessionStartTime, fixedModulationPeriodMs / 1000.0f);
+        }
+
         synchronized (sessionData) { sessionData.clear(); }
         synchronized (phaseBuffer) { phaseBuffer.clear(); }
         piWindow.clear();
         prevRrMs = 0;
         consecutiveArtifactsCount = 0;
         if (ui.chartView != null) ui.chartView.clearData();
-        
+
         updateMetricsDisplay("--", "--", "--", "--");
         updateAttractorIndexDisplay("--");
         updatePhimIndexDisplay("--");
         updateMayerFrequencyIndexDisplay(fixedModulationPeriodMs);
         updateRightPanelStatus();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
-        
+
         if (DEBUG) {
             onLog(String.format(Locale.US, "[MONITORING] Активен профиль: %s | Режим: %s | Период T=%.1fс | Целевой x = %d",
                     activeProfileName, currentWorkoutMode, fixedModulationPeriodMs / 1000.0f, trainingTargetX));
@@ -1089,7 +1121,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private void startPostiTraceWindow() {
         postiStartTime = System.currentTimeMillis();
-        
+
         stopAudioAndClockInService();
 
         // Событийная деактивация кнопки «Тест» на время фазы PSTI
@@ -1132,7 +1164,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         sessionDumpCount = 0;
         currentBlockNumber = 1;
         completedCyclesInCurrentDump = 0;
-        
+
         stopAudioAndClockInService();
 
         if (mayerTestManager != null) {
@@ -1144,13 +1176,13 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             hrvService.stopSessionRecording();
             hrvService.stopPostiRecording();
         }
-        
+
         if (polarManager != null) {
             polarManager.stopCollection();
         }
 
         piWindow.clear();
-        
+
         if (progressManager != null) {
             progressManager.stop();
         }
@@ -1300,7 +1332,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                     if (ui.tvStatusValue != null) {
                                         ui.tvStatusValue.setText("Сбор завершен");
                                     }
-                                    
+
                                     updateMetricsDisplay("--", "--", currentLfHfDisplayStr, "--");
                                     updatePhimIndexDisplay(initialPhase);
                                     updateMayerFrequencyIndexDisplay(fixedModulationPeriodMs);
@@ -1351,11 +1383,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         super.onDestroy();
         stopMonitoring();
         stopAudioAndClockInService();
-        
+
         if (ui != null && ui.pacerView != null) {
             ui.pacerView.stopMonitoring();
         }
-        
+
         if (bleManager != null) bleManager.close();
         if (polarManager != null) polarManager.disconnect();
     }
