@@ -57,11 +57,52 @@ public class PdfExporter {
             double pstiScore,
             double pstiRmssdRatio,
             List<Double> pstiHistory,
+            float profileFm,
+            PdfExportCallback callback
+    ) {
+        generateHrvPdfReport(
+                context,
+                profileName,
+                workoutMode,
+                trainingTargetX,
+                startTime,
+                endTime,
+                snapshots,
+                rawRrList,
+                trainingDataPoints,
+                testDataPoints,
+                customDirPath,
+                pstiScore,
+                pstiRmssdRatio,
+                pstiHistory,
+                profileFm,
+                "",
+                callback
+        );
+    }
+
+    public static void generateHrvPdfReport(
+            Context context,
+            String profileName,
+            String workoutMode,
+            int trainingTargetX,
+            long startTime,
+            long endTime,
+            List<HrvSnapshotEntity> snapshots,
+            List<Integer> rawRrList,
+            List<DataPoint> trainingDataPoints,
+            List<DataPoint> testDataPoints,
+            String customDirPath,
+            double pstiScore,
+            double pstiRmssdRatio,
+            List<Double> pstiHistory,
             float profileFm, // <--- Добавлен параметр паспортного/тестового FM профиля
+            String mayerConvergenceSummary,
             PdfExportCallback callback
     ) {
         PdfDocument document = new PdfDocument();
         SimpleDateFormat sdf = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.US);
+        final String safeMayerSummary = (mayerConvergenceSummary != null) ? mayerConvergenceSummary.trim() : "";
 
         double avgRmssd = 0, avgSdnn = 0, avgSi = 0, avgLfHf = 0, avgTp = 0, avgSampEn = 0, avgDfa = 0;
         int validCount = 0;
@@ -259,7 +300,7 @@ public class PdfExporter {
                     List<Double> subHistory = pstiHistory.subList(subStart, subEnd);
 
                     String title = String.format(Locale.US, "Сессии %d - %d (рост=зеленый, равно=синий, спад=красный)", subStart + 1, subEnd);
-                    
+
                     if (currentY + 75 > PAGE_HEIGHT - MARGIN) {
                         document.finishPage(page1);
                         PdfDocument.PageInfo pageInfoN = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
@@ -313,7 +354,7 @@ public class PdfExporter {
                 }
 
                 HrvSnapshotEntity snapshot = dumpSnapshots.get(d);
-                
+
                 int dumpIdx = snapshot.getDumpIndex();
                 boolean isPstiPhase = snapshot.isPstiPhase();
                 int blockNumber = snapshot.getBlockNumber();
@@ -456,6 +497,11 @@ public class PdfExporter {
             int rowsPerPage = 22;
             int totalLogSnapshots = logSnapshots.size();
 
+            TextPaint mayerAnnotationPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+            mayerAnnotationPaint.setTextSize(7.5f);
+            mayerAnnotationPaint.setColor(Color.parseColor("#831843"));
+            int annotationWidth = PAGE_WIDTH - 2 * MARGIN - 16;
+
             int snapshotIdx = 0;
             while (snapshotIdx < totalLogSnapshots) {
                 PdfDocument.PageInfo pageInfoN = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
@@ -472,7 +518,7 @@ public class PdfExporter {
                 textPaint.setTextSize(8.0f);
                 textPaint.setFakeBoldText(true);
                 textPaint.setColor(Color.parseColor("#0F172A"));
-                
+
                 // РАСШИРЕННАЯ ШАПКА ТАБЛИЦЫ С КОЛОНКОЙ FM
                 canvasN.drawText("Время", MARGIN, startY, textPaint);
                 canvasN.drawText("RMSSD", MARGIN + 42, startY, textPaint);
@@ -498,6 +544,10 @@ public class PdfExporter {
                 int rowsOnPage = 0;
 
                 while (snapshotIdx < totalLogSnapshots && rowsOnPage < rowsPerPage) {
+                    if (currentYLog + 18 > PAGE_HEIGHT - MARGIN) {
+                        break;
+                    }
+
                     HrvSnapshotEntity s = logSnapshots.get(snapshotIdx);
                     boolean isPstiPhase = s.isPstiPhase();
                     boolean isTestModeCurrent = s.isMayerTestMode();
@@ -513,20 +563,40 @@ public class PdfExporter {
                         textPaint.setTextSize(8.0f);
                         textPaint.setFakeBoldText(true);
                         textPaint.setColor(Color.parseColor("#0F172A"));
-                        
+
                         String centerTitleText;
                         if (isTestModeCurrent) {
                             centerTitleText = "Режим тестирования частоты Майера (Открытый контур)";
                         } else {
                             centerTitleText = (isPstiPhase ? "Тест PSTI (Итоговый макро-дамп)" : "Тренировка (Микро-срезы)") + " — " + workoutMode;
                         }
-                        
+
                         float textWidth = textPaint.measureText(centerTitleText);
                         float centerX = MARGIN + (PAGE_WIDTH - 2 * MARGIN - textWidth) / 2f;
                         canvasN.drawText(centerTitleText, centerX, currentYLog, textPaint);
-                        
+
                         currentYLog += 16;
                         textPaint.setFakeBoldText(false);
+
+                        if (isTestModeCurrent && !safeMayerSummary.isEmpty()) {
+                            String annotationText = "Сходимость ряда: " + safeMayerSummary;
+                            StaticLayout summaryLayout = StaticLayout.Builder
+                                    .obtain(annotationText, 0, annotationText.length(), mayerAnnotationPaint, annotationWidth)
+                                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                                    .build();
+                            int boxHeight = summaryLayout.getHeight() + 6;
+                            if (currentYLog + boxHeight + 14 <= PAGE_HEIGHT - MARGIN) {
+                                fillPaint.setColor(Color.parseColor("#FDF2F8"));
+                                canvasN.drawRect(MARGIN, currentYLog - 9, PAGE_WIDTH - MARGIN, currentYLog - 9 + boxHeight, fillPaint);
+
+                                canvasN.save();
+                                canvasN.translate(MARGIN + 8, currentYLog - 6);
+                                summaryLayout.draw(canvasN);
+                                canvasN.restore();
+
+                                currentYLog += boxHeight + 4;
+                            }
+                        }
                     }
 
                     if (isTestModeCurrent) {
