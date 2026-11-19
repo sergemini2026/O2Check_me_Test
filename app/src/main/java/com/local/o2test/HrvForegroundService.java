@@ -659,6 +659,10 @@ public class HrvForegroundService extends Service {
         return sessionManager.getRawSessionData();
     }
 
+    public List<Integer> getFilteredSessionRrData() {
+        return sessionManager.getFilteredSessionData();
+    }
+
     public boolean isRecording() {
         return isRecording;
     }
