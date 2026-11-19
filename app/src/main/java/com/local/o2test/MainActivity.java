@@ -230,6 +230,15 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             }
 
             @Override
+            public List<Integer> getValidRrIntervalsForTest() {
+                // Берем валидные RR-интервалы (после фильтрации артефактов) из активного сервиса[span_0](start_span)[span_0](end_span)[span_1](start_span)[span_1](end_span)
+                if (isBound && hrvService != null) {
+                    return hrvService.getFilteredSessionRrData();
+                }
+                return null;
+            }
+
+            @Override
             public void onTestPeriodChanged(float periodSec) {
                 if (periodSec <= 0f) return;
                 float freqHz = 1.0f / periodSec;
@@ -437,12 +446,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 boolean nextIsPstiPhase = context != null && context.isNextIsPstiPhase();
 
                 int totalBlocks = trainingTargetX;
-                if (context != null) {
-                    currentBlockNumber = context.getBlockNumber();
-                }
+                int rawContextBlock = (context != null) ? context.getBlockNumber() : currentBlockNumber;
                 int currentDumpIndex = context != null ? context.getDumpIndex() : (sessionDumpCount + 1);
 
-                String blockInfo = isPostiPhase ? "Тест PSTI" : String.format(Locale.US, "Блок %d/%d", currentBlockNumber, totalBlocks);
+                String blockInfo = isPostiPhase ? "Тест PSTI" : String.format(Locale.US, "Блок %d/%d", rawContextBlock, totalBlocks);
 
                 // Синхронизируем фазовое значение из контекста сервиса
                 if (context != null) {
@@ -481,7 +488,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     if (mayerTestManager != null) {
                         mayerTestManager.setAvailable(true);
                     }
-                    currentBlockNumber = 1; // Сбрасываем номер блока на 1 при возврате к тренировочному циклу после теста
+                    // При возврате из PSTI к тренировочному циклу следующий собираемый блок — №1
+                    currentBlockNumber = 1;
                     onLog("[Мониторинг] Возврат к тренировочному циклу...");
                     runOnUiThread(() -> {
                         if (isRecording && isBound && hrvService != null) {
@@ -490,8 +498,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     });
                 } else {
                     if (nextIsPstiPhase) {
+                        currentBlockNumber = 1;
                         startPostiTraceWindow();
                     } else {
+                        // После закрытия очередного тренировочного блока переводим счетчик на следующий блок (1..totalBlocks)
+                        currentBlockNumber = Math.min(totalBlocks, Math.max(1, rawContextBlock + 1));
                         onLog("[Мониторинг] Продолжение сеанса дыхания...");
                     }
                 }
@@ -840,8 +851,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 ui.tvStatusValue.setText(String.format(Locale.US, "Статус: Замер следа (PSTI)%s", pstiSuffix));
             } else if (isTrainingModeActive) {
                 int totalBlocks = trainingTargetX;
-                int currentBlockNum = currentBlockNumber;
-                String blockInfo = String.format(Locale.US, "Блок %d/%d", currentBlockNum, totalBlocks);
+                int nextBlockNum = Math.min(totalBlocks, Math.max(1, currentBlockNumber));
+                String blockInfo = String.format(Locale.US, "Блок %d/%d", nextBlockNum, totalBlocks);
                 ui.tvStatusValue.setText(String.format(Locale.US, "Статус: %s - %s%s", currentWorkoutMode, blockInfo, pstiSuffix));
             } else {
                 ui.tvStatusValue.setText("Статус: Пранаяма" + pstiSuffix);
