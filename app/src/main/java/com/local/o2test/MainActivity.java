@@ -208,22 +208,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     };
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-
-        bleManager = new O2BleManager(this, this);
-        polarManager = new PolarH10Manager(this, polarCallback);
-        modulationManager = new SessionModulationManager(this);
-
-        wasLandscape = getResources().getDisplayMetrics().widthPixels > getResources().getDisplayMetrics().heightPixels;
-
-        ui = UiBuilder.buildUi(this);
-        oxygenSensorManager = new OxygenSensorManager(ui);
-        progressManager = new BreatheProgressManager(ui.pacerView);
-
-        // Инициализация менеджера кнопки «Тест» (MayerTestManager) с поддержкой изменения тестового периода на пейсере
-        mayerTestManager = new MayerTestManager(this, ui.btnTest, new MayerTestManager.MayerTestListener() {
+    private MayerTestManager.MayerTestListener createMayerTestListener() {
+        return new MayerTestManager.MayerTestListener() {
             @Override
             public void onTestModeChanged(boolean isActive) {
                 if (isBound && hrvService != null) {
@@ -240,7 +226,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     if (ui.pacerView != null) {
                         ui.pacerView.setPointerValue(periodSec);
                     }
-                    updateMayerFrequencyIndexDisplay(1000.0f / periodSec);
+                    // Переводим период в секундах в частоту (Гц) для отображения в индикаторе FM
+                    float frequencyHz = (periodSec > 0f) ? (1.0f / periodSec) : 0f;
+                    updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.2f", frequencyHz));
+
+                    // Запускаем в сервисе накопление 10 циклов для нового проверяемого периода
+                    if (isBound && hrvService != null && hrvService.isMayerTestMode()) {
+                        hrvService.startMayerTestStep(periodSec);
+                    }
                 });
             }
 
@@ -248,7 +241,25 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             public void onLog(String message) {
                 MainActivity.this.onLog(message);
             }
-        });
+        };
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        bleManager = new O2BleManager(this, this);
+        polarManager = new PolarH10Manager(this, polarCallback);
+        modulationManager = new SessionModulationManager(this);
+
+        wasLandscape = getResources().getDisplayMetrics().widthPixels > getResources().getDisplayMetrics().heightPixels;
+
+        ui = UiBuilder.buildUi(this);
+        oxygenSensorManager = new OxygenSensorManager(ui);
+        progressManager = new BreatheProgressManager(ui.pacerView);
+
+        // Инициализация менеджера кнопки «Тест» (MayerTestManager) с поддержкой пошагового тестирования в сервисе
+        mayerTestManager = new MayerTestManager(this, ui.btnTest, createMayerTestListener());
 
         UiBuilder.updateStatusHeader(ui.tvLiveMetrics, 0, 0, 0f, 0, 0);
 
@@ -282,32 +293,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             boolean wasAvailable = mayerTestManager != null && mayerTestManager.isAvailable();
             boolean wasActive = mayerTestManager != null && mayerTestManager.isMayerTestModeActive();
 
-            mayerTestManager = new MayerTestManager(this, ui.btnTest, new MayerTestManager.MayerTestListener() {
-                @Override
-                public void onTestModeChanged(boolean isActive) {
-                    if (isBound && hrvService != null) {
-                        hrvService.setMayerTestMode(isActive);
-                    }
-                }
-
-                @Override
-                public void onTestPeriodChanged(float periodSec) {
-                    runOnUiThread(() -> {
-                        long newDurationMs = (long) (periodSec * 1000.0);
-                        modulationManager.setModulationPeriodMs(newDurationMs);
-                        modulationManager.applyModulation(hrvService, isBound);
-                        if (ui.pacerView != null) {
-                            ui.pacerView.setPointerValue(periodSec);
-                        }
-                        updateMayerFrequencyIndexDisplay(1000.0f / periodSec);
-                    });
-                }
-
-                @Override
-                public void onLog(String message) {
-                    MainActivity.this.onLog(message);
-                }
-            });
+            mayerTestManager = new MayerTestManager(this, ui.btnTest, createMayerTestListener());
 
             if (wasAvailable) {
                 mayerTestManager.setAvailable(true);
@@ -344,6 +330,16 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 runOnUiThread(() -> {
                     if (isBound && hrvService != null && isRecording) {
                         hrvService.adjustServicePhase(correctionDelta);
+                    }
+                });
+            }
+
+            @Override
+            public void onMayerStepCompleted(float testedPeriodSec, double measuredLfHf) {
+                runOnUiThread(() -> {
+                    if (mayerTestManager != null && mayerTestManager.isMayerTestModeActive()) {
+                        // Передаем рассчитанный по 10 циклам LF/HF в менеджер для выбора следующего шага или финала
+                        mayerTestManager.onStepCompleted(testedPeriodSec, measuredLfHf);
                     }
                 });
             }
