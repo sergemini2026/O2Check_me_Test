@@ -47,7 +47,7 @@ public class MayerTestManager {
     private float initialPeriodSec = 10.0f;
     private SearchPhase searchPhase = SearchPhase.IDLE;
 
-    private float lfHfAt8 = Double.NaN ? -1.0f : -1.0f;
+    private float lfHfAt8 = -1.0f;
     private float lfHfAt10 = -1.0f;
     private float lfHfAt12 = -1.0f;
     private float midPointSec = 9.0f;
