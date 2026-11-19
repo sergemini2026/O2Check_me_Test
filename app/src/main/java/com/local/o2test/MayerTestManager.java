@@ -8,9 +8,6 @@ import android.text.Layout;
 import android.text.SpannableString;
 import android.text.style.AlignmentSpan;
 
-import com.local.o2test.db.AppDatabase;
-import com.local.o2test.db.entity.RawMetricsEntity;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -46,6 +43,7 @@ public class MayerTestManager {
     private long sessionStartTimeMs = 0L;
     private float initialPeriodSec = 10.0f;
     private SearchPhase searchPhase = SearchPhase.IDLE;
+    private int stepStartValidCount = 0;
 
     private float lfHfAt8 = -1.0f;
     private float lfHfAt10 = -1.0f;
@@ -67,6 +65,9 @@ public class MayerTestManager {
         void onLog(String message);
         default void onTestPeriodChanged(float periodSec) {}
         default void onMayerTestCompleted(float calculatedFmHz) {}
+        default List<Integer> getValidRrIntervalsForTest() {
+            return null;
+        }
     }
 
     public MayerTestManager(Context context, UiBuilder.TestButtonContainer btnTest, MayerTestListener listener) {
@@ -130,8 +131,9 @@ public class MayerTestManager {
             listener.onTestPeriodChanged(currentCandidatePeriodSec);
         }
 
+        captureStepBaseline();
         showTestAlert();
-        evaluateStepFromDatabase();
+        evaluateNextValidRrWindow();
     }
 
     /**
@@ -158,6 +160,7 @@ public class MayerTestManager {
 
     private void resetSearchState() {
         searchPhase = SearchPhase.IDLE;
+        stepStartValidCount = 0;
         lfHfAt8 = -1.0f;
         lfHfAt10 = -1.0f;
         lfHfAt12 = -1.0f;
@@ -170,32 +173,32 @@ public class MayerTestManager {
         bestLfHfValue = -1.0;
     }
 
-    private void evaluateStepFromDatabase() {
+    private void captureStepBaseline() {
+        List<Integer> currentValid = (listener != null) ? listener.getValidRrIntervalsForTest() : null;
+        stepStartValidCount = (currentValid != null) ? currentValid.size() : 0;
+    }
+
+    private void evaluateNextValidRrWindow() {
         if (!isTestModeActive || searchPhase == SearchPhase.IDLE) return;
 
         queryExecutor.execute(() -> {
             if (!isTestModeActive) return;
 
-            List<RawMetricsEntity> rows = AppDatabase.getInstance(context.getApplicationContext())
-                    .rawMetricsDao()
-                    .getRecentRawMetricsFromTimeSync(sessionStartTimeMs, REQUIRED_RR_COUNT);
-
-            if (rows == null || rows.size() < REQUIRED_RR_COUNT) {
-                mainHandler.postDelayed(this::evaluateStepFromDatabase, 500L);
+            List<Integer> validRrList = (listener != null) ? listener.getValidRrIntervalsForTest() : null;
+            if (validRrList == null) {
+                mainHandler.postDelayed(this::evaluateNextValidRrWindow, 500L);
                 return;
             }
 
-            List<Integer> rrWindow = new ArrayList<>(rows.size());
-            for (RawMetricsEntity entity : rows) {
-                if (entity != null && entity.getRrMs() > 0) {
-                    rrWindow.add(entity.getRrMs());
-                }
-            }
-
-            if (rrWindow.size() < REQUIRED_RR_COUNT) {
-                mainHandler.postDelayed(this::evaluateStepFromDatabase, 500L);
+            int totalValid = validRrList.size();
+            int newValidCount = totalValid - stepStartValidCount;
+            if (newValidCount < REQUIRED_RR_COUNT) {
+                mainHandler.postDelayed(this::evaluateNextValidRrWindow, 500L);
                 return;
             }
+
+            int fromIdx = Math.max(0, totalValid - REQUIRED_RR_COUNT);
+            List<Integer> rrWindow = new ArrayList<>(validRrList.subList(fromIdx, totalValid));
 
             double lfHf = HrvCalculator.calculateStandardLfHf(rrWindow);
             if (Double.isNaN(lfHf) || Double.isInfinite(lfHf) || lfHf < 0.0) {
@@ -337,10 +340,11 @@ public class MayerTestManager {
     }
 
     private void notifyPeriodAndContinue() {
+        captureStepBaseline();
         if (listener != null) {
             listener.onTestPeriodChanged(currentCandidatePeriodSec);
         }
-        evaluateStepFromDatabase();
+        evaluateNextValidRrWindow();
     }
 
     private void completeTestWithBestPeriod() {
