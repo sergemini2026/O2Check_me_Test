@@ -57,7 +57,7 @@ public class SessionExportManager {
         }
     }
 
-    public static void saveSessionAutomatically(final Context context, 
+    public static void saveSessionAutomatically(final Context context,
                                                 final SharedPreferences prefs,
                                                 final List<DataPoint> sessionData,
                                                 final long activeProfileId,
@@ -71,6 +71,33 @@ public class SessionExportManager {
                                                 final double lastPstiRmssdRatio,
                                                 final double baselineLfHf,
                                                 final String cycleLfHfValues,
+                                                final ExecutorService dbExecutor,
+                                                final HrvForegroundService hrvService,
+                                                final boolean isBound,
+                                                final ExportCallback callback) {
+        saveSessionAutomatically(
+                context, prefs, sessionData, activeProfileId, activeProfileName,
+                workoutMode, trainingTargetX, sessionStartTime, currentPolarHr, currentSpo2,
+                lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues,
+                "", dbExecutor, hrvService, isBound, callback
+        );
+    }
+
+    public static void saveSessionAutomatically(final Context context,
+                                                final SharedPreferences prefs,
+                                                final List<DataPoint> sessionData,
+                                                final long activeProfileId,
+                                                final String activeProfileName,
+                                                final String workoutMode,
+                                                final int trainingTargetX,
+                                                final long sessionStartTime,
+                                                final int currentPolarHr,
+                                                final int currentSpo2,
+                                                final double lastPstiScore,
+                                                final double lastPstiRmssdRatio,
+                                                final double baselineLfHf,
+                                                final String cycleLfHfValues,
+                                                final String mayerConvergenceSummary,
                                                 final ExecutorService dbExecutor,
                                                 final HrvForegroundService hrvService,
                                                 final boolean isBound,
@@ -99,6 +126,7 @@ public class SessionExportManager {
         final List<DataPoint> finalTrainingPoints = trainingPoints;
         final List<DataPoint> finalTestPoints = testPoints;
         final String finalWorkoutMode = (workoutMode != null && !workoutMode.isEmpty()) ? workoutMode : "Базовый мониторинг";
+        final String finalConvergenceSummary = (mayerConvergenceSummary != null) ? mayerConvergenceSummary : "";
 
         File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
         File o2TestDir = new File(baseDir, "O2Test");
@@ -114,9 +142,9 @@ public class SessionExportManager {
                 if (callback != null) {
                     callback.onLog("Единый CSV-файл сессии успешно сохранен: " + csvFileName);
                 }
-                proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, finalTestPoints, csvFilePath, 
-                        activeProfileId, activeProfileName, finalWorkoutMode, trainingTargetX, sessionStartTime, currentPolarHr, currentSpo2, 
-                        lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, dbExecutor, hrvService, isBound, callback);
+                proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, finalTestPoints, csvFilePath,
+                        activeProfileId, activeProfileName, finalWorkoutMode, trainingTargetX, sessionStartTime, currentPolarHr, currentSpo2,
+                        lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, finalConvergenceSummary, dbExecutor, hrvService, isBound, callback);
             }
 
             @Override
@@ -124,9 +152,9 @@ public class SessionExportManager {
                 if (callback != null) {
                     callback.onLog("Ошибка сохранения CSV: " + errorMessage);
                 }
-                proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, finalTestPoints, "", 
-                        activeProfileId, activeProfileName, finalWorkoutMode, trainingTargetX, sessionStartTime, currentPolarHr, currentSpo2, 
-                        lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, dbExecutor, hrvService, isBound, callback);
+                proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, finalTestPoints, "",
+                        activeProfileId, activeProfileName, finalWorkoutMode, trainingTargetX, sessionStartTime, currentPolarHr, currentSpo2,
+                        lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, finalConvergenceSummary, dbExecutor, hrvService, isBound, callback);
             }
         });
     }
@@ -151,6 +179,35 @@ public class SessionExportManager {
                                                   final HrvForegroundService hrvService,
                                                   final boolean isBound,
                                                   final ExportCallback callback) {
+        proceedWithDatabaseAndPdf(
+                context, prefs, trainingPoints, testPoints, csvPath,
+                activeProfileId, activeProfileName, workoutMode, trainingTargetX, sessionStartTime,
+                currentPolarHr, currentSpo2, lastPstiScore, lastPstiRmssdRatio,
+                baselineLfHf, cycleLfHfValues, "", dbExecutor, hrvService, isBound, callback
+        );
+    }
+
+    private static void proceedWithDatabaseAndPdf(final Context context,
+                                                  final SharedPreferences prefs,
+                                                  final List<DataPoint> trainingPoints,
+                                                  final List<DataPoint> testPoints,
+                                                  final String csvPath,
+                                                  final long activeProfileId,
+                                                  final String activeProfileName,
+                                                  final String workoutMode,
+                                                  final int trainingTargetX,
+                                                  final long sessionStartTime,
+                                                  final int currentPolarHr,
+                                                  final int currentSpo2,
+                                                  final double lastPstiScore,
+                                                  final double lastPstiRmssdRatio,
+                                                  final double baselineLfHf,
+                                                  final String cycleLfHfValues,
+                                                  final String mayerConvergenceSummary,
+                                                  final ExecutorService dbExecutor,
+                                                  final HrvForegroundService hrvService,
+                                                  final boolean isBound,
+                                                  final ExportCallback callback) {
         if (activeProfileId == -1L) return;
 
         final List<SessionSnapshot> capturedSnapshots;
@@ -167,6 +224,7 @@ public class SessionExportManager {
             profileDir.mkdirs();
         }
         final String customPath = profileDir.getAbsolutePath();
+        final String finalConvergenceSummary = (mayerConvergenceSummary != null) ? mayerConvergenceSummary : "";
 
         dbExecutor.execute(() -> {
             try {
@@ -204,8 +262,8 @@ public class SessionExportManager {
                 if (!capturedSnapshots.isEmpty()) {
                     for (SessionSnapshot snapshot : capturedSnapshots) {
                         HrvSnapshotEntity entity = new HrvSnapshotEntity(
-                                snapshot.getTimestamp(), 
-                                snapshot.getMetrics(), 
+                                snapshot.getTimestamp(),
+                                snapshot.getMetrics(),
                                 snapshot.getModulationSec(),
                                 snapshot.isPstiPhase(),
                                 snapshot.isMacroDump(),
@@ -257,7 +315,7 @@ public class SessionExportManager {
                 int calculatedSessionNumber = profileSessions.size();
 
                 if (callback != null) {
-                    callback.onLog("Сессия #" + calculatedSessionNumber + " зарегистрирована в БД. Индекс PSTI: " + 
+                    callback.onLog("Сессия #" + calculatedSessionNumber + " зарегистрирована в БД. Индекс PSTI: " +
                             String.format(Locale.US, "%.1f%%", lastPstiScore) + String.format(Locale.US, " [Дампов в БД: %d]", dumpSnapshotsCount));
                 }
 
@@ -271,8 +329,8 @@ public class SessionExportManager {
 
                 final List<HrvSnapshotEntity> finalReportSnapshots = reportSnapshots;
                 android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
-                
-                // Передаем извлеченное значение profileFm в генератор PDF-отчета
+
+                // Передаем извлеченное значение profileFm и заключение о сходимости теста Майера в генератор PDF-отчета
                 mainHandler.post(() -> PdfExporter.generateHrvPdfReport(
                         context,
                         activeProfileName,
@@ -288,7 +346,8 @@ public class SessionExportManager {
                         lastPstiScore,
                         lastPstiRmssdRatio,
                         pstiHistory,
-                        profileFm, // <--- Передаем паспортный/тестовый FM профиля в PDF-экспортер
+                        profileFm,
+                        finalConvergenceSummary,
                         new PdfExporter.PdfExportCallback() {
                             @Override
                             public void onSuccess(String pdfFilePath, String fileNamePdf) {
