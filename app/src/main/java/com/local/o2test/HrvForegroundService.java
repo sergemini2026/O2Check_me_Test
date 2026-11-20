@@ -60,7 +60,7 @@ public class HrvForegroundService extends Service {
     private static final int TARGET_MACRO_RR_COUNT = 300;
     private final List<Integer> macroRrBuffer = Collections.synchronizedList(new ArrayList<>());
     private final List<Integer> macroHrWindow = Collections.synchronizedList(new ArrayList<>());
-    
+
     private int trainingTargetX = 1;
     private int sliceCounter = 0;
     private int dumpCounter = 1;
@@ -115,6 +115,7 @@ public class HrvForegroundService extends Service {
         default void onMayerTestModeAutoReset() {}
         default void onMacroProgressUpdated(int rrCount, int totalCount, int currentHr, HrvCalculator.Metrics partialMetrics) {}
         default void onMayerTestCompleted(float calculatedFm) {}
+        default void onMacroRrCountChanged(int currentRrCount, int dumpIndex, boolean isPstiPhase) {}
     }
 
     public class LocalBinder extends Binder {
@@ -224,6 +225,16 @@ public class HrvForegroundService extends Service {
         return callback;
     }
 
+    public int getCurrentDumpIndex() {
+        return dumpCounter;
+    }
+
+    public int getCurrentMacroRrCount() {
+        synchronized (macroRrBuffer) {
+            return macroRrBuffer.size();
+        }
+    }
+
     public void setPresetPattern(int targetX) {
         this.trainingTargetX = Math.max(1, targetX);
         if (DEBUG) {
@@ -271,7 +282,7 @@ public class HrvForegroundService extends Service {
 
     public void startAudioAndClock(Context context, float initialPhase, MasterClock.MasterClockListener tickListener) {
         stopAudioAndClock();
-        
+
         serviceAudioEngine = new AudioPacerEngine(context, currentAudioResId);
         serviceAudioEngine.prepareAsync(() -> {
             if (serviceAudioEngine != null && isRecording) {
@@ -287,7 +298,7 @@ public class HrvForegroundService extends Service {
                 tickListener.onTick(phase);
             }
         });
-        
+
         serviceMasterClock.setBaseDurationMs(currentModulationPeriodMs);
         serviceMasterClock.start(initialPhase);
     }
@@ -325,7 +336,7 @@ public class HrvForegroundService extends Service {
         synchronized (rsaCycleBuffer) { rsaCycleBuffer.clear(); }
         synchronized (macroRrBuffer) { macroRrBuffer.clear(); }
         synchronized (macroHrWindow) { macroHrWindow.clear(); }
-        
+
         sliceCounter = 0;
         dumpCounter = 1;
         currentBlockNumber = 0;
@@ -347,7 +358,7 @@ public class HrvForegroundService extends Service {
         postiCompletionTriggered = false;
         isMayerTestMode = false;
         stopAudioAndClock();
-        
+
         synchronized (slidingWindowList) {
             if (slidingWindowList.size() >= 16 && counterSinceLastProcess > 0) {
                 processAndSaveWindow(new ArrayList<>(slidingWindowList));
@@ -363,7 +374,7 @@ public class HrvForegroundService extends Service {
             macroHrWindow.clear();
         }
         rsaCycleAccumulatedMs = 0;
-        
+
         updateNotificationText("Мониторинг активен (запись остановлена)");
     }
 
@@ -419,7 +430,7 @@ public class HrvForegroundService extends Service {
 
     public void addRrInterval(int rrMs) {
         if (!isRecording) return;
-        
+
         sessionManager.addRrInterval(rrMs);
 
         if (rrMs > 300 && rrMs < 2000) {
@@ -460,7 +471,10 @@ public class HrvForegroundService extends Service {
                 macroHrWindow.add(instantHr);
 
                 int rrCount = macroRrBuffer.size();
-                
+                if (callback != null) {
+                    callback.onMacroRrCountChanged(rrCount, dumpCounter, isPostiTraceActive);
+                }
+
                 if (callback != null && rrCount < TARGET_MACRO_RR_COUNT && (rrCount % 10 == 0)) {
                     int currentHr = calculateAverageHr(macroHrWindow);
                     HrvCalculator.Metrics partialMetrics = HrvCalculator.calculate(macroRrBuffer);
@@ -558,7 +572,7 @@ public class HrvForegroundService extends Service {
                 if (callback != null) {
                     QuantumContext quantum = new QuantumContext(dumpCounter, currentBlockNumber, wasPstiPhase, nextIsPstiPhase, trainingTargetX, macroPhase);
                     callback.onMacroDumpCompleted(avgHr, metrics, TARGET_MACRO_RR_COUNT, quantum);
-                    
+
                     if (snapshotTestMode) {
                         // Вызов колбэка завершения теста Майера с вычисленной частотой в Гц (на основе периода или фазы)
                         float calculatedFm = 1000.0f / currentModulationPeriodMs;
@@ -568,6 +582,10 @@ public class HrvForegroundService extends Service {
 
                 // Инкремент сквозного счетчика дампов
                 dumpCounter++;
+
+                if (callback != null) {
+                    callback.onMacroRrCountChanged(0, dumpCounter, isPostiTraceActive);
+                }
 
                 if (snapshotTestMode) {
                     isMayerTestMode = false;
