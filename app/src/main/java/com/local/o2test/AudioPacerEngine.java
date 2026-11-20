@@ -176,7 +176,7 @@ public class AudioPacerEngine {
                 double freqRight = baseFreq + binauralDelta;
 
                 // Единая амплитудная огибающая для основного трека и бинаурального сигнала с учетом MasterClock и гейна
-                float volumeEnvelope = (float) (0.4f + 0.6f * Math.abs(Math.sin(phase * 2.0 * Math.PI))) * currentVolumeGain;
+                float volumeEnvelope = (float) (0.4f + 0.6f * Math.abs(Math.sin(phase * Math.PI))) * currentVolumeGain;
 
                 for (int i = 0; i < outBuffer.length; i += 2) {
                     short ambientL = 0;
