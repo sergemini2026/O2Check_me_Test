@@ -138,6 +138,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             }
 
             updateRightPanelStatus();
+            updateMayerTestButtonAvailability();
             if (ui.btnHeart != null) {
                 ui.btnHeart.setAlpha(isProfileAuthorized && isTrainingSelected ? 1.0f : 0.5f);
             }
@@ -305,6 +306,26 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     }
 
+    private void updateMayerTestButtonAvailability() {
+        if (mayerTestManager == null) return;
+
+        boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
+        int dumpIndex = (isBound && hrvService != null) ? hrvService.getCurrentDumpIndex() : (sessionDumpCount + 1);
+        int currentDumpRrCount = (isBound && hrvService != null) ? hrvService.getCurrentMacroRrCount() : 0;
+
+        int minAllowedDumpIndex = (trainingTargetX == 1) ? 3 : 2;
+        boolean isDumpEligible = dumpIndex >= minAllowedDumpIndex;
+        boolean isWithinFirst50Rr = currentDumpRrCount >= 1 && currentDumpRrCount <= 50;
+
+        boolean canEnableTest = isRecording
+                && isCalibrationCompleted
+                && !isPostiActive
+                && isDumpEligible
+                && isWithinFirst50Rr;
+
+        mayerTestManager.setAvailable(canEnableTest);
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -357,7 +378,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             progressManager = new BreatheProgressManager(ui.pacerView);
 
             // Реинициализируем MayerTestManager для нового экземпляра кнопки из пересозданного UI
-            boolean wasAvailable = mayerTestManager != null && mayerTestManager.isAvailable();
             boolean wasActive = mayerTestManager != null && mayerTestManager.isMayerTestModeActive();
 
             mayerTestManager = new MayerTestManager(this, ui.btnTest, createMayerTestListener());
@@ -365,9 +385,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : 10.0f;
             mayerTestManager.configureSessionContext(startAnchor, basePeriodSec);
 
-            if (wasAvailable) {
-                mayerTestManager.setAvailable(true);
-            }
+            updateMayerTestButtonAvailability();
             if (wasActive) {
                 // Если тест был активен, восстанавливаем визуальное состояние кнопки
                 ui.btnTest.setBackgroundResource(R.drawable.bg_test_button_pink_gradient);
@@ -405,6 +423,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             public void onConnectionStatusChanged(String deviceType, boolean isConnected) {}
 
             @Override
+            public void onMacroRrCountChanged(int currentRrCount, int dumpIndex, boolean isPstiPhase) {
+                runOnUiThread(() -> updateMayerTestButtonAvailability());
+            }
+
+            @Override
             public void onPhaseCorrectionCalculated(float correctionDelta) {
                 runOnUiThread(() -> {
                     if (isBound && hrvService != null && isRecording) {
@@ -419,6 +442,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     if (mayerTestManager != null) {
                         mayerTestManager.resetTestMode();
                     }
+                    updateMayerTestButtonAvailability();
                 });
             }
 
@@ -487,17 +511,15 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                 lastPstiScore, lastPstiRmssdRatio));
                     }
 
-                    // После завершения PSTI дампа в сервисе: возобновляем сбор пульса и разблокируем тест
+                    // После завершения PSTI дампа в сервисе: возобновляем сбор пульса
                     if (polarManager != null) {
                         polarManager.startCollection();
-                    }
-                    if (mayerTestManager != null) {
-                        mayerTestManager.setAvailable(true);
                     }
                     // При возврате из PSTI к тренировочному циклу следующий собираемый блок — №1
                     currentBlockNumber = 1;
                     onLog("[Мониторинг] Возврат к тренировочному циклу...");
                     runOnUiThread(() -> {
+                        updateMayerTestButtonAvailability();
                         if (isRecording && isBound && hrvService != null) {
                             startClockAndPacerAfterCalibration(0.0f);
                         }
@@ -511,6 +533,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         currentBlockNumber = Math.min(totalBlocks, Math.max(1, rawContextBlock + 1));
                         onLog("[Мониторинг] Продолжение сеанса дыхания...");
                     }
+                    runOnUiThread(() -> updateMayerTestButtonAvailability());
                 }
 
                 runOnUiThread(() -> updateRightPanelStatus());
@@ -719,6 +742,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                 ui.btnHeart.setAlpha(1.0f);
                             }
                             updateRightPanelStatus();
+                            updateMayerTestButtonAvailability();
 
                             if (DEBUG) {
                                 onLog(String.format(Locale.US, "[ТРЕНИРОВКА ВЫБРАНА] %s | Целевой x = %d", currentWorkoutMode, trainingTargetX));
@@ -1116,6 +1140,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updatePhimIndexDisplay("--");
         updateMayerFrequencyIndexDisplay(fixedModulationPeriodMs);
         updateRightPanelStatus();
+        updateMayerTestButtonAvailability();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
 
         if (DEBUG) {
@@ -1357,10 +1382,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                     updatePhimIndexDisplay(initialPhase);
                                     updateMayerFrequencyIndexDisplay(fixedModulationPeriodMs);
 
-                                    // Разблокируем кнопку «Тест» после завершения калибровки (первые 100 RR-интервалов)
-                                    if (mayerTestManager != null) {
-                                        mayerTestManager.setAvailable(true);
-                                    }
+                                    // Пересчитываем доступность кнопки «Тест» с учетом номера дампа и окна первых 50 RR
+                                    updateMayerTestButtonAvailability();
 
                                     if (isBound && hrvService != null) {
                                         hrvService.adjustServicePhase(initialPhase);
