@@ -76,7 +76,9 @@ public class PdfExporter {
                 pstiRmssdRatio,
                 pstiHistory,
                 profileFm,
+                new ArrayList<Float>(),
                 "",
+                new ArrayList<SessionExportManager.MayerTestRunEntry>(),
                 callback
         );
     }
@@ -100,9 +102,57 @@ public class PdfExporter {
             String mayerConvergenceSummary,
             PdfExportCallback callback
     ) {
+        generateHrvPdfReport(
+                context,
+                profileName,
+                workoutMode,
+                trainingTargetX,
+                startTime,
+                endTime,
+                snapshots,
+                rawRrList,
+                trainingDataPoints,
+                testDataPoints,
+                customDirPath,
+                pstiScore,
+                pstiRmssdRatio,
+                pstiHistory,
+                profileFm,
+                new ArrayList<Float>(),
+                mayerConvergenceSummary,
+                new ArrayList<SessionExportManager.MayerTestRunEntry>(),
+                callback
+        );
+    }
+
+    public static void generateHrvPdfReport(
+            Context context,
+            String profileName,
+            String workoutMode,
+            int trainingTargetX,
+            long startTime,
+            long endTime,
+            List<HrvSnapshotEntity> snapshots,
+            List<Integer> rawRrList,
+            List<DataPoint> trainingDataPoints,
+            List<DataPoint> testDataPoints,
+            String customDirPath,
+            double pstiScore,
+            double pstiRmssdRatio,
+            List<Double> pstiHistory,
+            float profileFm,
+            List<Float> snapshotFmValues,
+            String mayerConvergenceSummary,
+            List<SessionExportManager.MayerTestRunEntry> mayerTestRuns,
+            PdfExportCallback callback
+    ) {
         PdfDocument document = new PdfDocument();
         SimpleDateFormat sdf = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.US);
+        final float fallbackFm = (profileFm > 0f) ? profileFm : 0.1f;
         final String safeMayerSummary = (mayerConvergenceSummary != null) ? mayerConvergenceSummary.trim() : "";
+        final List<SessionExportManager.MayerTestRunEntry> safeMayerRuns = (mayerTestRuns != null)
+                ? mayerTestRuns
+                : new ArrayList<SessionExportManager.MayerTestRunEntry>();
 
         double avgRmssd = 0, avgSdnn = 0, avgSi = 0, avgLfHf = 0, avgTp = 0, avgSampEn = 0, avgDfa = 0;
         int validCount = 0;
@@ -468,26 +518,33 @@ public class PdfExporter {
             document.finishPage(pagePoincare);
 
             List<HrvSnapshotEntity> logSnapshots = new ArrayList<>();
+            List<Float> logSnapshotFmValues = new ArrayList<>();
             if (snapshots != null) {
                 Set<Integer> processedPstiDumps = new HashSet<>();
-                for (HrvSnapshotEntity s : snapshots) {
+                for (int i = 0; i < snapshots.size(); i++) {
+                    HrvSnapshotEntity s = snapshots.get(i);
+                    float fmVal = resolveFmAtIndex(snapshotFmValues, i, fallbackFm);
                     if (!s.isPstiPhase()) {
                         if (!s.isMacroDump()) {
                             logSnapshots.add(s);
+                            logSnapshotFmValues.add(fmVal);
                         }
                     } else {
                         if (s.isMacroDump()) {
                             if (!processedPstiDumps.contains(s.getDumpIndex())) {
                                 processedPstiDumps.add(s.getDumpIndex());
                                 logSnapshots.add(s);
+                                logSnapshotFmValues.add(fmVal);
                             }
                         }
                     }
                 }
                 if (logSnapshots.isEmpty()) {
-                    for (HrvSnapshotEntity s : snapshots) {
+                    for (int i = 0; i < snapshots.size(); i++) {
+                        HrvSnapshotEntity s = snapshots.get(i);
                         if (!s.isPstiPhase() || s.isMacroDump()) {
                             logSnapshots.add(s);
+                            logSnapshotFmValues.add(resolveFmAtIndex(snapshotFmValues, i, fallbackFm));
                         }
                     }
                 }
@@ -496,6 +553,8 @@ public class PdfExporter {
             SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
             int rowsPerPage = 22;
             int totalLogSnapshots = logSnapshots.size();
+            Set<Integer> printedMayerRunIndices = new HashSet<>();
+            boolean printedGlobalMayerSummary = false;
 
             TextPaint mayerAnnotationPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
             mayerAnnotationPaint.setTextSize(7.5f);
@@ -548,6 +607,9 @@ public class PdfExporter {
                     }
 
                     HrvSnapshotEntity s = logSnapshots.get(snapshotIdx);
+                    float rowFm = (snapshotIdx < logSnapshotFmValues.size() && logSnapshotFmValues.get(snapshotIdx) > 0f)
+                            ? logSnapshotFmValues.get(snapshotIdx)
+                            : fallbackFm;
                     boolean isPstiPhase = s.isPstiPhase();
                     boolean isTestModeCurrent = s.isMayerTestMode();
 
@@ -577,23 +639,35 @@ public class PdfExporter {
                         currentYLog += 16;
                         textPaint.setFakeBoldText(false);
 
-                        if (isTestModeCurrent && !safeMayerSummary.isEmpty()) {
-                            String annotationText = "Сходимость ряда: " + safeMayerSummary;
-                            StaticLayout summaryLayout = StaticLayout.Builder
-                                    .obtain(annotationText, 0, annotationText.length(), mayerAnnotationPaint, annotationWidth)
-                                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                                    .build();
-                            int boxHeight = summaryLayout.getHeight() + 6;
-                            if (currentYLog + boxHeight + 14 <= PAGE_HEIGHT - MARGIN) {
-                                fillPaint.setColor(Color.parseColor("#FDF2F8"));
-                                canvasN.drawRect(MARGIN, currentYLog - 9, PAGE_WIDTH - MARGIN, currentYLog - 9 + boxHeight, fillPaint);
+                        if (isTestModeCurrent) {
+                            String matchedRunSummary = findMatchingMayerRunSummary(
+                                    logSnapshots, snapshotIdx, safeMayerRuns, printedMayerRunIndices
+                            );
+                            String annotationSource = !matchedRunSummary.isEmpty()
+                                    ? matchedRunSummary
+                                    : (!printedGlobalMayerSummary ? safeMayerSummary : "");
 
-                                canvasN.save();
-                                canvasN.translate(MARGIN + 8, currentYLog - 6);
-                                summaryLayout.draw(canvasN);
-                                canvasN.restore();
+                            if (!annotationSource.isEmpty()) {
+                                String annotationText = "Сходимость ряда: " + annotationSource;
+                                StaticLayout summaryLayout = StaticLayout.Builder
+                                        .obtain(annotationText, 0, annotationText.length(), mayerAnnotationPaint, annotationWidth)
+                                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                                        .build();
+                                int boxHeight = summaryLayout.getHeight() + 6;
+                                if (currentYLog + boxHeight + 14 <= PAGE_HEIGHT - MARGIN) {
+                                    fillPaint.setColor(Color.parseColor("#FDF2F8"));
+                                    canvasN.drawRect(MARGIN, currentYLog - 9, PAGE_WIDTH - MARGIN, currentYLog - 9 + boxHeight, fillPaint);
 
-                                currentYLog += boxHeight + 4;
+                                    canvasN.save();
+                                    canvasN.translate(MARGIN + 8, currentYLog - 6);
+                                    summaryLayout.draw(canvasN);
+                                    canvasN.restore();
+
+                                    if (matchedRunSummary.isEmpty()) {
+                                        printedGlobalMayerSummary = true;
+                                    }
+                                    currentYLog += boxHeight + 4;
+                                }
                             }
                         }
                     }
@@ -617,7 +691,7 @@ public class PdfExporter {
                     canvasN.drawText(String.format(Locale.US, "%.1f", s.getBaevskySi()), MARGIN + 112, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.0f%%", iaPct), MARGIN + 144, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getPhim()), MARGIN + 178, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.2f", profileFm), MARGIN + 212, currentYLog, textPaint);
+                    canvasN.drawText(String.format(Locale.US, "%.2f", rowFm), MARGIN + 212, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getLfHfRatio()), MARGIN + 248, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.0f", s.getTotalPower()), MARGIN + 290, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getSampleEntropy()), MARGIN + 340, currentYLog, textPaint);
@@ -632,6 +706,11 @@ public class PdfExporter {
                 }
 
                 document.finishPage(pageN);
+            }
+
+            if (DEBUG) {
+                Log.d(TAG, String.format(Locale.US, "[PDF_EXPORTER] Сформирован отчёт: срезов в логе=%d, запусков теста Майера=%d",
+                        totalLogSnapshots, safeMayerRuns.size()));
             }
 
             String fileName = "HRV_Report_" + System.currentTimeMillis() + ".pdf";
@@ -664,6 +743,64 @@ public class PdfExporter {
                 callback.onError(e.getMessage());
             }
         }
+    }
+
+    private static float resolveFmAtIndex(List<Float> snapshotFmValues, int index, float fallbackFm) {
+        if (snapshotFmValues != null && index >= 0 && index < snapshotFmValues.size()) {
+            Float val = snapshotFmValues.get(index);
+            if (val != null && val > 0f) {
+                return val;
+            }
+        }
+        return fallbackFm;
+    }
+
+    /**
+     * Подбирает резюме запуска теста Майера, соответствующее текущему блоку/фрагменту тестирования
+     * в разделе 6, без повторного вывода одного и того же запуска на каждом срезе.
+     */
+    private static String findMatchingMayerRunSummary(
+            List<HrvSnapshotEntity> logSnapshots,
+            int blockStartIndex,
+            List<SessionExportManager.MayerTestRunEntry> mayerTestRuns,
+            Set<Integer> printedRunIndices
+    ) {
+        if (mayerTestRuns == null || mayerTestRuns.isEmpty() || logSnapshots == null || blockStartIndex >= logSnapshots.size()) {
+            return "";
+        }
+
+        long blockStartTs = logSnapshots.get(blockStartIndex).getTimestamp();
+        long blockEndTs = blockStartTs;
+        int idx = blockStartIndex;
+        while (idx < logSnapshots.size() && logSnapshots.get(idx).isMayerTestMode()) {
+            blockEndTs = logSnapshots.get(idx).getTimestamp();
+            idx++;
+        }
+
+        long marginMs = 15000L;
+        int bestRunIdx = -1;
+        long bestScore = Long.MAX_VALUE;
+
+        for (int i = 0; i < mayerTestRuns.size(); i++) {
+            if (printedRunIndices.contains(i)) continue;
+            SessionExportManager.MayerTestRunEntry run = mayerTestRuns.get(i);
+            if (run.getConvergenceSummary().isEmpty()) continue;
+
+            boolean overlaps = (run.getEndTimeMs() + marginMs >= blockStartTs) && (run.getStartTimeMs() - marginMs <= blockEndTs);
+            long centerDiff = Math.abs(((run.getStartTimeMs() + run.getEndTimeMs()) / 2L) - ((blockStartTs + blockEndTs) / 2L));
+            long score = overlaps ? centerDiff : (centerDiff + 1_000_000_000L);
+
+            if (score < bestScore) {
+                bestScore = score;
+                bestRunIdx = i;
+            }
+        }
+
+        if (bestRunIdx != -1) {
+            printedRunIndices.add(bestRunIdx);
+            return mayerTestRuns.get(bestRunIdx).getConvergenceSummary();
+        }
+        return "";
     }
 
     private static void copyFile(File src, File dst) throws IOException {
