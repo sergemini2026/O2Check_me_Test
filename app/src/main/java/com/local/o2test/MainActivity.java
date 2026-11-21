@@ -84,6 +84,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private double lastPstiScore = 0.0;
     private double lastPstiRmssdRatio = 0.0;
     private String lastMayerConvergenceSummary = "";
+    private final List<SessionExportManager.MayerTestRunEntry> mayerTestRuns = new ArrayList<>();
+    private long currentMayerTestStartTimeMs = 0L;
 
     private double baselineLfHf = 0.0;
     private final List<Double> cycleLfHfValuesList = new ArrayList<>();
@@ -132,9 +134,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 onLog("[SERVICE] Сервис успешно привязан к MainActivity");
             }
 
-            // Страховка: если сессия активна, гарантированно восстанавливаем callback в сервисе при ребиндинге
+            // Страховка: если сессия активна, гарантированно восстанавливаем callback и синхронизируем FM в сервисе при ребиндинге
             if (isRecording && hrvService != null) {
                 hrvService.setCallback(createServiceCallback());
+                if (modulationManager != null && modulationManager.getModulationFrequencyHz() > 0f) {
+                    hrvService.setSessionFmHz(modulationManager.getModulationFrequencyHz());
+                }
             }
 
             updateRightPanelStatus();
@@ -216,12 +221,17 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         return new MayerTestManager.MayerTestListener() {
             @Override
             public void onTestModeChanged(boolean isActive) {
-                if (isActive && mayerTestManager != null) {
-                    // Шаг 2.1: очищаем предыдущую сводку сходимости перед началом нового цикла тестирования
-                    lastMayerConvergenceSummary = "";
-                    long startAnchor = sessionStartTime > 0L ? sessionStartTime : System.currentTimeMillis();
-                    float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : 10.0f;
-                    mayerTestManager.configureSessionContext(startAnchor, basePeriodSec);
+                if (isActive) {
+                    currentMayerTestStartTimeMs = System.currentTimeMillis();
+                    if (mayerTestManager != null) {
+                        // Шаг 2.1: очищаем предыдущую сводку сходимости перед началом нового цикла тестирования
+                        lastMayerConvergenceSummary = "";
+                        long startAnchor = sessionStartTime > 0L ? sessionStartTime : currentMayerTestStartTimeMs;
+                        float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : 10.0f;
+                        mayerTestManager.configureSessionContext(startAnchor, basePeriodSec);
+                    }
+                } else {
+                    currentMayerTestStartTimeMs = 0L;
                 }
                 if (isBound && hrvService != null) {
                     hrvService.setMayerTestMode(isActive);
@@ -266,8 +276,15 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
             @Override
             public void onMayerTestConvergenceSummary(String summary) {
-                // Шаг 2.2: сохраняем резюме сходимости и выводим сводку в лог при активном DEBUG
+                // Шаг 2.2: сохраняем резюме сходимости и фиксируем запуск теста для блока 6 отчёта
                 lastMayerConvergenceSummary = (summary != null) ? summary.trim() : "";
+                if (!lastMayerConvergenceSummary.isEmpty()) {
+                    long now = System.currentTimeMillis();
+                    long startTs = (currentMayerTestStartTimeMs > 0L) ? currentMayerTestStartTimeMs : now;
+                    mayerTestRuns.add(new SessionExportManager.MayerTestRunEntry(startTs, now, lastMayerConvergenceSummary));
+                }
+                currentMayerTestStartTimeMs = 0L;
+
                 if (DEBUG && !lastMayerConvergenceSummary.isEmpty()) {
                     onLog("[МАЙЕР ТЕСТ | СХОДИМОСТЬ] " + lastMayerConvergenceSummary);
                 }
@@ -277,6 +294,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
     private void applyCalculatedMayerFrequency(float calculatedFm) {
         if (calculatedFm <= 0f) return;
+
+        if (isBound && hrvService != null) {
+            hrvService.setSessionFmHz(calculatedFm);
+        }
 
         runOnUiThread(() -> {
             updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.2f", calculatedFm));
@@ -449,6 +470,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     if (mayerTestManager != null && mayerTestManager.isMayerTestModeActive()) {
                         mayerTestManager.resetTestMode();
                     }
+                    currentMayerTestStartTimeMs = 0L;
                     updateMayerTestButtonAvailability();
                 });
             }
@@ -865,6 +887,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 baselineLfHf,
                 cycleLfHfStr,
                 lastMayerConvergenceSummary,
+                mayerTestRuns,
                 dbExecutor,
                 hrvService,
                 isBound,
@@ -995,6 +1018,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                             // Переводим менеджер модуляции и указатель пейсера на значение профиля
                             modulationManager.setModulationFrequencyHz(profileFm);
                             modulationManager.applyModulation(hrvService, isBound);
+                            if (isBound && hrvService != null) {
+                                hrvService.setSessionFmHz(profileFm);
+                            }
                             if (ui.pacerView != null) {
                                 ui.pacerView.setPointerValue(modulationManager.getModulationPeriodSec());
                             }
@@ -1106,6 +1132,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         lastPstiScore = 0.0;
         lastPstiRmssdRatio = 0.0;
         lastMayerConvergenceSummary = "";
+        mayerTestRuns.clear();
+        currentMayerTestStartTimeMs = 0L;
         baselineLfHf = 0.0;
         cycleLfHfValuesList.clear();
         currentLfHfDisplayStr = "--";
@@ -1123,6 +1151,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             hrvService.startSessionRecording();
 
             modulationManager.applyModulation(hrvService, isBound);
+            if (modulationManager.getModulationFrequencyHz() > 0f) {
+                hrvService.setSessionFmHz(modulationManager.getModulationFrequencyHz());
+            }
             hrvService.setCallback(createServiceCallback());
         }
 
@@ -1216,6 +1247,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         currentBlockNumber = 1;
         completedCyclesInCurrentDump = 0;
         lastMayerConvergenceSummary = "";
+        mayerTestRuns.clear();
+        currentMayerTestStartTimeMs = 0L;
 
         stopAudioAndClockInService();
 
