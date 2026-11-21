@@ -96,7 +96,7 @@ public class PdfExporter {
             double pstiScore,
             double pstiRmssdRatio,
             List<Double> pstiHistory,
-            float profileFm, // <--- Добавлен параметр паспортного/тестового FM профиля
+            float profileFm,
             String mayerConvergenceSummary,
             PdfExportCallback callback
     ) {
@@ -519,14 +519,13 @@ public class PdfExporter {
                 textPaint.setFakeBoldText(true);
                 textPaint.setColor(Color.parseColor("#0F172A"));
 
-                // РАСШИРЕННАЯ ШАПКА ТАБЛИЦЫ С КОЛОНКОЙ FM
                 canvasN.drawText("Время", MARGIN, startY, textPaint);
                 canvasN.drawText("RMSSD", MARGIN + 42, startY, textPaint);
                 canvasN.drawText("SDNN", MARGIN + 78, startY, textPaint);
                 canvasN.drawText("SI", MARGIN + 112, startY, textPaint);
                 canvasN.drawText("IA", MARGIN + 144, startY, textPaint);
                 canvasN.drawText("PhM", MARGIN + 178, startY, textPaint);
-                canvasN.drawText("FM", MARGIN + 212, startY, textPaint);     // <--- Новая колонка FM
+                canvasN.drawText("FM", MARGIN + 212, startY, textPaint);
                 canvasN.drawText("LF/HF", MARGIN + 248, startY, textPaint);
                 canvasN.drawText("TP", MARGIN + 290, startY, textPaint);
                 canvasN.drawText("SampEn", MARGIN + 340, startY, textPaint);
@@ -612,14 +611,13 @@ public class PdfExporter {
 
                     double iaPct = Math.max(0.0, Math.min(100.0, (logLfHf - 1.0) * 100.0));
 
-                    // ВЫВОД ЗНАЧЕНИЙ В СТРОКУ ТАБЛИЦЫ С УЧЕТОМ НОВОЙ КОЛОНКИ FM
                     canvasN.drawText(timeFormat.format(new Date(s.getTimestamp())), MARGIN, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.1f", s.getRmssd()), MARGIN + 42, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.1f", s.getSdnn()), MARGIN + 78, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.1f", s.getBaevskySi()), MARGIN + 112, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.0f%%", iaPct), MARGIN + 144, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getPhim()), MARGIN + 178, currentYLog, textPaint);
-                    canvasN.drawText(String.format(Locale.US, "%.2f", profileFm), MARGIN + 212, currentYLog, textPaint); // <--- Вывод актуального FM из профиля
+                    canvasN.drawText(String.format(Locale.US, "%.2f", profileFm), MARGIN + 212, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getLfHfRatio()), MARGIN + 248, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.0f", s.getTotalPower()), MARGIN + 290, currentYLog, textPaint);
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getSampleEntropy()), MARGIN + 340, currentYLog, textPaint);
