@@ -574,8 +574,8 @@ public class HrvForegroundService extends Service {
                     callback.onMacroDumpCompleted(avgHr, metrics, TARGET_MACRO_RR_COUNT, quantum);
 
                     if (snapshotTestMode) {
-                        // Вызов колбэка завершения теста Майера с вычисленной частотой в Гц (на основе периода или фазы)
-                        float calculatedFm = 1000.0f / currentModulationPeriodMs;
+                        // Шаг 4.2: безопасный расчёт частоты FM в Гц с защитой от некорректного периода
+                        float calculatedFm = (currentModulationPeriodMs > 0L) ? (1000.0f / currentModulationPeriodMs) : 0.1f;
                         callback.onMayerTestCompleted(calculatedFm);
                     }
                 }
@@ -589,6 +589,10 @@ public class HrvForegroundService extends Service {
 
                 if (snapshotTestMode) {
                     isMayerTestMode = false;
+                    // Шаг 4.1: диагностический лог автосброса режима теста Майера по границе макро-дампа
+                    if (DEBUG) {
+                        Log.d(TAG, String.format(Locale.US, "[MAYER_TEST] Автосброс режима теста Майера после макро-дампа #%d", dumpCounter - 1));
+                    }
                     if (callback != null) {
                         callback.onMayerTestModeAutoReset();
                     }
