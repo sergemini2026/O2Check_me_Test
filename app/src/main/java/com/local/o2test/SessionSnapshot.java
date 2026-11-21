@@ -12,8 +12,9 @@ public class SessionSnapshot {
     private final int dumpIndex;
     private final int blockNumber;
     private final float phim;
+    private final float fmHz;
 
-    // Строгий конструктор без устаревшего globalUniqueIndex
+    // Строгий конструктор без устаревшего globalUniqueIndex (опорное значение FM по умолчанию 0.1 Гц)
     public SessionSnapshot(
             long timestamp,
             HrvCalculator.Metrics metrics,
@@ -26,6 +27,35 @@ public class SessionSnapshot {
             int blockNumber,
             float phim
     ) {
+        this(
+                timestamp,
+                metrics,
+                modulationSec,
+                isPstiPhase,
+                isMacroDump,
+                isMayerTestMode,
+                sliceIndex,
+                dumpIndex,
+                blockNumber,
+                phim,
+                0.1f
+        );
+    }
+
+    // Расширенный конструктор с фиксацией актуального действующего значения частоты Майера (FM, Гц)
+    public SessionSnapshot(
+            long timestamp,
+            HrvCalculator.Metrics metrics,
+            float modulationSec,
+            boolean isPstiPhase,
+            boolean isMacroDump,
+            boolean isMayerTestMode,
+            int sliceIndex,
+            int dumpIndex,
+            int blockNumber,
+            float phim,
+            float fmHz
+    ) {
         this.timestamp = timestamp;
         this.metrics = metrics;
         this.modulationSec = modulationSec;
@@ -36,6 +66,7 @@ public class SessionSnapshot {
         this.dumpIndex = dumpIndex;
         this.blockNumber = blockNumber;
         this.phim = phim;
+        this.fmHz = fmHz;
     }
 
     /**
@@ -106,6 +137,13 @@ public class SessionSnapshot {
      */
     public float getPhim() {
         return phim;
+    }
+
+    /**
+     * Актуальное действующее/вычисленное значение частоты Майера (FM, Гц) на момент создания снимка
+     */
+    public float getFmHz() {
+        return fmHz;
     }
 
     /**
