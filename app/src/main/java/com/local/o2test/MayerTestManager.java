@@ -154,6 +154,18 @@ public class MayerTestManager {
     public void resetTestMode() {
         if (!isTestModeActive) return;
 
+        // Шаг 1.3: перед сбросом фиксируем частичную историю, если ряд был прерван до завершения
+        String interruptedSummary = null;
+        if (searchPhase != SearchPhase.IDLE && !measuredSeries.isEmpty()) {
+            interruptedSummary = String.format(
+                    Locale.US,
+                    "Ряд прерван на фазе %s (шагов: %d) | Ряд: [%s]",
+                    searchPhase.name(),
+                    measuredSeries.size(),
+                    buildSeriesHistoryString()
+            );
+        }
+
         isTestModeActive = false;
         resetSearchState();
 
@@ -165,6 +177,9 @@ public class MayerTestManager {
 
         String logMsg = "[МАЙЕР ТЕСТ] Режим тестирования завершен. Возврат к штатной автоподстройке фазы.";
         if (listener != null) {
+            if (interruptedSummary != null) {
+                listener.onMayerTestConvergenceSummary(interruptedSummary);
+            }
             listener.onLog(logMsg);
             listener.onTestModeChanged(false);
         }
@@ -322,6 +337,28 @@ public class MayerTestManager {
         evaluateNextValidRrWindow();
     }
 
+    // Шаг 1.1: формирование упорядоченной хронологической истории шагов ряда
+    private String buildSeriesHistoryString() {
+        if (measuredSeries.isEmpty()) {
+            return "нет замеров";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < measuredSeries.size(); i++) {
+            MeasuredPoint pt = measuredSeries.get(i);
+            if (i > 0) {
+                sb.append(" -> ");
+            }
+            sb.append(String.format(
+                    Locale.US,
+                    "%.1fs(%.2fHz):%.3f",
+                    pt.periodSec,
+                    pt.freqHz,
+                    pt.lfHf
+            ));
+        }
+        return sb.toString();
+    }
+
     private void evaluateConvergenceAndComplete() {
         MeasuredPoint maxPoint = null;
         double sumLfHf = 0.0;
@@ -338,9 +375,16 @@ public class MayerTestManager {
         boolean hasPositivePeak = maxPoint != null && maxLfHf > 0.0f;
         boolean hasProminence = hasPositivePeak && (meanLfHf <= 1e-6 || maxLfHf >= meanLfHf * 1.25);
         float refinedMax = Math.max(Math.max(0.0f, lfHfAtMid), Math.max(0.0f, lfHfAtHalfSec));
+        boolean hasHalfSecSupport = lfHfAtHalfSec >= 0.0f && lfHfAtHalfSec >= meanLfHf * 1.05;
         boolean hasRefinedSupport = hasPositivePeak
                 && (refinedMax >= meanLfHf * 1.05
+                || hasHalfSecSupport
                 || (maxPoint != null && Math.abs(maxPoint.periodSec - halfSecPointSec) <= 1.0f));
+
+        String seriesHistory = buildSeriesHistoryString();
+        String halfSecInfo = (lfHfAtHalfSec >= 0.0f)
+                ? String.format(Locale.US, "шаг 0.5с T=%.1fс: LF/HF=%.3f", halfSecPointSec, lfHfAtHalfSec)
+                : "шаг 0.5с: не выполнен";
 
         float selectedPeriod;
         String summary;
@@ -350,11 +394,14 @@ public class MayerTestManager {
             float selectedFreq = 1.0f / selectedPeriod;
             summary = String.format(
                     Locale.US,
-                    "Сходимость подтверждена: оптимум T=%.1f с (%.2f Hz), max LF/HF=%.3f при среднем %.3f.",
+                    "Сходимость подтверждена: оптимум T=%.1f с (%.2f Hz), max LF/HF=%.3f при среднем %.3f (%s) | Ряд (%d шагов): [%s].",
                     selectedPeriod,
                     selectedFreq,
                     maxLfHf,
-                    meanLfHf
+                    meanLfHf,
+                    halfSecInfo,
+                    measuredSeries.size(),
+                    seriesHistory
             );
         } else {
             if (initialPeriodSec > 0f) {
@@ -367,11 +414,14 @@ public class MayerTestManager {
             float selectedFreq = 1.0f / selectedPeriod;
             summary = String.format(
                     Locale.US,
-                    "Сходимость не подтверждена (ряд плоский/неоднородный, max LF/HF=%.3f при среднем %.3f): применен базовый период T=%.1f с (%.2f Hz).",
+                    "Сходимость не подтверждена (ряд плоский/неоднородный, max LF/HF=%.3f при среднем %.3f, %s): применен базовый период T=%.1f с (%.2f Hz) | Ряд (%d шагов): [%s].",
                     maxLfHf,
                     meanLfHf,
+                    halfSecInfo,
                     selectedPeriod,
-                    selectedFreq
+                    selectedFreq,
+                    measuredSeries.size(),
+                    seriesHistory
             );
         }
 
