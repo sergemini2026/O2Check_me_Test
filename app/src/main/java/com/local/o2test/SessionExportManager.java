@@ -116,7 +116,8 @@ public class SessionExportManager {
             if (testPoints != null) allPoints.addAll(testPoints);
         } else {
             if (sessionData != null) allPoints.addAll(sessionData);
-            trainingPoints = new ArrayList<>(sessionData);
+            // Шаг 3.1: безопасная инициализация без риска NullPointerException при sessionData == null
+            trainingPoints = (sessionData != null) ? new ArrayList<>(sessionData) : new ArrayList<>();
             testPoints = new ArrayList<>();
         }
         if (trainingPoints == null) trainingPoints = new ArrayList<>();
@@ -329,6 +330,11 @@ public class SessionExportManager {
 
                 final List<HrvSnapshotEntity> finalReportSnapshots = reportSnapshots;
                 android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
+
+                // Шаг 3.2: диагностический лог передачи истории сходимости ряда в PDF-отчет
+                if (DEBUG && callback != null && !finalConvergenceSummary.isEmpty()) {
+                    callback.onLog("[EXPORT_MANAGER] Передача истории сходимости ряда в PDF-отчет (длина=" + finalConvergenceSummary.length() + ")");
+                }
 
                 // Передаем извлеченное значение profileFm и заключение о сходимости теста Майера в генератор PDF-отчета
                 mainHandler.post(() -> PdfExporter.generateHrvPdfReport(
