@@ -81,6 +81,9 @@ public class HrvForegroundService extends Service {
     private int currentAudioResId = R.raw.o2test_01;
     private long currentModulationPeriodMs = 10000;
 
+    // Актуальное действующее/вычисленное значение частоты Майера (FM, Гц) сессии
+    private float currentSessionFmHz = 0.1f;
+
     public static class QuantumContext {
         private final int dumpIndex;
         private final int blockNumber;
@@ -253,6 +256,21 @@ public class HrvForegroundService extends Service {
         return isMayerTestMode;
     }
 
+    /**
+     * Установка/обновление действующего в сессии значения частоты Майера (FM, Гц)
+     * (профиль / вычисленное значение в сессии; ручная смена периода не вызывает этот метод).
+     */
+    public void setSessionFmHz(float fmHz) {
+        this.currentSessionFmHz = (fmHz > 0f) ? fmHz : 0.1f;
+        if (DEBUG) {
+            Log.d(TAG, String.format(Locale.US, "[FM] Действующее значение FM сессии установлено: %.2f Hz", this.currentSessionFmHz));
+        }
+    }
+
+    public float getSessionFmHz() {
+        return currentSessionFmHz;
+    }
+
     public void setAudioResource(int resId) {
         this.currentAudioResId = resId;
         if (isRecording) {
@@ -341,6 +359,7 @@ public class HrvForegroundService extends Service {
         dumpCounter = 1;
         currentBlockNumber = 0;
         isMayerTestMode = false;
+        currentSessionFmHz = 0.1f;
 
         currentDumpStartTime = System.currentTimeMillis();
 
@@ -518,11 +537,12 @@ public class HrvForegroundService extends Service {
 
                 float macroPhase = MayerWaveAnalyzer.calculateInitialPhase(dumpData, currentModulationPeriodMs);
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
+                float snapshotFmHz = currentSessionFmHz;
 
                 // Точный момент завершения макро-дампа (мастер-таймлайн Room)
                 long dumpEndTime = System.currentTimeMillis();
 
-                // Автономное формирование неизменяемого SessionSnapshot с текущим сквозным dumpIndex
+                // Автономное формирование неизменяемого SessionSnapshot с текущим сквозным dumpIndex и актуальным FM
                 SessionSnapshot dumpSnapshot = new SessionSnapshot(
                         dumpEndTime,
                         metrics,
@@ -533,7 +553,8 @@ public class HrvForegroundService extends Service {
                         sliceCounter,
                         dumpCounter,
                         currentBlockNumber,
-                        macroPhase
+                        macroPhase,
+                        snapshotFmHz
                 );
 
                 synchronized (snapshotBuffer) {
@@ -565,8 +586,8 @@ public class HrvForegroundService extends Service {
                 }
 
                 if (DEBUG) {
-                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Dump #%d, PSTI phase: %b) | Тест Майера: %b | Блок %d/%d | RMSSD: %.1f ms | Фаза Майера: %.2f",
-                            dumpCounter, wasPstiPhase, snapshotTestMode, currentBlockNumber, trainingTargetX, metrics.rmssd, macroPhase));
+                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Dump #%d, PSTI phase: %b) | Тест Майера: %b | Блок %d/%d | RMSSD: %.1f ms | Фаза Майера: %.2f | FM: %.2f Hz",
+                            dumpCounter, wasPstiPhase, snapshotTestMode, currentBlockNumber, trainingTargetX, metrics.rmssd, macroPhase, snapshotFmHz));
                 }
 
                 if (callback != null) {
@@ -576,6 +597,7 @@ public class HrvForegroundService extends Service {
                     if (snapshotTestMode) {
                         // Шаг 4.2: безопасный расчёт частоты FM в Гц с защитой от некорректного периода
                         float calculatedFm = (currentModulationPeriodMs > 0L) ? (1000.0f / currentModulationPeriodMs) : 0.1f;
+                        currentSessionFmHz = calculatedFm;
                         callback.onMayerTestCompleted(calculatedFm);
                     }
                 }
@@ -655,6 +677,7 @@ public class HrvForegroundService extends Service {
                 int activeBlockNum = Math.max(1, currentBlockNumber);
 
                 float phim = MayerWaveAnalyzer.calculateInitialPhase(windowData, currentModulationPeriodMs);
+                float snapshotFmHz = currentSessionFmHz;
 
                 SessionSnapshot snapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
@@ -666,7 +689,8 @@ public class HrvForegroundService extends Service {
                         sliceCounter,
                         dumpCounter,
                         activeBlockNum,
-                        phim
+                        phim,
+                        snapshotFmHz
                 );
                 synchronized (snapshotBuffer) {
                     snapshotBuffer.add(snapshot);
