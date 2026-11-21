@@ -3,7 +3,6 @@ package com.local.o2test;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.os.Build;
 import android.os.Environment;
 import android.text.Layout;
 import android.text.SpannableString;
@@ -37,6 +36,33 @@ public class SessionExportManager {
 
     public interface ExportCallback {
         void onLog(String message);
+    }
+
+    /**
+     * Запись об одном запуске теста Майера с временными рамками и резюме сходимости ряда.
+     */
+    public static class MayerTestRunEntry {
+        private final long startTimeMs;
+        private final long endTimeMs;
+        private final String convergenceSummary;
+
+        public MayerTestRunEntry(long startTimeMs, long endTimeMs, String convergenceSummary) {
+            this.startTimeMs = startTimeMs;
+            this.endTimeMs = Math.max(startTimeMs, endTimeMs);
+            this.convergenceSummary = (convergenceSummary != null) ? convergenceSummary.trim() : "";
+        }
+
+        public long getStartTimeMs() {
+            return startTimeMs;
+        }
+
+        public long getEndTimeMs() {
+            return endTimeMs;
+        }
+
+        public String getConvergenceSummary() {
+            return convergenceSummary;
+        }
     }
 
     private static SpannableString getCenteredTitle(String title) {
@@ -79,7 +105,7 @@ public class SessionExportManager {
                 context, prefs, sessionData, activeProfileId, activeProfileName,
                 workoutMode, trainingTargetX, sessionStartTime, currentPolarHr, currentSpo2,
                 lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues,
-                "", dbExecutor, hrvService, isBound, callback
+                "", new ArrayList<MayerTestRunEntry>(), dbExecutor, hrvService, isBound, callback
         );
     }
 
@@ -98,6 +124,35 @@ public class SessionExportManager {
                                                 final double baselineLfHf,
                                                 final String cycleLfHfValues,
                                                 final String mayerConvergenceSummary,
+                                                final ExecutorService dbExecutor,
+                                                final HrvForegroundService hrvService,
+                                                final boolean isBound,
+                                                final ExportCallback callback) {
+        saveSessionAutomatically(
+                context, prefs, sessionData, activeProfileId, activeProfileName,
+                workoutMode, trainingTargetX, sessionStartTime, currentPolarHr, currentSpo2,
+                lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues,
+                mayerConvergenceSummary, new ArrayList<MayerTestRunEntry>(),
+                dbExecutor, hrvService, isBound, callback
+        );
+    }
+
+    public static void saveSessionAutomatically(final Context context,
+                                                final SharedPreferences prefs,
+                                                final List<DataPoint> sessionData,
+                                                final long activeProfileId,
+                                                final String activeProfileName,
+                                                final String workoutMode,
+                                                final int trainingTargetX,
+                                                final long sessionStartTime,
+                                                final int currentPolarHr,
+                                                final int currentSpo2,
+                                                final double lastPstiScore,
+                                                final double lastPstiRmssdRatio,
+                                                final double baselineLfHf,
+                                                final String cycleLfHfValues,
+                                                final String mayerConvergenceSummary,
+                                                final List<MayerTestRunEntry> mayerTestRuns,
                                                 final ExecutorService dbExecutor,
                                                 final HrvForegroundService hrvService,
                                                 final boolean isBound,
@@ -128,6 +183,9 @@ public class SessionExportManager {
         final List<DataPoint> finalTestPoints = testPoints;
         final String finalWorkoutMode = (workoutMode != null && !workoutMode.isEmpty()) ? workoutMode : "Базовый мониторинг";
         final String finalConvergenceSummary = (mayerConvergenceSummary != null) ? mayerConvergenceSummary : "";
+        final List<MayerTestRunEntry> finalMayerTestRuns = (mayerTestRuns != null)
+                ? new ArrayList<>(mayerTestRuns)
+                : new ArrayList<MayerTestRunEntry>();
 
         File baseDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS);
         File o2TestDir = new File(baseDir, "O2Test");
@@ -145,7 +203,8 @@ public class SessionExportManager {
                 }
                 proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, finalTestPoints, csvFilePath,
                         activeProfileId, activeProfileName, finalWorkoutMode, trainingTargetX, sessionStartTime, currentPolarHr, currentSpo2,
-                        lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, finalConvergenceSummary, dbExecutor, hrvService, isBound, callback);
+                        lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, finalConvergenceSummary, finalMayerTestRuns,
+                        dbExecutor, hrvService, isBound, callback);
             }
 
             @Override
@@ -155,7 +214,8 @@ public class SessionExportManager {
                 }
                 proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, finalTestPoints, "",
                         activeProfileId, activeProfileName, finalWorkoutMode, trainingTargetX, sessionStartTime, currentPolarHr, currentSpo2,
-                        lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, finalConvergenceSummary, dbExecutor, hrvService, isBound, callback);
+                        lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, finalConvergenceSummary, finalMayerTestRuns,
+                        dbExecutor, hrvService, isBound, callback);
             }
         });
     }
@@ -184,7 +244,8 @@ public class SessionExportManager {
                 context, prefs, trainingPoints, testPoints, csvPath,
                 activeProfileId, activeProfileName, workoutMode, trainingTargetX, sessionStartTime,
                 currentPolarHr, currentSpo2, lastPstiScore, lastPstiRmssdRatio,
-                baselineLfHf, cycleLfHfValues, "", dbExecutor, hrvService, isBound, callback
+                baselineLfHf, cycleLfHfValues, "", new ArrayList<MayerTestRunEntry>(),
+                dbExecutor, hrvService, isBound, callback
         );
     }
 
@@ -209,6 +270,37 @@ public class SessionExportManager {
                                                   final HrvForegroundService hrvService,
                                                   final boolean isBound,
                                                   final ExportCallback callback) {
+        proceedWithDatabaseAndPdf(
+                context, prefs, trainingPoints, testPoints, csvPath,
+                activeProfileId, activeProfileName, workoutMode, trainingTargetX, sessionStartTime,
+                currentPolarHr, currentSpo2, lastPstiScore, lastPstiRmssdRatio,
+                baselineLfHf, cycleLfHfValues, mayerConvergenceSummary, new ArrayList<MayerTestRunEntry>(),
+                dbExecutor, hrvService, isBound, callback
+        );
+    }
+
+    private static void proceedWithDatabaseAndPdf(final Context context,
+                                                  final SharedPreferences prefs,
+                                                  final List<DataPoint> trainingPoints,
+                                                  final List<DataPoint> testPoints,
+                                                  final String csvPath,
+                                                  final long activeProfileId,
+                                                  final String activeProfileName,
+                                                  final String workoutMode,
+                                                  final int trainingTargetX,
+                                                  final long sessionStartTime,
+                                                  final int currentPolarHr,
+                                                  final int currentSpo2,
+                                                  final double lastPstiScore,
+                                                  final double lastPstiRmssdRatio,
+                                                  final double baselineLfHf,
+                                                  final String cycleLfHfValues,
+                                                  final String mayerConvergenceSummary,
+                                                  final List<MayerTestRunEntry> mayerTestRuns,
+                                                  final ExecutorService dbExecutor,
+                                                  final HrvForegroundService hrvService,
+                                                  final boolean isBound,
+                                                  final ExportCallback callback) {
         if (activeProfileId == -1L) return;
 
         final List<SessionSnapshot> capturedSnapshots;
@@ -226,6 +318,9 @@ public class SessionExportManager {
         }
         final String customPath = profileDir.getAbsolutePath();
         final String finalConvergenceSummary = (mayerConvergenceSummary != null) ? mayerConvergenceSummary : "";
+        final List<MayerTestRunEntry> finalMayerTestRuns = (mayerTestRuns != null)
+                ? new ArrayList<>(mayerTestRuns)
+                : new ArrayList<MayerTestRunEntry>();
 
         dbExecutor.execute(() -> {
             try {
@@ -300,6 +395,9 @@ public class SessionExportManager {
                     reportSnapshots = entityList;
                 }
 
+                // Сопоставляем каждый снимок отчёта с актуальным значением FM из capturedSnapshots
+                final List<Float> snapshotFmValues = resolveSnapshotFmValues(reportSnapshots, capturedSnapshots, profileFm);
+
                 List<Integer> sessionRrList = new ArrayList<>();
                 for (DataPoint dp : trainingPoints) {
                     if (dp.rrMs > 0) {
@@ -332,11 +430,10 @@ public class SessionExportManager {
                 android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
 
                 // Шаг 3.2: диагностический лог передачи истории сходимости ряда в PDF-отчет
-                if (DEBUG && callback != null && !finalConvergenceSummary.isEmpty()) {
-                    callback.onLog("[EXPORT_MANAGER] Передача истории сходимости ряда в PDF-отчет (длина=" + finalConvergenceSummary.length() + ")");
+                if (DEBUG && callback != null && (!finalConvergenceSummary.isEmpty() || !finalMayerTestRuns.isEmpty())) {
+                    callback.onLog("[EXPORT_MANAGER] Передача истории сходимости ряда в PDF-отчет (запусков=" + finalMayerTestRuns.size() + ", длина сводки=" + finalConvergenceSummary.length() + ")");
                 }
 
-                // Передаем извлеченное значение profileFm и заключение о сходимости теста Майера в генератор PDF-отчета
                 mainHandler.post(() -> PdfExporter.generateHrvPdfReport(
                         context,
                         activeProfileName,
@@ -353,7 +450,9 @@ public class SessionExportManager {
                         lastPstiRmssdRatio,
                         pstiHistory,
                         profileFm,
+                        snapshotFmValues,
                         finalConvergenceSummary,
+                        finalMayerTestRuns,
                         new PdfExporter.PdfExportCallback() {
                             @Override
                             public void onSuccess(String pdfFilePath, String fileNamePdf) {
@@ -382,6 +481,66 @@ public class SessionExportManager {
                 }
             }
         });
+    }
+
+    /**
+     * Подбирает для каждого снимка отчёта актуальное значение FM (в Гц) из выгруженных SessionSnapshot.
+     * При отсутствии совпадений использует опорное значение профиля (profileFm).
+     */
+    private static List<Float> resolveSnapshotFmValues(List<HrvSnapshotEntity> reportSnapshots,
+                                                         List<SessionSnapshot> capturedSnapshots,
+                                                         float fallbackFm) {
+        float defaultFm = (fallbackFm > 0f) ? fallbackFm : 0.1f;
+        List<Float> result = new ArrayList<>();
+        if (reportSnapshots == null || reportSnapshots.isEmpty()) {
+            return result;
+        }
+        if (capturedSnapshots == null || capturedSnapshots.isEmpty()) {
+            for (int i = 0; i < reportSnapshots.size(); i++) {
+                result.add(defaultFm);
+            }
+            return result;
+        }
+
+        boolean[] used = new boolean[capturedSnapshots.size()];
+        for (HrvSnapshotEntity entity : reportSnapshots) {
+            int bestIdx = -1;
+            long bestDiff = Long.MAX_VALUE;
+
+            for (int i = 0; i < capturedSnapshots.size(); i++) {
+                if (used[i]) continue;
+                SessionSnapshot snap = capturedSnapshots.get(i);
+                if (snap.isMacroDump() != entity.isMacroDump()) continue;
+                if (snap.getDumpIndex() != entity.getDumpIndex()) continue;
+
+                long diff = Math.abs(snap.getTimestamp() - entity.getTimestamp());
+                if (diff < bestDiff) {
+                    bestDiff = diff;
+                    bestIdx = i;
+                }
+            }
+
+            if (bestIdx == -1) {
+                for (int i = 0; i < capturedSnapshots.size(); i++) {
+                    if (used[i]) continue;
+                    SessionSnapshot snap = capturedSnapshots.get(i);
+                    long diff = Math.abs(snap.getTimestamp() - entity.getTimestamp());
+                    if (diff < bestDiff) {
+                        bestDiff = diff;
+                        bestIdx = i;
+                    }
+                }
+            }
+
+            if (bestIdx != -1 && bestDiff <= 5000L) {
+                used[bestIdx] = true;
+                float snapFm = capturedSnapshots.get(bestIdx).getFmHz();
+                result.add(snapFm > 0f ? snapFm : defaultFm);
+            } else {
+                result.add(defaultFm);
+            }
+        }
+        return result;
     }
 
     public static void exportDatabaseBackup(Context context, File backupFile, ExecutorService dbExecutor, ExportCallback callback) {
