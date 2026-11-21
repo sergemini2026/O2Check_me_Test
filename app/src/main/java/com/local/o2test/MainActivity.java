@@ -217,6 +217,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             @Override
             public void onTestModeChanged(boolean isActive) {
                 if (isActive && mayerTestManager != null) {
+                    // Шаг 2.1: очищаем предыдущую сводку сходимости перед началом нового цикла тестирования
+                    lastMayerConvergenceSummary = "";
                     long startAnchor = sessionStartTime > 0L ? sessionStartTime : System.currentTimeMillis();
                     float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : 10.0f;
                     mayerTestManager.configureSessionContext(startAnchor, basePeriodSec);
@@ -264,7 +266,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
             @Override
             public void onMayerTestConvergenceSummary(String summary) {
+                // Шаг 2.2: сохраняем резюме сходимости и выводим сводку в лог при активном DEBUG
                 lastMayerConvergenceSummary = (summary != null) ? summary.trim() : "";
+                if (DEBUG && !lastMayerConvergenceSummary.isEmpty()) {
+                    onLog("[МАЙЕР ТЕСТ | СХОДИМОСТЬ] " + lastMayerConvergenceSummary);
+                }
             }
         };
     }
@@ -439,7 +445,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             @Override
             public void onMayerTestModeAutoReset() {
                 runOnUiThread(() -> {
-                    if (mayerTestManager != null) {
+                    // Шаг 2.3: сначала штатно сбрасываем режим менеджера теста (фиксируя частичную историю при наличии), затем обновляем кнопку
+                    if (mayerTestManager != null && mayerTestManager.isMayerTestModeActive()) {
                         mayerTestManager.resetTestMode();
                     }
                     updateMayerTestButtonAvailability();
