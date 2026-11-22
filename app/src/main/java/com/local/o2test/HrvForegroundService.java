@@ -115,6 +115,7 @@ public class HrvForegroundService extends Service {
         void onConnectionStatusChanged(String deviceType, boolean isConnected);
         default void onPhaseCorrectionCalculated(float correctionDelta) {}
         default void onMacroDumpCompleted(int avgHr, HrvCalculator.Metrics hrv, int rrCount, QuantumContext context) {}
+        default void onFirstDumpBaselineReady(float periodSec, List<Integer> validRrIntervals) {}
         default void onMayerTestModeAutoReset() {}
         default void onMacroProgressUpdated(int rrCount, int totalCount, int currentHr, HrvCalculator.Metrics partialMetrics) {}
         default void onMayerTestCompleted(float calculatedFm) {}
@@ -288,6 +289,12 @@ public class HrvForegroundService extends Service {
     }
 
     public void setModulationPeriod(long durationMs) {
+        if (isRecording && dumpCounter == 1 && !isPostiTraceActive) {
+            if (DEBUG) {
+                Log.d(TAG, "[DUMP_1] Смена периода модуляции заблокирована до завершения дампа #1");
+            }
+            return;
+        }
         this.currentModulationPeriodMs = Math.max(6000, Math.min(14000, durationMs));
         if (serviceMasterClock != null) {
             serviceMasterClock.setBaseDurationMs(this.currentModulationPeriodMs);
@@ -591,6 +598,10 @@ public class HrvForegroundService extends Service {
                 }
 
                 if (callback != null) {
+                    if (dumpCounter == 1 && !wasPstiPhase) {
+                        callback.onFirstDumpBaselineReady(currentModulationSec, new ArrayList<>(dumpData));
+                    }
+
                     QuantumContext quantum = new QuantumContext(dumpCounter, currentBlockNumber, wasPstiPhase, nextIsPstiPhase, trainingTargetX, macroPhase);
                     callback.onMacroDumpCompleted(avgHr, metrics, TARGET_MACRO_RR_COUNT, quantum);
 
