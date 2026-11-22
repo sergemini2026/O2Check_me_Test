@@ -149,6 +149,8 @@ public class PdfExporter {
         PdfDocument document = new PdfDocument();
         SimpleDateFormat sdf = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.US);
         final float fallbackFm = (profileFm > 0f) ? profileFm : 0.1f;
+        final long safeEndTime = (endTime > 0L) ? endTime : System.currentTimeMillis();
+        final long safeStartTime = (startTime > 0L) ? startTime : Math.max(0L, safeEndTime - 60000L);
         final String safeMayerSummary = (mayerConvergenceSummary != null) ? mayerConvergenceSummary.trim() : "";
         final List<SessionExportManager.MayerTestRunEntry> safeMayerRuns = (mayerTestRuns != null)
                 ? mayerTestRuns
@@ -230,7 +232,7 @@ public class PdfExporter {
             textPaint.setFakeBoldText(false);
             textPaint.setColor(Color.parseColor("#334155"));
             String headerInfoLine = String.format(Locale.US, "Профиль: %s  |  Режим: %s  |  Период: %s — %s",
-                    profileName, workoutMode, sdf.format(new Date(startTime)), sdf.format(new Date(endTime)));
+                    profileName, workoutMode, sdf.format(new Date(safeStartTime)), sdf.format(new Date(safeEndTime)));
             canvas1.drawText(headerInfoLine, MARGIN, 51, textPaint);
 
             strokePaint.setColor(Color.parseColor("#CBD5E1"));
@@ -415,7 +417,7 @@ public class PdfExporter {
                 if (d > 0) {
                     dumpStartTime = dumpSnapshots.get(d - 1).getTimestamp();
                 } else {
-                    dumpStartTime = startTime > 0 ? startTime : (dumpEndTime - 300000L);
+                    dumpStartTime = safeStartTime > 0 ? safeStartTime : (dumpEndTime - 300000L);
                 }
 
                 List<DataPoint> dumpPoints = new ArrayList<>();
@@ -640,9 +642,12 @@ public class PdfExporter {
                         textPaint.setFakeBoldText(false);
 
                         if (isTestModeCurrent) {
-                            String matchedRunSummary = findMatchingMayerRunSummary(
+                            int matchedRunIdx = findMatchingMayerRunIndex(
                                     logSnapshots, snapshotIdx, safeMayerRuns, printedMayerRunIndices
                             );
+                            String matchedRunSummary = (matchedRunIdx != -1)
+                                    ? safeMayerRuns.get(matchedRunIdx).getConvergenceSummary()
+                                    : "";
                             String annotationSource = !matchedRunSummary.isEmpty()
                                     ? matchedRunSummary
                                     : (!printedGlobalMayerSummary ? safeMayerSummary : "");
@@ -663,7 +668,9 @@ public class PdfExporter {
                                     summaryLayout.draw(canvasN);
                                     canvasN.restore();
 
-                                    if (matchedRunSummary.isEmpty()) {
+                                    if (matchedRunIdx != -1) {
+                                        printedMayerRunIndices.add(matchedRunIdx);
+                                    } else {
                                         printedGlobalMayerSummary = true;
                                     }
                                     currentYLog += boxHeight + 4;
@@ -756,17 +763,17 @@ public class PdfExporter {
     }
 
     /**
-     * Подбирает резюме запуска теста Майера, соответствующее текущему блоку/фрагменту тестирования
-     * в разделе 6, без повторного вывода одного и того же запуска на каждом срезе.
+     * Подбирает индекс наиболее подходящего запуска теста Майера для текущего блока/фрагмента
+     * тестирования в разделе 6 с учётом близости по времени.
      */
-    private static String findMatchingMayerRunSummary(
+    private static int findMatchingMayerRunIndex(
             List<HrvSnapshotEntity> logSnapshots,
             int blockStartIndex,
             List<SessionExportManager.MayerTestRunEntry> mayerTestRuns,
             Set<Integer> printedRunIndices
     ) {
         if (mayerTestRuns == null || mayerTestRuns.isEmpty() || logSnapshots == null || blockStartIndex >= logSnapshots.size()) {
-            return "";
+            return -1;
         }
 
         long blockStartTs = logSnapshots.get(blockStartIndex).getTimestamp();
@@ -796,11 +803,7 @@ public class PdfExporter {
             }
         }
 
-        if (bestRunIdx != -1) {
-            printedRunIndices.add(bestRunIdx);
-            return mayerTestRuns.get(bestRunIdx).getConvergenceSummary();
-        }
-        return "";
+        return bestRunIdx;
     }
 
     private static void copyFile(File src, File dst) throws IOException {
