@@ -9,6 +9,7 @@ import android.text.SpannableString;
 import android.text.style.AlignmentSpan;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -16,19 +17,41 @@ import java.util.concurrent.Executors;
 
 public class MayerTestManager {
 
-    private static final int REQUIRED_RR_COUNT = 50;
-    private static final float STAGE1_LOW_SEC = 8.0f;
-    private static final float STAGE1_MID_SEC = 10.0f;
-    private static final float STAGE1_HIGH_SEC = 12.0f;
-    private static final float HALF_SECOND_STEP_SEC = 0.5f;
+    private static final int WINDOW_RR_COUNT = 100;
+    private static final int TRANSIENT_SKIP_COUNT = 20;
+    private static final int EDGE_HR_COUNT = 15;
+    private static final int HR_SMOOTH_WINDOW = 4;
+
+    private static final float PERIOD_10_SEC = 10.0f;
+    private static final float PERIOD_12_SEC = 12.0f;
+
+    private static final double MIN_AMPLITUDE_GATE_BPM = 3.0;
+    private static final double MAX_HR_GATE_12_SEC_BPM = 60.0;
+
+    private static final double LF_HF_FLOOR = 1.5;
+    private static final double LF_HF_CEIL = 15.0;
+
+    private static final double AMP_FLOOR_BPM = 2.0;
+    private static final double AMP_CEIL_BPM = 10.0;
+
+    private static final double HR_DROP_OFFSET_BPM = 2.0;
+    private static final double HR_DROP_SPAN_BPM = 8.0;
+    private static final double HR_TARGET_WINDOW_BPM = 15.0;
+    private static final double HR_TARGET_10_SEC_BPM = 60.0;
+    private static final double HR_TARGET_12_SEC_BPM = 50.0;
+
+    private static final double WEIGHT_LF_HF = 0.40;
+    private static final double WEIGHT_AMP = 0.35;
+    private static final double WEIGHT_HR = 0.25;
+
+    private static final double MIN_RESONANCE_SCORE = 0.35;
+    private static final double MARGIN_12_SEC_OVER_10_SEC = 0.05;
+    private static final double FALLBACK_HR_12_SEC_THRESHOLD_BPM = 55.0;
 
     private enum SearchPhase {
         IDLE,
-        STAGE1_CHECK_LOW,
-        STAGE1_CHECK_HIGH,
-        STAGE1_CHECK_BASE_TEN,
-        STAGE1_CHECK_MIDPOINT,
-        STAGE2_CHECK_HALF_SEC
+        MEASURE_10_SEC,
+        MEASURE_12_SEC
     }
 
     public static class MeasuredPoint {
@@ -43,6 +66,53 @@ public class MayerTestManager {
         }
     }
 
+    private static class PointEvaluation {
+        final float periodSec;
+        final float freqHz;
+        final double lfHf;
+        final double pulseAmplitudeBpm;
+        final double hrMeanBpm;
+        final double hrDropBpm;
+        final boolean passedAmplitudeGate;
+        final boolean passedHrGate;
+        final double sLfHf;
+        final double sAmp;
+        final double sHr;
+        final double score;
+
+        PointEvaluation(
+                float periodSec,
+                float freqHz,
+                double lfHf,
+                double pulseAmplitudeBpm,
+                double hrMeanBpm,
+                double hrDropBpm,
+                boolean passedAmplitudeGate,
+                boolean passedHrGate,
+                double sLfHf,
+                double sAmp,
+                double sHr,
+                double score
+        ) {
+            this.periodSec = periodSec;
+            this.freqHz = freqHz;
+            this.lfHf = lfHf;
+            this.pulseAmplitudeBpm = pulseAmplitudeBpm;
+            this.hrMeanBpm = hrMeanBpm;
+            this.hrDropBpm = hrDropBpm;
+            this.passedAmplitudeGate = passedAmplitudeGate;
+            this.passedHrGate = passedHrGate;
+            this.sLfHf = sLfHf;
+            this.sAmp = sAmp;
+            this.sHr = sHr;
+            this.score = score;
+        }
+
+        boolean passedAllGates() {
+            return passedAmplitudeGate && passedHrGate;
+        }
+    }
+
     private final Context context;
     private final UiBuilder.TestButtonContainer btnTest;
     private final MayerTestListener listener;
@@ -51,25 +121,18 @@ public class MayerTestManager {
 
     private boolean isAvailable = false;
     private boolean isTestModeActive = false;
+    private int testRunToken = 0;
 
     private long sessionStartTimeMs = 0L;
-    private float initialPeriodSec = 10.0f;
+    private float initialPeriodSec = PERIOD_10_SEC;
     private SearchPhase searchPhase = SearchPhase.IDLE;
     private int stepStartValidCount = 0;
 
-    private float lfHfAt8 = -1.0f;
-    private float lfHfAt10 = -1.0f;
-    private float lfHfAt12 = -1.0f;
-    private float midPointSec = 9.0f;
-    private float lfHfAtMid = -1.0f;
-    private float halfSecPointSec = 9.5f;
-    private float lfHfAtHalfSec = -1.0f;
-
+    private PointEvaluation eval10Sec = null;
+    private PointEvaluation eval12Sec = null;
     private final List<MeasuredPoint> measuredSeries = new ArrayList<>();
 
-    private float currentCandidatePeriodSec = 8.0f;
-    private float bestPeriodSec = 10.0f;
-    private double bestLfHfValue = -1.0;
+    private float currentCandidatePeriodSec = PERIOD_10_SEC;
 
     public interface MayerTestListener {
         void onTestModeChanged(boolean isActive);
@@ -91,7 +154,7 @@ public class MayerTestManager {
 
     public void configureSessionContext(long sessionStartTimeMs, float baselinePeriodSec) {
         this.sessionStartTimeMs = Math.max(0L, sessionStartTimeMs);
-        this.initialPeriodSec = baselinePeriodSec > 0f ? baselinePeriodSec : 10.0f;
+        this.initialPeriodSec = baselinePeriodSec > 0f ? baselinePeriodSec : PERIOD_10_SEC;
     }
 
     private void applyInitialState() {
@@ -123,20 +186,19 @@ public class MayerTestManager {
     public void handleTestButtonClick() {
         if (!isAvailable || isTestModeActive) return;
 
+        testRunToken++;
         isTestModeActive = true;
         resetSearchState();
-        searchPhase = SearchPhase.STAGE1_CHECK_LOW;
-        currentCandidatePeriodSec = STAGE1_LOW_SEC;
-        bestPeriodSec = currentCandidatePeriodSec;
+        searchPhase = SearchPhase.MEASURE_10_SEC;
+        currentCandidatePeriodSec = PERIOD_10_SEC;
 
         if (btnTest != null) {
             btnTest.setBackgroundResource(R.drawable.bg_test_button_pink_gradient);
-            // Блокируем контейнер на время активного теста, чтобы исключить повторные клики
             btnTest.setEnabled(false);
             btnTest.setAlpha(1.0f);
         }
 
-        String logMsg = "[МАЙЕР ТЕСТ] Режим тестирования активирован: автоподстройка фазы отключена до конца текущего дампа.";
+        String logMsg = "[МАЙЕР ТЕСТ] Режим тестирования активирован (точки 10с и 12с по 100 RR): автоподстройка фазы отключена до конца текущего дампа.";
         if (listener != null) {
             listener.onLog(logMsg);
             listener.onTestModeChanged(true);
@@ -145,7 +207,7 @@ public class MayerTestManager {
 
         captureStepBaseline();
         showTestAlert();
-        evaluateNextValidRrWindow();
+        evaluateNextValidRrWindow(testRunToken);
     }
 
     /**
@@ -154,15 +216,16 @@ public class MayerTestManager {
     public void resetTestMode() {
         if (!isTestModeActive) return;
 
-        // Шаг 1.3: перед сбросом фиксируем частичную историю, если ряд был прерван до завершения
+        testRunToken++;
+
         String interruptedSummary = null;
         if (searchPhase != SearchPhase.IDLE && !measuredSeries.isEmpty()) {
             interruptedSummary = String.format(
                     Locale.US,
-                    "Ряд прерван на фазе %s (шагов: %d) | Ряд: [%s]",
+                    "Тест прерван на фазе %s (измерено точек: %d) | %s",
                     searchPhase.name(),
                     measuredSeries.size(),
-                    buildSeriesHistoryString()
+                    buildPartialSummary()
             );
         }
 
@@ -188,15 +251,9 @@ public class MayerTestManager {
     private void resetSearchState() {
         searchPhase = SearchPhase.IDLE;
         stepStartValidCount = 0;
-        lfHfAt8 = -1.0f;
-        lfHfAt10 = -1.0f;
-        lfHfAt12 = -1.0f;
-        midPointSec = 9.0f;
-        lfHfAtMid = -1.0f;
-        halfSecPointSec = 9.5f;
-        lfHfAtHalfSec = -1.0f;
+        eval10Sec = null;
+        eval12Sec = null;
         measuredSeries.clear();
-        bestLfHfValue = -1.0;
     }
 
     private void captureStepBaseline() {
@@ -204,229 +261,319 @@ public class MayerTestManager {
         stepStartValidCount = (currentValid != null) ? currentValid.size() : 0;
     }
 
-    private void evaluateNextValidRrWindow() {
-        if (!isTestModeActive || searchPhase == SearchPhase.IDLE) return;
+    private void evaluateNextValidRrWindow(final int activeToken) {
+        if (!isTestModeActive || activeToken != testRunToken || searchPhase == SearchPhase.IDLE) return;
+
+        final float targetPeriodSec = currentCandidatePeriodSec;
+        final SearchPhase targetPhase = searchPhase;
 
         queryExecutor.execute(() -> {
-            if (!isTestModeActive) return;
+            if (!isTestModeActive || activeToken != testRunToken) return;
 
             List<Integer> validRrList = (listener != null) ? listener.getValidRrIntervalsForTest() : null;
             if (validRrList == null) {
-                mainHandler.postDelayed(this::evaluateNextValidRrWindow, 500L);
+                mainHandler.postDelayed(() -> evaluateNextValidRrWindow(activeToken), 500L);
                 return;
             }
 
             int totalValid = validRrList.size();
             int newValidCount = totalValid - stepStartValidCount;
-            if (newValidCount < REQUIRED_RR_COUNT) {
-                mainHandler.postDelayed(this::evaluateNextValidRrWindow, 500L);
+            if (newValidCount < WINDOW_RR_COUNT) {
+                mainHandler.postDelayed(() -> evaluateNextValidRrWindow(activeToken), 500L);
                 return;
             }
 
-            int fromIdx = Math.max(0, totalValid - REQUIRED_RR_COUNT);
-            List<Integer> rrWindow = new ArrayList<>(validRrList.subList(fromIdx, totalValid));
+            int fromIdx = Math.max(0, totalValid - WINDOW_RR_COUNT);
+            List<Integer> rrWindow100 = new ArrayList<>(validRrList.subList(fromIdx, totalValid));
 
-            double lfHf = HrvCalculator.calculateStandardLfHf(rrWindow);
-            if (Double.isNaN(lfHf) || Double.isInfinite(lfHf) || lfHf < 0.0) {
-                lfHf = 0.0;
-            }
-
-            final double measuredLfHf = lfHf;
-            mainHandler.post(() -> advanceSearchWithMeasurement(measuredLfHf));
+            final PointEvaluation evaluation = evaluateWindowForPeriod(rrWindow100, targetPeriodSec);
+            mainHandler.post(() -> {
+                if (!isTestModeActive || activeToken != testRunToken || searchPhase != targetPhase) return;
+                advanceSearchWithEvaluation(evaluation);
+            });
         });
     }
 
-    private void advanceSearchWithMeasurement(double measuredLfHf) {
-        if (!isTestModeActive) return;
-
-        float freqHz = 1.0f / currentCandidatePeriodSec;
-        measuredSeries.add(new MeasuredPoint(currentCandidatePeriodSec, freqHz, (float) measuredLfHf));
-
-        if (measuredLfHf > bestLfHfValue) {
-            bestLfHfValue = measuredLfHf;
-            bestPeriodSec = currentCandidatePeriodSec;
+    private PointEvaluation evaluateWindowForPeriod(List<Integer> window100, float periodSec) {
+        // 1. Полный массив (100 интервалов): штатный спектральный расчет LF/HF
+        double lfHf = HrvCalculator.calculateStandardLfHf(window100);
+        if (Double.isNaN(lfHf) || Double.isInfinite(lfHf) || lfHf < 0.0) {
+            lfHf = 0.0;
         }
+
+        int n = window100.size();
+        double[] instHrAll = new double[n];
+        for (int i = 0; i < n; i++) {
+            int rr = Math.max(250, Math.min(3000, window100.get(i)));
+            instHrAll[i] = 60000.0 / rr;
+        }
+
+        // Пульсовой тренд ΔHR: среднее первых 15 интервалов минус среднее последних 15 интервалов
+        int edgeCount = Math.min(EDGE_HR_COUNT, n / 2);
+        double hrStartMean = meanSlice(instHrAll, 0, edgeCount);
+        double hrEndMean = meanSlice(instHrAll, n - edgeCount, n);
+        double hrDropBpm = hrStartMean - hrEndMean;
+
+        // 2. Установившаяся часть (например, интервалы с 21-го по 100-й -> индексы 20..99, последние 80 интервалов)
+        int settledStart = Math.min(TRANSIENT_SKIP_COUNT, Math.max(0, n - 1));
+        List<Integer> settledRrRaw = new ArrayList<>(window100.subList(settledStart, n));
+        List<Integer> settledRrClean = cleanLocalArtifacts(settledRrRaw);
+
+        double[] settledHr = new double[settledRrClean.size()];
+        double sumSettledHr = 0.0;
+        for (int i = 0; i < settledRrClean.size(); i++) {
+            int rr = Math.max(250, Math.min(3000, settledRrClean.get(i)));
+            double hr = 60000.0 / rr;
+            settledHr[i] = hr;
+            sumSettledHr += hr;
+        }
+        double hrMeanBpm = settledHr.length > 0 ? (sumSettledHr / settledHr.length) : 0.0;
+
+        // Сглаживание мгновенного пульса скользящим окном по 3-5 ударам (4 удара)
+        double[] smoothedHr = smoothMovingAverage(settledHr, HR_SMOOTH_WINDOW);
+
+        // Поцикловый размах ΔHR_k = HR_max_k - HR_min_k на отрезках длительностью T (мс), медиана по циклам
+        long cycleDurationMs = Math.max(1000L, Math.round(periodSec * 1000.0));
+        double pulseAmplitudeBpm = computeCycleAmplitudeMedianBpm(smoothedHr, settledRrClean, cycleDurationMs);
+
+        // 3. Жесткие фильтры допустимости (гейты) до взвешивания
+        boolean passedAmplitudeGate = pulseAmplitudeBpm >= MIN_AMPLITUDE_GATE_BPM;
+        boolean isTwelveSec = Math.abs(periodSec - PERIOD_12_SEC) < 0.01f;
+        boolean passedHrGate = !isTwelveSec || (hrMeanBpm <= MAX_HR_GATE_12_SEC_BPM);
+
+        // 4. Нормировка в [0.0 ... 1.0] и распределение весов
+        double sLfHf = clamp01((lfHf - LF_HF_FLOOR) / (LF_HF_CEIL - LF_HF_FLOOR));
+        double sAmp = clamp01((pulseAmplitudeBpm - AMP_FLOOR_BPM) / (AMP_CEIL_BPM - AMP_FLOOR_BPM));
+
+        double sDrop = clamp01((hrDropBpm + HR_DROP_OFFSET_BPM) / HR_DROP_SPAN_BPM);
+        double hrTarget = isTwelveSec ? HR_TARGET_12_SEC_BPM : HR_TARGET_10_SEC_BPM;
+        double sTarget = clamp01(1.0 - (Math.abs(hrMeanBpm - hrTarget) / HR_TARGET_WINDOW_BPM));
+        double sHr = 0.5 * sDrop + 0.5 * sTarget;
+
+        double score;
+        if (!passedAmplitudeGate || !passedHrGate) {
+            score = 0.0;
+        } else {
+            score = WEIGHT_LF_HF * sLfHf + WEIGHT_AMP * sAmp + WEIGHT_HR * sHr;
+        }
+
+        float freqHz = 1.0f / periodSec;
+        return new PointEvaluation(
+                periodSec,
+                freqHz,
+                lfHf,
+                pulseAmplitudeBpm,
+                hrMeanBpm,
+                hrDropBpm,
+                passedAmplitudeGate,
+                passedHrGate,
+                sLfHf,
+                sAmp,
+                sHr,
+                score
+        );
+    }
+
+    /**
+     * Локальная очистка единичных выбросов (>25% от локального среднего) без изменения основного потока данных
+     */
+    private List<Integer> cleanLocalArtifacts(List<Integer> rawList) {
+        int size = (rawList != null) ? rawList.size() : 0;
+        List<Integer> cleaned = new ArrayList<>(size);
+        if (size == 0) return cleaned;
+
+        for (int i = 0; i < size; i++) {
+            int val = rawList.get(i);
+            double sumNeighbors = 0.0;
+            int countNeighbors = 0;
+
+            int from = Math.max(0, i - 2);
+            int to = Math.min(size - 1, i + 2);
+            for (int j = from; j <= to; j++) {
+                if (j == i) continue;
+                int neighbor = rawList.get(j);
+                if (neighbor >= 300 && neighbor <= 2500) {
+                    sumNeighbors += neighbor;
+                    countNeighbors++;
+                }
+            }
+
+            if (countNeighbors > 0) {
+                double localMean = sumNeighbors / countNeighbors;
+                double relDiff = Math.abs(val - localMean) / localMean;
+                if (relDiff > 0.25) {
+                    cleaned.add((int) Math.round(localMean));
+                    continue;
+                }
+            }
+            cleaned.add(val);
+        }
+        return cleaned;
+    }
+
+    private double[] smoothMovingAverage(double[] values, int windowSize) {
+        if (values == null || values.length == 0) return new double[0];
+        int win = Math.max(1, windowSize);
+        double[] result = new double[values.length];
+        for (int i = 0; i < values.length; i++) {
+            int start = Math.max(0, i - win + 1);
+            double sum = 0.0;
+            int count = 0;
+            for (int j = start; j <= i; j++) {
+                sum += values[j];
+                count++;
+            }
+            result[i] = count > 0 ? (sum / count) : values[i];
+        }
+        return result;
+    }
+
+    private double computeCycleAmplitudeMedianBpm(double[] hrSeries, List<Integer> rrList, long cycleDurationMs) {
+        if (hrSeries == null || rrList == null || hrSeries.length == 0 || hrSeries.length != rrList.size()) {
+            return 0.0;
+        }
+
+        List<Double> cycleRanges = new ArrayList<>();
+        long accMs = 0L;
+        double cycleMin = Double.POSITIVE_INFINITY;
+        double cycleMax = Double.NEGATIVE_INFINITY;
+
+        for (int i = 0; i < hrSeries.length; i++) {
+            double hr = hrSeries[i];
+            long rr = Math.max(250L, Math.min(3000L, rrList.get(i)));
+
+            if (hr < cycleMin) cycleMin = hr;
+            if (hr > cycleMax) cycleMax = hr;
+            accMs += rr;
+
+            if (accMs >= cycleDurationMs) {
+                if (cycleMax >= cycleMin && !Double.isInfinite(cycleMin) && !Double.isInfinite(cycleMax)) {
+                    cycleRanges.add(cycleMax - cycleMin);
+                }
+                accMs = 0L;
+                cycleMin = Double.POSITIVE_INFINITY;
+                cycleMax = Double.NEGATIVE_INFINITY;
+            }
+        }
+
+        if (cycleRanges.isEmpty()) {
+            double minAll = Double.POSITIVE_INFINITY;
+            double maxAll = Double.NEGATIVE_INFINITY;
+            for (double hr : hrSeries) {
+                if (hr < minAll) minAll = hr;
+                if (hr > maxAll) maxAll = hr;
+            }
+            if (minAll < Double.POSITIVE_INFINITY && maxAll > Double.NEGATIVE_INFINITY) {
+                return Math.max(0.0, maxAll - minAll);
+            }
+            return 0.0;
+        }
+
+        Collections.sort(cycleRanges);
+        int mid = cycleRanges.size() / 2;
+        if (cycleRanges.size() % 2 == 1) {
+            return cycleRanges.get(mid);
+        }
+        return 0.5 * (cycleRanges.get(mid - 1) + cycleRanges.get(mid));
+    }
+
+    private double meanSlice(double[] arr, int fromInclusive, int toExclusive) {
+        if (arr == null || arr.length == 0) return 0.0;
+        int start = Math.max(0, fromInclusive);
+        int end = Math.min(arr.length, toExclusive);
+        if (end <= start) return 0.0;
+        double sum = 0.0;
+        for (int i = start; i < end; i++) {
+            sum += arr[i];
+        }
+        return sum / (end - start);
+    }
+
+    private double clamp01(double val) {
+        if (Double.isNaN(val) || val <= 0.0) return 0.0;
+        if (val >= 1.0) return 1.0;
+        return val;
+    }
+
+    private void advanceSearchWithEvaluation(PointEvaluation evaluation) {
+        if (!isTestModeActive || evaluation == null) return;
+
+        measuredSeries.add(new MeasuredPoint(evaluation.periodSec, evaluation.freqHz, (float) evaluation.lfHf));
 
         if (listener != null) {
             listener.onLog(String.format(
                     Locale.US,
-                    "[МАЙЕР ТЕСТ] Точка T=%.1f с (%.2f Hz) | LF/HF=%.3f",
-                    currentCandidatePeriodSec,
-                    freqHz,
-                    measuredLfHf
+                    "[МАЙЕР ТЕСТ] Точка T=%.1f с (%.2f Hz) | LF/HF=%.2f | A_pulse=%.2f уд/мин | HR=%.1f уд/мин (ΔHR=%+.1f) | Гейты[A:%s,HR:%s] | Q=%.3f",
+                    evaluation.periodSec,
+                    evaluation.freqHz,
+                    evaluation.lfHf,
+                    evaluation.pulseAmplitudeBpm,
+                    evaluation.hrMeanBpm,
+                    evaluation.hrDropBpm,
+                    evaluation.passedAmplitudeGate ? "OK" : "0",
+                    evaluation.passedHrGate ? "OK" : "0",
+                    evaluation.score
             ));
         }
 
-        switch (searchPhase) {
-            case STAGE1_CHECK_LOW:
-                lfHfAt8 = (float) measuredLfHf;
-                searchPhase = SearchPhase.STAGE1_CHECK_HIGH;
-                currentCandidatePeriodSec = STAGE1_HIGH_SEC;
-                notifyPeriodAndContinue();
-                break;
-
-            case STAGE1_CHECK_HIGH:
-                lfHfAt12 = (float) measuredLfHf;
-                if (lfHfAt10 < 0.0f) {
-                    searchPhase = SearchPhase.STAGE1_CHECK_BASE_TEN;
-                    currentCandidatePeriodSec = STAGE1_MID_SEC;
-                    notifyPeriodAndContinue();
-                } else {
-                    prepareMidpointFromBounds();
-                }
-                break;
-
-            case STAGE1_CHECK_BASE_TEN:
-                lfHfAt10 = (float) measuredLfHf;
-                prepareMidpointFromBounds();
-                break;
-
-            case STAGE1_CHECK_MIDPOINT:
-                lfHfAtMid = (float) measuredLfHf;
-                selectHalfSecondPointAndStartStage2();
-                break;
-
-            case STAGE2_CHECK_HALF_SEC:
-                lfHfAtHalfSec = (float) measuredLfHf;
-                evaluateConvergenceAndComplete();
-                break;
-
-            case IDLE:
-            default:
-                break;
-        }
-    }
-
-    private void prepareMidpointFromBounds() {
-        float lowRangeScore = Math.max(lfHfAt8, lfHfAt10);
-        float highRangeScore = Math.max(lfHfAt12, lfHfAt10);
-        boolean pickHighRange = highRangeScore > lowRangeScore;
-
-        searchPhase = SearchPhase.STAGE1_CHECK_MIDPOINT;
-        midPointSec = pickHighRange ? 11.0f : 9.0f;
-        currentCandidatePeriodSec = midPointSec;
-        notifyPeriodAndContinue();
-    }
-
-    private void selectHalfSecondPointAndStartStage2() {
-        if (midPointSec < 10.0f) {
-            // Выбран поддиапазон [8.0..10.0], измерена средняя 9.0: сравниваем [8.0..9.0] и [9.0..10.0]
-            float leftScore = Math.max(lfHfAt8, lfHfAtMid);
-            float rightScore = Math.max(lfHfAtMid, lfHfAt10);
-            halfSecPointSec = (rightScore > leftScore) ? 9.5f : 8.5f;
-        } else {
-            // Выбран поддиапазон [10.0..12.0], измерена средняя 11.0: сравниваем [10.0..11.0] и [11.0..12.0]
-            float leftScore = Math.max(lfHfAt10, lfHfAtMid);
-            float rightScore = Math.max(lfHfAtMid, lfHfAt12);
-            halfSecPointSec = (rightScore > leftScore) ? 11.5f : 10.5f;
-        }
-
-        // Гарантируем шаг 0.5 с в выбранном односекундном интервале
-        halfSecPointSec = Math.round(halfSecPointSec / HALF_SECOND_STEP_SEC) * HALF_SECOND_STEP_SEC;
-
-        searchPhase = SearchPhase.STAGE2_CHECK_HALF_SEC;
-        currentCandidatePeriodSec = halfSecPointSec;
-        notifyPeriodAndContinue();
-    }
-
-    private void notifyPeriodAndContinue() {
-        captureStepBaseline();
-        if (listener != null) {
-            listener.onTestPeriodChanged(currentCandidatePeriodSec);
-        }
-        evaluateNextValidRrWindow();
-    }
-
-    // Шаг 1.1: формирование упорядоченной хронологической истории шагов ряда
-    private String buildSeriesHistoryString() {
-        if (measuredSeries.isEmpty()) {
-            return "нет замеров";
-        }
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < measuredSeries.size(); i++) {
-            MeasuredPoint pt = measuredSeries.get(i);
-            if (i > 0) {
-                sb.append(" -> ");
+        if (searchPhase == SearchPhase.MEASURE_10_SEC) {
+            eval10Sec = evaluation;
+            searchPhase = SearchPhase.MEASURE_12_SEC;
+            currentCandidatePeriodSec = PERIOD_12_SEC;
+            captureStepBaseline();
+            if (listener != null) {
+                listener.onTestPeriodChanged(currentCandidatePeriodSec);
             }
-            sb.append(String.format(
-                    Locale.US,
-                    "%.1fs(%.2fHz):%.3f",
-                    pt.periodSec,
-                    pt.freqHz,
-                    pt.lfHf
-            ));
+            evaluateNextValidRrWindow(testRunToken);
+        } else if (searchPhase == SearchPhase.MEASURE_12_SEC) {
+            eval12Sec = evaluation;
+            evaluateTwoPointDecisionAndComplete();
         }
-        return sb.toString();
     }
 
-    private void evaluateConvergenceAndComplete() {
-        MeasuredPoint maxPoint = null;
-        double sumLfHf = 0.0;
-        for (MeasuredPoint pt : measuredSeries) {
-            sumLfHf += pt.lfHf;
-            if (maxPoint == null || pt.lfHf > maxPoint.lfHf) {
-                maxPoint = pt;
-            }
-        }
+    private void evaluateTwoPointDecisionAndComplete() {
+        double q10 = (eval10Sec != null) ? eval10Sec.score : 0.0;
+        double q12 = (eval12Sec != null) ? eval12Sec.score : 0.0;
+        double maxQ = Math.max(q10, q12);
 
-        double meanLfHf = !measuredSeries.isEmpty() ? (sumLfHf / measuredSeries.size()) : 0.0;
-        float maxLfHf = maxPoint != null ? maxPoint.lfHf : 0.0f;
-
-        boolean hasPositivePeak = maxPoint != null && maxLfHf > 0.0f;
-        boolean hasProminence = hasPositivePeak && (meanLfHf <= 1e-6 || maxLfHf >= meanLfHf * 1.25);
-        float refinedMax = Math.max(Math.max(0.0f, lfHfAtMid), Math.max(0.0f, lfHfAtHalfSec));
-        boolean hasHalfSecSupport = lfHfAtHalfSec >= 0.0f && lfHfAtHalfSec >= meanLfHf * 1.05;
-        boolean hasRefinedSupport = hasPositivePeak
-                && (refinedMax >= meanLfHf * 1.05
-                || hasHalfSecSupport
-                || (maxPoint != null && Math.abs(maxPoint.periodSec - halfSecPointSec) <= 1.0f));
-
-        String seriesHistory = buildSeriesHistoryString();
-        String halfSecInfo = (lfHfAtHalfSec >= 0.0f)
-                ? String.format(Locale.US, "шаг 0.5с T=%.1fс: LF/HF=%.3f", halfSecPointSec, lfHfAtHalfSec)
-                : "шаг 0.5с: не выполнен";
+        double referenceHr = (eval12Sec != null) ? eval12Sec.hrMeanBpm : ((eval10Sec != null) ? eval10Sec.hrMeanBpm : 60.0);
 
         float selectedPeriod;
-        String summary;
+        String decisionReason;
 
-        if (hasPositivePeak && hasProminence && hasRefinedSupport) {
-            selectedPeriod = maxPoint.periodSec;
-            float selectedFreq = 1.0f / selectedPeriod;
-            summary = String.format(
-                    Locale.US,
-                    "Сходимость подтверждена: оптимум T=%.1f с (%.2f Hz), max LF/HF=%.3f при среднем %.3f (%s) | Ряд (%d шагов): [%s].",
-                    selectedPeriod,
-                    selectedFreq,
-                    maxLfHf,
-                    meanLfHf,
-                    halfSecInfo,
-                    measuredSeries.size(),
-                    seriesHistory
-            );
-        } else {
-            if (initialPeriodSec > 0f) {
-                selectedPeriod = initialPeriodSec;
-            } else if (hasPositivePeak) {
-                selectedPeriod = maxPoint.periodSec;
+        if (maxQ < MIN_RESONANCE_SCORE) {
+            if (referenceHr <= FALLBACK_HR_12_SEC_THRESHOLD_BPM) {
+                selectedPeriod = PERIOD_12_SEC;
+                decisionReason = String.format(Locale.US, "max Q=%.3f < %.2f, базовый выбор 12.0с (HR=%.1f <= %.0f)",
+                        maxQ, MIN_RESONANCE_SCORE, referenceHr, FALLBACK_HR_12_SEC_THRESHOLD_BPM);
             } else {
-                selectedPeriod = STAGE1_MID_SEC;
+                selectedPeriod = PERIOD_10_SEC;
+                decisionReason = String.format(Locale.US, "max Q=%.3f < %.2f, базовый выбор 10.0с (HR=%.1f > %.0f)",
+                        maxQ, MIN_RESONANCE_SCORE, referenceHr, FALLBACK_HR_12_SEC_THRESHOLD_BPM);
             }
-            float selectedFreq = 1.0f / selectedPeriod;
-            summary = String.format(
-                    Locale.US,
-                    "Сходимость не подтверждена (ряд плоский/неоднородный, max LF/HF=%.3f при среднем %.3f, %s): применен базовый период T=%.1f с (%.2f Hz) | Ряд (%d шагов): [%s].",
-                    maxLfHf,
-                    meanLfHf,
-                    halfSecInfo,
-                    selectedPeriod,
-                    selectedFreq,
-                    measuredSeries.size(),
-                    seriesHistory
-            );
+        } else if (eval12Sec != null && eval12Sec.passedAllGates() && (q12 > q10 + MARGIN_12_SEC_OVER_10_SEC)) {
+            selectedPeriod = PERIOD_12_SEC;
+            decisionReason = String.format(Locale.US, "победа 12.0с: Q(12)=%.3f > Q(10)=%.3f + %.2f",
+                    q12, q10, MARGIN_12_SEC_OVER_10_SEC);
+        } else {
+            selectedPeriod = PERIOD_10_SEC;
+            decisionReason = String.format(Locale.US, "выбран приоритетный узел 10.0с (Q(10)=%.3f, Q(12)=%.3f)", q10, q12);
         }
+
+        float selectedFreq = 1.0f / selectedPeriod;
+        String summary = String.format(
+                Locale.US,
+                "Итог T=%.1f с (%.2f Hz) | %s | [10с: %s] | [12с: %s].",
+                selectedPeriod,
+                selectedFreq,
+                decisionReason,
+                formatEvaluationShort(eval10Sec),
+                formatEvaluationShort(eval12Sec)
+        );
 
         float calculatedFmHz = 1.0f / selectedPeriod;
 
+        testRunToken++;
         isTestModeActive = false;
         resetSearchState();
 
@@ -442,6 +589,26 @@ public class MayerTestManager {
             listener.onTestModeChanged(false);
             listener.onMayerTestCompleted(calculatedFmHz);
         }
+    }
+
+    private String formatEvaluationShort(PointEvaluation eval) {
+        if (eval == null) return "нет данных";
+        return String.format(
+                Locale.US,
+                "LF/HF=%.2f, A=%.2f, HR=%.1f(Δ%+.1f), Q=%.3f",
+                eval.lfHf,
+                eval.pulseAmplitudeBpm,
+                eval.hrMeanBpm,
+                eval.hrDropBpm,
+                eval.score
+        );
+    }
+
+    private String buildPartialSummary() {
+        if (eval10Sec == null) {
+            return "окно 10с еще не завершено";
+        }
+        return "10с: " + formatEvaluationShort(eval10Sec);
     }
 
     private void showTestAlert() {
