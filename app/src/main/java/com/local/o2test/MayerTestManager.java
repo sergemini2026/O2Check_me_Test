@@ -26,7 +26,7 @@ public class MayerTestManager {
     private static final float PERIOD_12_SEC = 12.0f;
 
     private static final double MIN_AMPLITUDE_GATE_BPM = 3.0;
-    private static final double MAX_HR_GATE_12_SEC_BPM = 60.0;
+    private static final double MAX_HR_GATE_12_SEC_BPM = 70.0;
 
     private static final double LF_HF_FLOOR = 1.5;
     private static final double LF_HF_CEIL = 15.0;
@@ -50,8 +50,7 @@ public class MayerTestManager {
 
     private enum SearchPhase {
         IDLE,
-        MEASURE_10_SEC,
-        MEASURE_12_SEC
+        MEASURE_COMPLEMENT_POINT
     }
 
     public static class MeasuredPoint {
@@ -125,14 +124,16 @@ public class MayerTestManager {
 
     private long sessionStartTimeMs = 0L;
     private float initialPeriodSec = PERIOD_10_SEC;
+    private int currentDumpIndex = 1;
     private SearchPhase searchPhase = SearchPhase.IDLE;
     private int stepStartValidCount = 0;
 
+    private PointEvaluation baselineDumpEvaluation = null;
     private PointEvaluation eval10Sec = null;
     private PointEvaluation eval12Sec = null;
     private final List<MeasuredPoint> measuredSeries = new ArrayList<>();
 
-    private float currentCandidatePeriodSec = PERIOD_10_SEC;
+    private float currentCandidatePeriodSec = PERIOD_12_SEC;
 
     public interface MayerTestListener {
         void onTestModeChanged(boolean isActive);
@@ -153,8 +154,75 @@ public class MayerTestManager {
     }
 
     public void configureSessionContext(long sessionStartTimeMs, float baselinePeriodSec) {
+        configureSessionContext(sessionStartTimeMs, baselinePeriodSec, this.currentDumpIndex);
+    }
+
+    public void configureSessionContext(long sessionStartTimeMs, float baselinePeriodSec, int dumpIndex) {
         this.sessionStartTimeMs = Math.max(0L, sessionStartTimeMs);
-        this.initialPeriodSec = baselinePeriodSec > 0f ? baselinePeriodSec : PERIOD_10_SEC;
+        this.initialPeriodSec = normalizePairPeriod(baselinePeriodSec);
+        this.currentDumpIndex = Math.max(1, dumpIndex);
+    }
+
+    /**
+     * Фиксация опорных данных первого дампа (период 10 с по умолчанию или 12 с из профиля),
+     * собранных без переключений в течение дампа #1.
+     */
+    public void registerFirstDumpBaseline(float dumpPeriodSec, List<Integer> dumpValidRrIntervals) {
+        float normalizedBase = normalizePairPeriod(dumpPeriodSec);
+        this.initialPeriodSec = normalizedBase;
+
+        if (dumpValidRrIntervals == null || dumpValidRrIntervals.isEmpty()) {
+            this.baselineDumpEvaluation = null;
+            return;
+        }
+
+        int size = dumpValidRrIntervals.size();
+        int fromIdx = Math.max(0, size - WINDOW_RR_COUNT);
+        List<Integer> window = new ArrayList<>(dumpValidRrIntervals.subList(fromIdx, size));
+        this.baselineDumpEvaluation = evaluateWindowForPeriod(window, normalizedBase);
+
+        if (isTwelveSecPeriod(normalizedBase)) {
+            this.eval12Sec = this.baselineDumpEvaluation;
+        } else {
+            this.eval10Sec = this.baselineDumpEvaluation;
+        }
+
+        if (listener != null) {
+            listener.onLog(String.format(
+                    Locale.US,
+                    "[МАЙЕР ТЕСТ] Опорная точка дампа #1 зафиксирована: T=%.1f с (%.2f Hz) | LF/HF=%.2f | A_pulse=%.2f уд/мин | HR=%.1f уд/мин (ΔHR=%+.1f) | Q=%.3f",
+                    baselineDumpEvaluation.periodSec,
+                    baselineDumpEvaluation.freqHz,
+                    baselineDumpEvaluation.lfHf,
+                    baselineDumpEvaluation.pulseAmplitudeBpm,
+                    baselineDumpEvaluation.hrMeanBpm,
+                    baselineDumpEvaluation.hrDropBpm,
+                    baselineDumpEvaluation.score
+            ));
+        }
+    }
+
+    public void clearSessionPairHistory() {
+        this.baselineDumpEvaluation = null;
+        this.eval10Sec = null;
+        this.eval12Sec = null;
+        this.currentDumpIndex = 1;
+        resetSearchState();
+    }
+
+    private float normalizePairPeriod(float periodSec) {
+        if (periodSec <= 0f) return PERIOD_10_SEC;
+        return (Math.abs(periodSec - PERIOD_12_SEC) < Math.abs(periodSec - PERIOD_10_SEC))
+                ? PERIOD_12_SEC
+                : PERIOD_10_SEC;
+    }
+
+    private boolean isTwelveSecPeriod(float periodSec) {
+        return Math.abs(periodSec - PERIOD_12_SEC) < 0.01f;
+    }
+
+    private float resolveComplementPeriod(float firstDumpPeriodSec) {
+        return isTwelveSecPeriod(firstDumpPeriodSec) ? PERIOD_10_SEC : PERIOD_12_SEC;
     }
 
     private void applyInitialState() {
@@ -181,7 +249,8 @@ public class MayerTestManager {
     }
 
     /**
-     * Обработка нажатия на кнопку «Тест» с защитой от повторных срабатываний
+     * Обработка нажатия на кнопку «Тест» на 2-м или последующем дампе:
+     * переключение сбора на недостающий парный период (12 с или 10 с) без промежуточных переключений.
      */
     public void handleTestButtonClick() {
         if (!isAvailable || isTestModeActive) return;
@@ -189,8 +258,28 @@ public class MayerTestManager {
         testRunToken++;
         isTestModeActive = true;
         resetSearchState();
-        searchPhase = SearchPhase.MEASURE_10_SEC;
-        currentCandidatePeriodSec = PERIOD_10_SEC;
+
+        float basePeriod = (baselineDumpEvaluation != null)
+                ? baselineDumpEvaluation.periodSec
+                : normalizePairPeriod(initialPeriodSec);
+
+        // Если опорная точка 1-го дампа не была передана заранее, пытаемся оценить её по последним 100 RR перед переключением
+        if (baselineDumpEvaluation == null && listener != null) {
+            List<Integer> preSwitchRr = listener.getValidRrIntervalsForTest();
+            if (preSwitchRr != null && preSwitchRr.size() >= 30) {
+                int fromIdx = Math.max(0, preSwitchRr.size() - WINDOW_RR_COUNT);
+                List<Integer> baseWindow = new ArrayList<>(preSwitchRr.subList(fromIdx, preSwitchRr.size()));
+                baselineDumpEvaluation = evaluateWindowForPeriod(baseWindow, basePeriod);
+                if (isTwelveSecPeriod(basePeriod)) {
+                    eval12Sec = baselineDumpEvaluation;
+                } else {
+                    eval10Sec = baselineDumpEvaluation;
+                }
+            }
+        }
+
+        currentCandidatePeriodSec = resolveComplementPeriod(basePeriod);
+        searchPhase = SearchPhase.MEASURE_COMPLEMENT_POINT;
 
         if (btnTest != null) {
             btnTest.setBackgroundResource(R.drawable.bg_test_button_pink_gradient);
@@ -198,7 +287,13 @@ public class MayerTestManager {
             btnTest.setAlpha(1.0f);
         }
 
-        String logMsg = "[МАЙЕР ТЕСТ] Режим тестирования активирован (точки 10с и 12с по 100 RR): автоподстройка фазы отключена до конца текущего дампа.";
+        String logMsg = String.format(
+                Locale.US,
+                "[МАЙЕР ТЕСТ] Режим тестирования активирован (дамп #%d): опорный период %.1f с, переключение на недостающий период %.1f с (100 RR); автоподстройка фазы отключена.",
+                currentDumpIndex,
+                basePeriod,
+                currentCandidatePeriodSec
+        );
         if (listener != null) {
             listener.onLog(logMsg);
             listener.onTestModeChanged(true);
@@ -219,12 +314,12 @@ public class MayerTestManager {
         testRunToken++;
 
         String interruptedSummary = null;
-        if (searchPhase != SearchPhase.IDLE && !measuredSeries.isEmpty()) {
+        if (searchPhase != SearchPhase.IDLE) {
             interruptedSummary = String.format(
                     Locale.US,
-                    "Тест прерван на фазе %s (измерено точек: %d) | %s",
-                    searchPhase.name(),
-                    measuredSeries.size(),
+                    "Тест прерван на замере недостающего периода %.1f с (дамп #%d) | %s",
+                    currentCandidatePeriodSec,
+                    currentDumpIndex,
                     buildPartialSummary()
             );
         }
@@ -251,8 +346,6 @@ public class MayerTestManager {
     private void resetSearchState() {
         searchPhase = SearchPhase.IDLE;
         stepStartValidCount = 0;
-        eval10Sec = null;
-        eval12Sec = null;
         measuredSeries.clear();
     }
 
@@ -314,7 +407,7 @@ public class MayerTestManager {
         double hrEndMean = meanSlice(instHrAll, n - edgeCount, n);
         double hrDropBpm = hrStartMean - hrEndMean;
 
-        // 2. Установившаяся часть (например, интервалы с 21-го по 100-й -> индексы 20..99, последние 80 интервалов)
+        // 2. Установившаяся часть (интервалы с 21-го по 100-й -> индексы 20..99, последние 80 интервалов)
         int settledStart = Math.min(TRANSIENT_SKIP_COUNT, Math.max(0, n - 1));
         List<Integer> settledRrRaw = new ArrayList<>(window100.subList(settledStart, n));
         List<Integer> settledRrClean = cleanLocalArtifacts(settledRrRaw);
@@ -329,16 +422,16 @@ public class MayerTestManager {
         }
         double hrMeanBpm = settledHr.length > 0 ? (sumSettledHr / settledHr.length) : 0.0;
 
-        // Сглаживание мгновенного пульса скользящим окном по 3-5 ударам (4 удара)
+        // Сглаживание мгновенного пульса скользящим окном по 4 ударам
         double[] smoothedHr = smoothMovingAverage(settledHr, HR_SMOOTH_WINDOW);
 
         // Поцикловый размах ΔHR_k = HR_max_k - HR_min_k на отрезках длительностью T (мс), медиана по циклам
         long cycleDurationMs = Math.max(1000L, Math.round(periodSec * 1000.0));
         double pulseAmplitudeBpm = computeCycleAmplitudeMedianBpm(smoothedHr, settledRrClean, cycleDurationMs);
 
-        // 3. Жесткие фильтры допустимости (гейты) до взвешивания
+        // 3. Жесткие фильтры допустимости (гейты) до взвешивания (порог HR для 12 с = 70 уд/мин)
         boolean passedAmplitudeGate = pulseAmplitudeBpm >= MIN_AMPLITUDE_GATE_BPM;
-        boolean isTwelveSec = Math.abs(periodSec - PERIOD_12_SEC) < 0.01f;
+        boolean isTwelveSec = isTwelveSecPeriod(periodSec);
         boolean passedHrGate = !isTwelveSec || (hrMeanBpm <= MAX_HR_GATE_12_SEC_BPM);
 
         // 4. Нормировка в [0.0 ... 1.0] и распределение весов
@@ -500,10 +593,16 @@ public class MayerTestManager {
 
         measuredSeries.add(new MeasuredPoint(evaluation.periodSec, evaluation.freqHz, (float) evaluation.lfHf));
 
+        if (isTwelveSecPeriod(evaluation.periodSec)) {
+            eval12Sec = evaluation;
+        } else {
+            eval10Sec = evaluation;
+        }
+
         if (listener != null) {
             listener.onLog(String.format(
                     Locale.US,
-                    "[МАЙЕР ТЕСТ] Точка T=%.1f с (%.2f Hz) | LF/HF=%.2f | A_pulse=%.2f уд/мин | HR=%.1f уд/мин (ΔHR=%+.1f) | Гейты[A:%s,HR:%s] | Q=%.3f",
+                    "[МАЙЕР ТЕСТ] Парная точка T=%.1f с (%.2f Hz) | LF/HF=%.2f | A_pulse=%.2f уд/мин | HR=%.1f уд/мин (ΔHR=%+.1f) | Гейты[A:%s,HR:%s] | Q=%.3f",
                     evaluation.periodSec,
                     evaluation.freqHz,
                     evaluation.lfHf,
@@ -516,19 +615,7 @@ public class MayerTestManager {
             ));
         }
 
-        if (searchPhase == SearchPhase.MEASURE_10_SEC) {
-            eval10Sec = evaluation;
-            searchPhase = SearchPhase.MEASURE_12_SEC;
-            currentCandidatePeriodSec = PERIOD_12_SEC;
-            captureStepBaseline();
-            if (listener != null) {
-                listener.onTestPeriodChanged(currentCandidatePeriodSec);
-            }
-            evaluateNextValidRrWindow(testRunToken);
-        } else if (searchPhase == SearchPhase.MEASURE_12_SEC) {
-            eval12Sec = evaluation;
-            evaluateTwoPointDecisionAndComplete();
-        }
+        evaluateTwoPointDecisionAndComplete();
     }
 
     private void evaluateTwoPointDecisionAndComplete() {
@@ -536,7 +623,9 @@ public class MayerTestManager {
         double q12 = (eval12Sec != null) ? eval12Sec.score : 0.0;
         double maxQ = Math.max(q10, q12);
 
-        double referenceHr = (eval12Sec != null) ? eval12Sec.hrMeanBpm : ((eval10Sec != null) ? eval10Sec.hrMeanBpm : 60.0);
+        double referenceHr = (eval12Sec != null)
+                ? eval12Sec.hrMeanBpm
+                : ((eval10Sec != null) ? eval10Sec.hrMeanBpm : 60.0);
 
         float selectedPeriod;
         String decisionReason;
@@ -605,10 +694,15 @@ public class MayerTestManager {
     }
 
     private String buildPartialSummary() {
-        if (eval10Sec == null) {
-            return "окно 10с еще не завершено";
+        if (baselineDumpEvaluation == null) {
+            return "опорная точка не зафиксирована";
         }
-        return "10с: " + formatEvaluationShort(eval10Sec);
+        return String.format(
+                Locale.US,
+                "опорная %.1fс: %s",
+                baselineDumpEvaluation.periodSec,
+                formatEvaluationShort(baselineDumpEvaluation)
+        );
     }
 
     private void showTestAlert() {
