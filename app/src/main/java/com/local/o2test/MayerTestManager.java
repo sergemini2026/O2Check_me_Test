@@ -17,7 +17,7 @@ import java.util.concurrent.Executors;
 
 public class MayerTestManager {
 
-    private static final int WINDOW_RR_COUNT = 100;
+    private static final int WINDOW_RR_COUNT = 200;
     private static final int TRANSIENT_SKIP_COUNT = 20;
     private static final int EDGE_HR_COUNT = 15;
     private static final int HR_SMOOTH_WINDOW = 4;
@@ -263,10 +263,10 @@ public class MayerTestManager {
                 ? baselineDumpEvaluation.periodSec
                 : normalizePairPeriod(initialPeriodSec);
 
-        // Если опорная точка 1-го дампа не была передана заранее, пытаемся оценить её по последним 100 RR перед переключением
+        // Если опорная точка 1-го дампа не была передана заранее, пытаемся оценить её по последним RR перед переключением
         if (baselineDumpEvaluation == null && listener != null) {
             List<Integer> preSwitchRr = listener.getValidRrIntervalsForTest();
-            if (preSwitchRr != null && preSwitchRr.size() >= 30) {
+            if (preSwitchRr != null && preSwitchRr.size() >= 60) {
                 int fromIdx = Math.max(0, preSwitchRr.size() - WINDOW_RR_COUNT);
                 List<Integer> baseWindow = new ArrayList<>(preSwitchRr.subList(fromIdx, preSwitchRr.size()));
                 baselineDumpEvaluation = evaluateWindowForPeriod(baseWindow, basePeriod);
@@ -289,10 +289,11 @@ public class MayerTestManager {
 
         String logMsg = String.format(
                 Locale.US,
-                "[МАЙЕР ТЕСТ] Режим тестирования активирован (дамп #%d): опорный период %.1f с, переключение на недостающий период %.1f с (100 RR); автоподстройка фазы отключена.",
+                "[МАЙЕР ТЕСТ] Режим тестирования активирован (дамп #%d): опорный период %.1f с, переключение на недостающий период %.1f с (%d RR); автоподстройка фазы отключена.",
                 currentDumpIndex,
                 basePeriod,
-                currentCandidatePeriodSec
+                currentCandidatePeriodSec,
+                WINDOW_RR_COUNT
         );
         if (listener != null) {
             listener.onLog(logMsg);
@@ -377,9 +378,9 @@ public class MayerTestManager {
             }
 
             int fromIdx = Math.max(0, totalValid - WINDOW_RR_COUNT);
-            List<Integer> rrWindow100 = new ArrayList<>(validRrList.subList(fromIdx, totalValid));
+            List<Integer> rrWindow = new ArrayList<>(validRrList.subList(fromIdx, totalValid));
 
-            final PointEvaluation evaluation = evaluateWindowForPeriod(rrWindow100, targetPeriodSec);
+            final PointEvaluation evaluation = evaluateWindowForPeriod(rrWindow, targetPeriodSec);
             mainHandler.post(() -> {
                 if (!isTestModeActive || activeToken != testRunToken || searchPhase != targetPhase) return;
                 advanceSearchWithEvaluation(evaluation);
@@ -387,17 +388,17 @@ public class MayerTestManager {
         });
     }
 
-    private PointEvaluation evaluateWindowForPeriod(List<Integer> window100, float periodSec) {
-        // 1. Полный массив (100 интервалов): штатный спектральный расчет LF/HF
-        double lfHf = HrvCalculator.calculateStandardLfHf(window100);
+    private PointEvaluation evaluateWindowForPeriod(List<Integer> windowRr, float periodSec) {
+        // 1. Полное окно: штатный спектральный расчет LF/HF
+        double lfHf = HrvCalculator.calculateStandardLfHf(windowRr);
         if (Double.isNaN(lfHf) || Double.isInfinite(lfHf) || lfHf < 0.0) {
             lfHf = 0.0;
         }
 
-        int n = window100.size();
+        int n = windowRr.size();
         double[] instHrAll = new double[n];
         for (int i = 0; i < n; i++) {
-            int rr = Math.max(250, Math.min(3000, window100.get(i)));
+            int rr = Math.max(250, Math.min(3000, windowRr.get(i)));
             instHrAll[i] = 60000.0 / rr;
         }
 
@@ -407,9 +408,9 @@ public class MayerTestManager {
         double hrEndMean = meanSlice(instHrAll, n - edgeCount, n);
         double hrDropBpm = hrStartMean - hrEndMean;
 
-        // 2. Установившаяся часть (интервалы с 21-го по 100-й -> индексы 20..99, последние 80 интервалов)
+        // 2. Установившаяся часть (после отбрасывания переходных интервалов)
         int settledStart = Math.min(TRANSIENT_SKIP_COUNT, Math.max(0, n - 1));
-        List<Integer> settledRrRaw = new ArrayList<>(window100.subList(settledStart, n));
+        List<Integer> settledRrRaw = new ArrayList<>(windowRr.subList(settledStart, n));
         List<Integer> settledRrClean = cleanLocalArtifacts(settledRrRaw);
 
         double[] settledHr = new double[settledRrClean.size()];
