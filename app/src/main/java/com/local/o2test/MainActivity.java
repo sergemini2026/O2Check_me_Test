@@ -143,6 +143,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             }
 
             updateRightPanelStatus();
+            updatePacerPeriodRegulatorState();
             updateMayerTestButtonAvailability();
             if (ui.btnHeart != null) {
                 ui.btnHeart.setAlpha(isProfileAuthorized && isTrainingSelected ? 1.0f : 0.5f);
@@ -228,7 +229,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         lastMayerConvergenceSummary = "";
                         long startAnchor = sessionStartTime > 0L ? sessionStartTime : currentMayerTestStartTimeMs;
                         float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : 10.0f;
-                        mayerTestManager.configureSessionContext(startAnchor, basePeriodSec);
+                        int dumpIdx = (isBound && hrvService != null) ? hrvService.getCurrentDumpIndex() : (sessionDumpCount + 1);
+                        mayerTestManager.configureSessionContext(startAnchor, basePeriodSec, dumpIdx);
                     }
                 } else {
                     currentMayerTestStartTimeMs = 0L;
@@ -333,6 +335,26 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     }
 
+    /**
+     * Управление активностью регулятора периода на циферблате пейсера:
+     * деактивируется на 1-м дампе тренировочной фазы и активируется со 2-го дампа (или при остановке).
+     */
+    private void updatePacerPeriodRegulatorState() {
+        if (ui == null || ui.pacerView == null) return;
+        boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
+        int dumpIndex = (isBound && hrvService != null) ? hrvService.getCurrentDumpIndex() : (sessionDumpCount + 1);
+        boolean lockedForFirstDump = isRecording && !isPostiActive && (dumpIndex == 1);
+
+        ui.pacerView.setEnabled(!lockedForFirstDump);
+        ui.pacerView.setAlpha(lockedForFirstDump ? 0.5f : 1.0f);
+    }
+
+    /**
+     * Доступность кнопки «Тест»:
+     * - недоступна на 1-м дампе (dumpIndex < 2)
+     * - недоступна на последних 250 интервалах любого из последующих дампов тренировочной фазы (currentDumpRrCount > 50, а также при 0 RR на стыке)
+     * - всегда недоступна в фазе «Тест PSTI»
+     */
     private void updateMayerTestButtonAvailability() {
         if (mayerTestManager == null) return;
 
@@ -340,8 +362,13 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         int dumpIndex = (isBound && hrvService != null) ? hrvService.getCurrentDumpIndex() : (sessionDumpCount + 1);
         int currentDumpRrCount = (isBound && hrvService != null) ? hrvService.getCurrentMacroRrCount() : 0;
 
-        int minAllowedDumpIndex = (trainingTargetX == 1) ? 3 : 2;
-        boolean isDumpEligible = dumpIndex >= minAllowedDumpIndex;
+        if (mayerTestManager != null && isRecording) {
+            long startAnchor = sessionStartTime > 0L ? sessionStartTime : System.currentTimeMillis();
+            float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : 10.0f;
+            mayerTestManager.configureSessionContext(startAnchor, basePeriodSec, dumpIndex);
+        }
+
+        boolean isDumpEligible = dumpIndex >= 2;
         boolean isWithinFirst50Rr = currentDumpRrCount >= 1 && currentDumpRrCount <= 50;
 
         boolean canEnableTest = isRecording
@@ -378,6 +405,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updatePhimIndexDisplay("--");
         updateMayerFrequencyIndexDisplay("--");
         updateRightPanelStatus();
+        updatePacerPeriodRegulatorState();
 
         rebindUiListeners();
 
@@ -410,8 +438,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             mayerTestManager = new MayerTestManager(this, ui.btnTest, createMayerTestListener());
             long startAnchor = sessionStartTime > 0L ? sessionStartTime : System.currentTimeMillis();
             float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : 10.0f;
-            mayerTestManager.configureSessionContext(startAnchor, basePeriodSec);
+            int dumpIdx = (isBound && hrvService != null) ? hrvService.getCurrentDumpIndex() : (sessionDumpCount + 1);
+            mayerTestManager.configureSessionContext(startAnchor, basePeriodSec, dumpIdx);
 
+            updatePacerPeriodRegulatorState();
             updateMayerTestButtonAvailability();
             if (wasActive) {
                 // Если тест был активен, восстанавливаем визуальное состояние кнопки
@@ -450,8 +480,18 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             public void onConnectionStatusChanged(String deviceType, boolean isConnected) {}
 
             @Override
+            public void onFirstDumpBaselineReady(float periodSec, List<Integer> validRrIntervals) {
+                if (mayerTestManager != null) {
+                    mayerTestManager.registerFirstDumpBaseline(periodSec, validRrIntervals);
+                }
+            }
+
+            @Override
             public void onMacroRrCountChanged(int currentRrCount, int dumpIndex, boolean isPstiPhase) {
-                runOnUiThread(() -> updateMayerTestButtonAvailability());
+                runOnUiThread(() -> {
+                    updatePacerPeriodRegulatorState();
+                    updateMayerTestButtonAvailability();
+                });
             }
 
             @Override
@@ -548,6 +588,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     currentBlockNumber = 1;
                     onLog("[Мониторинг] Возврат к тренировочному циклу...");
                     runOnUiThread(() -> {
+                        updatePacerPeriodRegulatorState();
                         updateMayerTestButtonAvailability();
                         if (isRecording && isBound && hrvService != null) {
                             startClockAndPacerAfterCalibration(0.0f);
@@ -562,7 +603,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         currentBlockNumber = Math.min(totalBlocks, Math.max(1, rawContextBlock + 1));
                         onLog("[Мониторинг] Продолжение сеанса дыхания...");
                     }
-                    runOnUiThread(() -> updateMayerTestButtonAvailability());
+                    runOnUiThread(() -> {
+                        updatePacerPeriodRegulatorState();
+                        updateMayerTestButtonAvailability();
+                    });
                 }
 
                 runOnUiThread(() -> updateRightPanelStatus());
@@ -603,6 +647,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         if (ui.pacerView != null) {
             ui.pacerView.setOnPointerChangeListener(value -> {
+                boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
+                int dumpIndex = (isBound && hrvService != null) ? hrvService.getCurrentDumpIndex() : (sessionDumpCount + 1);
+                if (isRecording && !isPostiActive && dumpIndex == 1) {
+                    if (DEBUG) {
+                        onLog("[DUMP_1] Переключение периода на пейсере заблокировано до завершения дампа #1.");
+                    }
+                    return;
+                }
                 long newDurationMs = (long) (value * 1000.0);
                 modulationManager.setModulationPeriodMs(newDurationMs);
                 modulationManager.applyModulation(hrvService, isBound);
@@ -743,6 +795,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery, polarBatt);
 
         updateRightPanelStatus();
+        updatePacerPeriodRegulatorState();
 
         if (isRecording && ui.btnHeart != null) {
             ui.btnHeart.setAlpha(1.0f);
@@ -771,6 +824,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                 ui.btnHeart.setAlpha(1.0f);
                             }
                             updateRightPanelStatus();
+                            updatePacerPeriodRegulatorState();
                             updateMayerTestButtonAvailability();
 
                             if (DEBUG) {
@@ -1138,8 +1192,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         cycleLfHfValuesList.clear();
         currentLfHfDisplayStr = "--";
 
+        if (mayerTestManager != null) {
+            mayerTestManager.clearSessionPairHistory();
+        }
+
         // Шаг 6: Гарантированный старт с актуальным периодом модуляции (из modulationManager)
-        fixedModulationPeriodMs = (isBound && hrvService != null) ? hrvService.getModulationPeriodMs() : modulationManager.getModulationPeriodMs();
+        fixedModulationPeriodMs = modulationManager.getModulationPeriodMs();
 
         if (progressManager != null) {
             progressManager.start();
@@ -1162,8 +1220,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         sessionStartTime = System.currentTimeMillis();
+        int initialDumpIdx = (isBound && hrvService != null) ? hrvService.getCurrentDumpIndex() : 1;
         if (mayerTestManager != null) {
-            mayerTestManager.configureSessionContext(sessionStartTime, fixedModulationPeriodMs / 1000.0f);
+            mayerTestManager.configureSessionContext(sessionStartTime, fixedModulationPeriodMs / 1000.0f, initialDumpIdx);
         }
 
         synchronized (sessionData) { sessionData.clear(); }
@@ -1178,6 +1237,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updatePhimIndexDisplay("--");
         updateMayerFrequencyIndexDisplay(fixedModulationPeriodMs);
         updateRightPanelStatus();
+        updatePacerPeriodRegulatorState();
         updateMayerTestButtonAvailability();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
 
@@ -1221,6 +1281,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         updateRightPanelStatus();
+        updatePacerPeriodRegulatorState();
         onLog("[PSTI] Модуляция остановлена. Запуск замера индекса консолидации барорефлекса PSTI в сервисе...");
     }
 
@@ -1254,6 +1315,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         if (mayerTestManager != null) {
             mayerTestManager.resetTestMode();
+            mayerTestManager.clearSessionPairHistory();
             mayerTestManager.setAvailable(false);
         }
 
@@ -1277,6 +1339,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         updateRightPanelStatus();
+        updatePacerPeriodRegulatorState();
         updateMetricsDisplay("--", "--", "--", "--");
         updateAttractorIndexDisplay("--");
         updatePhimIndexDisplay("--");
@@ -1423,6 +1486,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                     updateMayerFrequencyIndexDisplay(fixedModulationPeriodMs);
 
                                     // Пересчитываем доступность кнопки «Тест» с учетом номера дампа и окна первых 50 RR
+                                    updatePacerPeriodRegulatorState();
                                     updateMayerTestButtonAvailability();
 
                                     if (isBound && hrvService != null) {
