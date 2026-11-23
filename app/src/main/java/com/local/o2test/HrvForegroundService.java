@@ -120,6 +120,7 @@ public class HrvForegroundService extends Service {
         default void onMacroProgressUpdated(int rrCount, int totalCount, int currentHr, HrvCalculator.Metrics partialMetrics) {}
         default void onMayerTestCompleted(float calculatedFm) {}
         default void onMacroRrCountChanged(int currentRrCount, int dumpIndex, boolean isPstiPhase) {}
+        default void onMicroSliceCalculated(int sliceIndex, int dumpIndex, boolean isPstiPhase, HrvCalculator.Metrics metrics) {}
     }
 
     public class LocalBinder extends Binder {
@@ -711,6 +712,10 @@ public class HrvForegroundService extends Service {
                 );
                 synchronized (snapshotBuffer) {
                     snapshotBuffer.add(snapshot);
+                }
+
+                if (callback != null) {
+                    callback.onMicroSliceCalculated(sliceCounter, dumpCounter, isPostiTraceActive, metrics);
                 }
             }
         } catch (Exception e) {
