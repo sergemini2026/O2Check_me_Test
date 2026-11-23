@@ -338,6 +338,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     /**
      * Управление активностью регулятора периода на циферблате пейсера:
      * деактивируется на 1-м дампе тренировочной фазы и активируется со 2-го дампа (или при остановке).
+     * Прозрачность всего виджета не изменяется, чтобы центральный пейсер оставался хорошо виден.
      */
     private void updatePacerPeriodRegulatorState() {
         if (ui == null || ui.pacerView == null) return;
@@ -346,7 +347,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         boolean lockedForFirstDump = isRecording && !isPostiActive && (dumpIndex == 1);
 
         ui.pacerView.setEnabled(!lockedForFirstDump);
-        ui.pacerView.setAlpha(lockedForFirstDump ? 0.5f : 1.0f);
     }
 
     /**
