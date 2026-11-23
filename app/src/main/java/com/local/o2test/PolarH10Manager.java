@@ -41,7 +41,7 @@ public class PolarH10Manager {
     private final Context context;
     private final PolarCallback callback;
     private BluetoothGatt gatt;
-    
+
     private boolean isConnected = false;
     private boolean isConnecting = false;
     private boolean isCollecting = false; // Флаг разрешения сбора данных (управляется Панелью монитора)
@@ -61,6 +61,23 @@ public class PolarH10Manager {
     }
 
     public void connect(BluetoothDevice device) {
+        if (device == null) return;
+
+        if (this.gatt != null) {
+            if (DEBUG) {
+                Log.d(TAG, "[POLAR_TRANSPORT] Закрытие предыдущего BluetoothGatt перед новым подключением");
+            }
+            try {
+                this.gatt.disconnect();
+            } catch (Exception ignored) {}
+            try {
+                this.gatt.close();
+            } catch (Exception ignored) {}
+            this.gatt = null;
+        }
+
+        this.isConnected = false;
+        this.isCollecting = false;
         log("Polar H10: Подключение к " + device.getAddress());
         isConnecting = true;
         gatt = device.connectGatt(context, false, gattCallback);
