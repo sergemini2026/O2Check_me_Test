@@ -366,7 +366,12 @@ public class HrvForegroundService extends Service {
         dumpCounter = 1;
         currentBlockNumber = 0;
         isMayerTestMode = false;
-        currentSessionFmHz = 0.1f;
+
+        long derivedPeriodMs = Math.round(1000.0f / (currentSessionFmHz > 0f ? currentSessionFmHz : 0.1f));
+        this.currentModulationPeriodMs = Math.max(6000L, Math.min(14000L, derivedPeriodMs));
+        if (serviceMasterClock != null) {
+            serviceMasterClock.setBaseDurationMs(this.currentModulationPeriodMs);
+        }
 
         currentDumpStartTime = System.currentTimeMillis();
 
