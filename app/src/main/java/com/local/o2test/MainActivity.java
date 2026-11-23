@@ -341,17 +341,25 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     /**
-     * Управление активностью регулятора периода на циферблате пейсера:
-     * деактивируется на 1-м дампе тренировочной фазы и активируется со 2-го дампа (или при остановке).
+     * Единое правило доступности регулятора периода на циферблате пейсера:
+     * разблокирован ТОЛЬКО во время активной записи сессии, вне фазы PSTI, начиная со 2-го дампа.
+     * Во всех остальных случаях (до старта, после остановки, на 1-м дампе, в фазе PSTI) — заблокирован.
+     */
+    private boolean isPacerPeriodRegulatorUnlocked() {
+        if (!isRecording) return false;
+        boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
+        if (isPostiActive) return false;
+        int dumpIndex = (isBound && hrvService != null) ? hrvService.getCurrentDumpIndex() : (sessionDumpCount + 1);
+        return dumpIndex >= 2;
+    }
+
+    /**
+     * Управление активностью регулятора периода на циферблате пейсера.
      * Прозрачность всего виджета не изменяется, чтобы центральный пейсер оставался хорошо виден.
      */
     private void updatePacerPeriodRegulatorState() {
         if (ui == null || ui.pacerView == null) return;
-        boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
-        int dumpIndex = (isBound && hrvService != null) ? hrvService.getCurrentDumpIndex() : (sessionDumpCount + 1);
-        boolean lockedForFirstDump = isRecording && !isPostiActive && (dumpIndex == 1);
-
-        ui.pacerView.setEnabled(!lockedForFirstDump);
+        ui.pacerView.setEnabled(isPacerPeriodRegulatorUnlocked());
     }
 
     /**
@@ -652,11 +660,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         if (ui.pacerView != null) {
             ui.pacerView.setOnPointerChangeListener(value -> {
-                boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
-                int dumpIndex = (isBound && hrvService != null) ? hrvService.getCurrentDumpIndex() : (sessionDumpCount + 1);
-                if (isRecording && !isPostiActive && dumpIndex == 1) {
+                if (!isPacerPeriodRegulatorUnlocked()) {
                     if (DEBUG) {
-                        onLog("[DUMP_1] Переключение периода на пейсере заблокировано до завершения дампа #1.");
+                        onLog("[PACER_LOCK] Переключение периода на пейсере заблокировано до завершения дампа #1 активной сессии.");
                     }
                     return;
                 }
@@ -1083,6 +1089,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                             if (ui.pacerView != null) {
                                 ui.pacerView.setPointerValue(modulationManager.getModulationPeriodSec());
                             }
+                            updatePacerPeriodRegulatorState();
 
                             if (DEBUG) {
                                 onLog(String.format(Locale.US, "[ПРОФИЛЬ] Инициализирован FM из базы: %.2f Hz", profileFm));
@@ -1119,6 +1126,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     updateAttractorIndexDisplay("--");
                     updatePhimIndexDisplay("--");
                     updateMayerFrequencyIndexDisplay("--");
+                    updatePacerPeriodRegulatorState();
                     onLog("[GATEKEEPER] Активный профиль удален. Сессия завершена.");
                     Toast.makeText(MainActivity.this, "Активный профиль был удален. Сессия остановлена.", Toast.LENGTH_LONG).show();
                 }
@@ -1352,7 +1360,37 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateMetricsDisplay("--", "--", "--", "--");
         updateAttractorIndexDisplay("--");
         updatePhimIndexDisplay("--");
-        updateMayerFrequencyIndexDisplay("--");
+
+        if (isProfileAuthorized && activeProfileId != -1L) {
+            dbExecutor.execute(() -> {
+                try {
+                    AppDatabase db = AppDatabase.getInstance(MainActivity.this);
+                    ProfileEntity profile = db.profileDao().getProfileSync(activeProfileId);
+                    final float profileFm = (profile != null && profile.getFm() > 0f) ? profile.getFm() : 0.1f;
+
+                    runOnUiThread(() -> {
+                        if (!isRecording) {
+                            updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.2f", profileFm));
+                            if (modulationManager != null) {
+                                modulationManager.setModulationFrequencyHz(profileFm);
+                                modulationManager.applyModulation(hrvService, isBound);
+                            }
+                            if (isBound && hrvService != null) {
+                                hrvService.setSessionFmHz(profileFm);
+                            }
+                            if (ui != null && ui.pacerView != null && modulationManager != null) {
+                                ui.pacerView.setPointerValue(modulationManager.getModulationPeriodSec());
+                            }
+                            updatePacerPeriodRegulatorState();
+                        }
+                    });
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            });
+        } else {
+            updateMayerFrequencyIndexDisplay("--");
+        }
 
         if (ui.btnHeart != null) {
             ui.btnHeart.setAlpha(isProfileAuthorized && isTrainingSelected ? 1.0f : 0.5f);
