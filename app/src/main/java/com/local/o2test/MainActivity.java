@@ -134,11 +134,16 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 onLog("[SERVICE] Сервис успешно привязан к MainActivity");
             }
 
-            // Страховка: если сессия активна, гарантированно восстанавливаем callback и синхронизируем FM в сервисе при ребиндинге
-            if (isRecording && hrvService != null) {
-                hrvService.setCallback(createServiceCallback());
-                if (modulationManager != null && modulationManager.getModulationFrequencyHz() > 0f) {
-                    hrvService.setSessionFmHz(modulationManager.getModulationFrequencyHz());
+            if (hrvService != null) {
+                if (isRecording) {
+                    hrvService.setCallback(createServiceCallback());
+                }
+                // Шаг 2.1: синхронизируем FM и период модуляции из modulationManager при подключении/ребиндинге сервиса
+                if (modulationManager != null) {
+                    if (modulationManager.getModulationFrequencyHz() > 0f) {
+                        hrvService.setSessionFmHz(modulationManager.getModulationFrequencyHz());
+                    }
+                    modulationManager.applyModulation(hrvService, isBound);
                 }
             }
 
@@ -1196,9 +1201,6 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             mayerTestManager.clearSessionPairHistory();
         }
 
-        // Шаг 6: Гарантированный старт с актуальным периодом модуляции (из modulationManager)
-        fixedModulationPeriodMs = modulationManager.getModulationPeriodMs();
-
         if (progressManager != null) {
             progressManager.start();
         }
@@ -1206,13 +1208,20 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (isBound && hrvService != null) {
             hrvService.stopPostiRecording();
             hrvService.setPresetPattern(trainingTargetX);
-            hrvService.startSessionRecording();
 
-            modulationManager.applyModulation(hrvService, isBound);
-            if (modulationManager.getModulationFrequencyHz() > 0f) {
+            // Шаг 2.2 и 2.3: передаем FM и период модуляции в сервис ДО startSessionRecording()
+            if (modulationManager != null && modulationManager.getModulationFrequencyHz() > 0f) {
                 hrvService.setSessionFmHz(modulationManager.getModulationFrequencyHz());
             }
+            if (modulationManager != null) {
+                modulationManager.applyModulation(hrvService, isBound);
+            }
+
+            hrvService.startSessionRecording();
             hrvService.setCallback(createServiceCallback());
+            fixedModulationPeriodMs = hrvService.getModulationPeriodMs();
+        } else if (modulationManager != null) {
+            fixedModulationPeriodMs = modulationManager.getModulationPeriodMs();
         }
 
         if (polarManager != null) {
