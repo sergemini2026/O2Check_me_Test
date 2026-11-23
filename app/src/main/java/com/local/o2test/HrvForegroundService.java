@@ -539,6 +539,7 @@ public class HrvForegroundService extends Service {
                     currentBlockNumber++;
                 }
 
+                int completedBlockNumber = currentBlockNumber;
                 boolean isTrainingCycleComplete = (!wasPstiPhase && currentBlockNumber >= trainingTargetX);
                 boolean snapshotTestMode = isMayerTestMode;
 
@@ -559,7 +560,7 @@ public class HrvForegroundService extends Service {
                         snapshotTestMode,
                         sliceCounter,
                         dumpCounter,
-                        currentBlockNumber,
+                        completedBlockNumber,
                         macroPhase,
                         snapshotFmHz
                 );
@@ -594,7 +595,7 @@ public class HrvForegroundService extends Service {
 
                 if (DEBUG) {
                     Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Dump #%d, PSTI phase: %b) | Тест Майера: %b | Блок %d/%d | RMSSD: %.1f ms | Фаза Майера: %.2f | FM: %.2f Hz",
-                            dumpCounter, wasPstiPhase, snapshotTestMode, currentBlockNumber, trainingTargetX, metrics.rmssd, macroPhase, snapshotFmHz));
+                            dumpCounter, wasPstiPhase, snapshotTestMode, completedBlockNumber, trainingTargetX, metrics.rmssd, macroPhase, snapshotFmHz));
                 }
 
                 if (callback != null) {
@@ -602,7 +603,7 @@ public class HrvForegroundService extends Service {
                         callback.onFirstDumpBaselineReady(currentModulationSec, new ArrayList<>(dumpData));
                     }
 
-                    QuantumContext quantum = new QuantumContext(dumpCounter, currentBlockNumber, wasPstiPhase, nextIsPstiPhase, trainingTargetX, macroPhase);
+                    QuantumContext quantum = new QuantumContext(dumpCounter, completedBlockNumber, wasPstiPhase, nextIsPstiPhase, trainingTargetX, macroPhase);
                     callback.onMacroDumpCompleted(avgHr, metrics, TARGET_MACRO_RR_COUNT, quantum);
 
                     if (snapshotTestMode) {
