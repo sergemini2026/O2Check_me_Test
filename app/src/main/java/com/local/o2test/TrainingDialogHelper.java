@@ -24,6 +24,7 @@ public class TrainingDialogHelper {
     private static final long CLICK_DELAY_MS = 500; // Задержка 0.5 сек для визуального отклика
     private static final int DIALOG_WIDTH_DP = 400;
     private static final int ITEM_LEFT_INDENT_DP = 36;
+    private static final int PRANAYAMA_EXTRA_LEFT_INDENT_DP = 10;
 
     public interface TrainingStartCallback {
         void onTrainingSelected(String trainingType, String modeName, int targetX, int[] pattern);
@@ -52,13 +53,17 @@ public class TrainingDialogHelper {
     }
 
     private static void showCustomMenuDialog(Context context, String titleText, CharSequence[] items, int selectedIndex, OnItemClickCallback callback, String negativeButtonText, Runnable onNegative) {
-        showCustomMenuDialog(context, titleText, items, null, selectedIndex, callback, negativeButtonText, onNegative);
+        showCustomMenuDialog(context, titleText, items, null, selectedIndex, ITEM_LEFT_INDENT_DP, callback, negativeButtonText, onNegative);
+    }
+
+    private static void showCustomMenuDialog(Context context, String titleText, CharSequence[] items, int[] iconResIds, int selectedIndex, OnItemClickCallback callback, String negativeButtonText, Runnable onNegative) {
+        showCustomMenuDialog(context, titleText, items, iconResIds, selectedIndex, ITEM_LEFT_INDENT_DP, callback, negativeButtonText, onNegative);
     }
 
     /**
-     * Универсальный метод построения кастомного диалогового окна на базе View с шириной 300 dp и отступом 36 dp
+     * Универсальный метод построения кастомного диалогового окна на базе View с шириной 400 dp
      */
-    private static void showCustomMenuDialog(Context context, String titleText, CharSequence[] items, int[] iconResIds, int selectedIndex, OnItemClickCallback callback, String negativeButtonText, Runnable onNegative) {
+    private static void showCustomMenuDialog(Context context, String titleText, CharSequence[] items, int[] iconResIds, int selectedIndex, int leftIndentDp, OnItemClickCallback callback, String negativeButtonText, Runnable onNegative) {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
 
         LinearLayout rootLayout = new LinearLayout(context);
@@ -94,8 +99,7 @@ public class TrainingDialogHelper {
                 itemTv.setCompoundDrawablePadding(drawablePad);
             }
 
-            // Фиксированный отступ слева 36 dp
-            int indentPx = (int) (ITEM_LEFT_INDENT_DP * context.getResources().getDisplayMetrics().density);
+            int indentPx = (int) (leftIndentDp * context.getResources().getDisplayMetrics().density);
             int vertPad = (int) (14 * context.getResources().getDisplayMetrics().density);
             itemTv.setPadding(indentPx, vertPad, vertPad, vertPad);
 
@@ -157,14 +161,10 @@ public class TrainingDialogHelper {
             "Пранаяма (тайминг)"
         };
 
-        
         int[] categoryIcons = {
-            R.drawable.ic_menu_waves,
-            R.drawable.ic_menu_timer
+            R.drawable.ic_menu_dna,
+            R.drawable.ic_menu_wind
         };
-
-          
-      
 
         showCustomMenuDialog(context, "Выбор тренировки", categories, categoryIcons, -1, position -> {
             if (position == 0) {
@@ -190,21 +190,33 @@ public class TrainingDialogHelper {
 
     private static void showPranayamaSubMenu(Context context, TrainingStartCallback callback) {
         CharSequence[] pranayamaModes = {
-            "3-1 (Стандарт)",
-            "2-1 (Краткий)",
-            "1-1 (Экспресс)"
+            "◾ 8-1 (Экстра Лонг)",
+            "◾ 5-1 (Лонг)",
+            "◾ 3-1 (Стандарт)",
+            "◾ 2-1 (Краткий)",
+            "◾ 1-1 (Экспресс)"
         };
 
-        showCustomMenuDialog(context, "Пранаяма (тайминг)", pranayamaModes, -1, position -> {
+        int pranayamaLeftIndentDp = ITEM_LEFT_INDENT_DP + PRANAYAMA_EXTRA_LEFT_INDENT_DP;
+
+        showCustomMenuDialog(context, "Пранаяма (тайминг)", pranayamaModes, null, -1, pranayamaLeftIndentDp, position -> {
             if (position == 0) {
+                int[] pattern = {8, 8, 8, 8, 8, 8, 8, 8};
+                callback.onTrainingSelected("Пранаяма", "8-1 Экстра Лонг", 8, pattern);
+                Toast.makeText(context, "Выбран режим: Пранаяма 8-1 (Экстра Лонг)", Toast.LENGTH_SHORT).show();
+            } else if (position == 1) {
+                int[] pattern = {5, 5, 5, 5, 5};
+                callback.onTrainingSelected("Пранаяма", "5-1 Лонг", 5, pattern);
+                Toast.makeText(context, "Выбран режим: Пранаяма 5-1 (Лонг)", Toast.LENGTH_SHORT).show();
+            } else if (position == 2) {
                 int[] pattern = {3, 3, 3};
                 callback.onTrainingSelected("Пранаяма", "3-1 Стандарт", 3, pattern);
                 Toast.makeText(context, "Выбран режим: Пранаяма 3-1 (Стандарт)", Toast.LENGTH_SHORT).show();
-            } else if (position == 1) {
+            } else if (position == 3) {
                 int[] pattern = {2, 2};
                 callback.onTrainingSelected("Пранаяма", "2-1 Краткий", 2, pattern);
                 Toast.makeText(context, "Выбран режим: Пранаяма 2-1 (Краткий)", Toast.LENGTH_SHORT).show();
-            } else if (position == 2) {
+            } else if (position == 4) {
                 int[] pattern = {1};
                 callback.onTrainingSelected("Пранаяма", "1-1 Экспресс", 1, pattern);
                 Toast.makeText(context, "Выбран режим: Пранаяма 1-1 (Экспресс)", Toast.LENGTH_SHORT).show();
