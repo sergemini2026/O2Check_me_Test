@@ -661,8 +661,25 @@ public class SessionFrequencyReevaluator {
         if (!hrs.isEmpty()) {
             return average(hrs);
         }
-        if (snap != null && snap.getMeanRr() > 300.0 && snap.getMeanRr() <= 2500.0) {
-            return 60000.0 / snap.getMeanRr();
+        if (snap != null && !sortedPoints.isEmpty()) {
+            long targetTs = snap.getTimestamp();
+            long bestDiff = Long.MAX_VALUE;
+            double nearestHr = 0.0;
+            for (DataPoint dp : sortedPoints) {
+                long diff = Math.abs(dp.getTimestamp() - targetTs);
+                if (diff < bestDiff && diff <= 30000L) {
+                    if (dp.hr > 25 && dp.hr < 240) {
+                        bestDiff = diff;
+                        nearestHr = dp.hr;
+                    } else if (dp.rrMs >= 300 && dp.rrMs <= 2500) {
+                        bestDiff = diff;
+                        nearestHr = 60000.0 / dp.rrMs;
+                    }
+                }
+            }
+            if (nearestHr > 0.0) {
+                return nearestHr;
+            }
         }
         return 0.0;
     }
