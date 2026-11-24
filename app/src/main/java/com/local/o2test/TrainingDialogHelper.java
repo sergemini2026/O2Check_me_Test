@@ -92,7 +92,7 @@ public class TrainingDialogHelper {
             itemTv.setTextSize(16);
             itemTv.setTextColor(Color.WHITE);
 
-            // Подключение векторной иконки с градиентом через Compound Drawables при наличии
+            // Подключение иконки через Compound Drawables при наличии
             if (iconResIds != null && i < iconResIds.length && iconResIds[i] != 0) {
                 itemTv.setCompoundDrawablesWithIntrinsicBounds(iconResIds[i], 0, 0, 0);
                 int drawablePad = (int) (12 * context.getResources().getDisplayMetrics().density);
@@ -162,8 +162,8 @@ public class TrainingDialogHelper {
         };
 
         int[] categoryIcons = {
-            R.drawable.ic_menu_dna,
-            R.drawable.ic_menu_wind
+            android.R.drawable.ic_menu_compass,
+            android.R.drawable.ic_menu_recent_history
         };
 
         showCustomMenuDialog(context, "Выбор тренировки", categories, categoryIcons, -1, position -> {
