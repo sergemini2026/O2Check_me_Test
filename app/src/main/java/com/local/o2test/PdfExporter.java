@@ -79,6 +79,7 @@ public class PdfExporter {
                 new ArrayList<Float>(),
                 "",
                 new ArrayList<SessionExportManager.MayerTestRunEntry>(),
+                null,
                 callback
         );
     }
@@ -121,6 +122,7 @@ public class PdfExporter {
                 new ArrayList<Float>(),
                 mayerConvergenceSummary,
                 new ArrayList<SessionExportManager.MayerTestRunEntry>(),
+                null,
                 callback
         );
     }
@@ -144,6 +146,52 @@ public class PdfExporter {
             List<Float> snapshotFmValues,
             String mayerConvergenceSummary,
             List<SessionExportManager.MayerTestRunEntry> mayerTestRuns,
+            PdfExportCallback callback
+    ) {
+        generateHrvPdfReport(
+                context,
+                profileName,
+                workoutMode,
+                trainingTargetX,
+                startTime,
+                endTime,
+                snapshots,
+                rawRrList,
+                trainingDataPoints,
+                testDataPoints,
+                customDirPath,
+                pstiScore,
+                pstiRmssdRatio,
+                pstiHistory,
+                profileFm,
+                snapshotFmValues,
+                mayerConvergenceSummary,
+                mayerTestRuns,
+                null,
+                callback
+        );
+    }
+
+    public static void generateHrvPdfReport(
+            Context context,
+            String profileName,
+            String workoutMode,
+            int trainingTargetX,
+            long startTime,
+            long endTime,
+            List<HrvSnapshotEntity> snapshots,
+            List<Integer> rawRrList,
+            List<DataPoint> trainingDataPoints,
+            List<DataPoint> testDataPoints,
+            String customDirPath,
+            double pstiScore,
+            double pstiRmssdRatio,
+            List<Double> pstiHistory,
+            float profileFm,
+            List<Float> snapshotFmValues,
+            String mayerConvergenceSummary,
+            List<SessionExportManager.MayerTestRunEntry> mayerTestRuns,
+            SessionFrequencyReevaluator.ReevaluationResult reevaluationResult,
             PdfExportCallback callback
     ) {
         PdfDocument document = new PdfDocument();
@@ -563,6 +611,7 @@ public class PdfExporter {
             mayerAnnotationPaint.setColor(Color.parseColor("#831843"));
             int annotationWidth = PAGE_WIDTH - 2 * MARGIN - 16;
 
+            int lastLogY = 65;
             int snapshotIdx = 0;
             while (snapshotIdx < totalLogSnapshots) {
                 PdfDocument.PageInfo pageInfoN = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
@@ -712,7 +761,39 @@ public class PdfExporter {
                     snapshotIdx++;
                 }
 
-                document.finishPage(pageN);
+                lastLogY = currentYLog;
+                if (snapshotIdx < totalLogSnapshots) {
+                    document.finishPage(pageN);
+                } else {
+                    // Раздел 7. Заключение по переоценке частоты после блока Хронология
+                    drawFrequencyReevaluationConclusion(
+                            document,
+                            pageN,
+                            currentPageNumber++,
+                            lastLogY,
+                            reevaluationResult,
+                            fallbackFm,
+                            textPaint,
+                            strokePaint,
+                            fillPaint
+                    );
+                }
+            }
+
+            if (totalLogSnapshots == 0) {
+                PdfDocument.PageInfo pageInfoConclusion = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, currentPageNumber++).create();
+                PdfDocument.Page pageConclusion = document.startPage(pageInfoConclusion);
+                drawFrequencyReevaluationConclusion(
+                        document,
+                        pageConclusion,
+                        currentPageNumber,
+                        45,
+                        reevaluationResult,
+                        fallbackFm,
+                        textPaint,
+                        strokePaint,
+                        fillPaint
+                );
             }
 
             if (DEBUG) {
@@ -750,6 +831,107 @@ public class PdfExporter {
                 callback.onError(e.getMessage());
             }
         }
+    }
+
+    /**
+     * Отрисовывает раздел 7 ("Заключение по частоте сессии") после раздела 6 ("Хронологический лог сессии")
+     * с переносом текста через StaticLayout и безопасным переносом на новую страницу при нехватке места.
+     */
+    private static void drawFrequencyReevaluationConclusion(
+            PdfDocument document,
+            PdfDocument.Page currentPage,
+            int nextPageNumber,
+            int startY,
+            SessionFrequencyReevaluator.ReevaluationResult result,
+            float fallbackFm,
+            Paint textPaint,
+            Paint strokePaint,
+            Paint fillPaint
+    ) {
+        float finalFreqHz = (result != null && result.finalFrequencyHz > 0f)
+                ? result.finalFrequencyHz
+                : fallbackFm;
+        float finalPeriodSec = (result != null && result.finalPeriodSec > 0f)
+                ? result.finalPeriodSec
+                : (1.0f / finalFreqHz);
+        boolean isReevaluated = (result != null && result.reevaluatedFromTest);
+        String comparisonLine = (result != null && result.comparisonLabel != null && !result.comparisonLabel.isEmpty())
+                ? result.comparisonLabel
+                : String.format(Locale.US, "по хронологии: %.2f Гц (%.1f с)", finalFreqHz, finalPeriodSec);
+        String reasonText = (result != null && result.reasoningSummary != null && !result.reasoningSummary.isEmpty())
+                ? result.reasoningSummary
+                : String.format(Locale.US, "Итоговая частота сессии по хронологии: %.2f Гц (%.1f с).", finalFreqHz, finalPeriodSec);
+
+        TextPaint headerPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        headerPaint.setTextSize(10.5f);
+        headerPaint.setFakeBoldText(true);
+        headerPaint.setColor(Color.parseColor("#0F172A"));
+
+        TextPaint badgePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        badgePaint.setTextSize(9.0f);
+        badgePaint.setFakeBoldText(true);
+        badgePaint.setColor(isReevaluated ? Color.parseColor("#9D174D") : Color.parseColor("#0369A1"));
+
+        TextPaint bodyPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        bodyPaint.setTextSize(8.5f);
+        bodyPaint.setColor(Color.parseColor("#1E293B"));
+
+        int contentWidth = PAGE_WIDTH - 2 * MARGIN - 16;
+        String headline = isReevaluated
+                ? String.format(Locale.US, "Итоговая (переоценённая) частота: %.2f Гц (период %.1f с)", finalFreqHz, finalPeriodSec)
+                : String.format(Locale.US, "Итоговая частота по хронологии: %.2f Гц (период %.1f с)", finalFreqHz, finalPeriodSec);
+        String reasonLabel = "Причина переоценки: " + reasonText;
+
+        StaticLayout badgeLayout = StaticLayout.Builder
+                .obtain(headline + "  |  " + comparisonLine, 0, (headline + "  |  " + comparisonLine).length(), badgePaint, contentWidth)
+                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                .build();
+
+        StaticLayout reasonLayout = StaticLayout.Builder
+                .obtain(reasonLabel, 0, reasonLabel.length(), bodyPaint, contentWidth)
+                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                .build();
+
+        int boxHeight = 10 + badgeLayout.getHeight() + 6 + reasonLayout.getHeight() + 10;
+        int sectionTitleHeight = 18;
+
+        Canvas targetCanvas = currentPage.getCanvas();
+        PdfDocument.Page targetPage = currentPage;
+        int y = startY + 8;
+
+        if (y + sectionTitleHeight + boxHeight > PAGE_HEIGHT - MARGIN) {
+            document.finishPage(currentPage);
+            PdfDocument.PageInfo newPageInfo = new PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, nextPageNumber).create();
+            targetPage = document.startPage(newPageInfo);
+            targetCanvas = targetPage.getCanvas();
+            targetCanvas.drawColor(Color.WHITE);
+            y = 45;
+        }
+
+        textPaint.setColor(Color.parseColor("#0F172A"));
+        textPaint.setTextSize(11f);
+        textPaint.setFakeBoldText(true);
+        targetCanvas.drawText("7. Заключение по частоте сессии", MARGIN, y, textPaint);
+        y += 8;
+
+        fillPaint.setColor(isReevaluated ? Color.parseColor("#FDF2F8") : Color.parseColor("#F8FAFC"));
+        targetCanvas.drawRect(MARGIN, y, PAGE_WIDTH - MARGIN, y + boxHeight, fillPaint);
+
+        strokePaint.setColor(isReevaluated ? Color.parseColor("#DB2777") : Color.parseColor("#0284C7"));
+        strokePaint.setStrokeWidth(1f);
+        targetCanvas.drawRect(MARGIN, y, PAGE_WIDTH - MARGIN, y + boxHeight, strokePaint);
+
+        targetCanvas.save();
+        targetCanvas.translate(MARGIN + 8, y + 8);
+        badgeLayout.draw(targetCanvas);
+        targetCanvas.restore();
+
+        targetCanvas.save();
+        targetCanvas.translate(MARGIN + 8, y + 14 + badgeLayout.getHeight());
+        reasonLayout.draw(targetCanvas);
+        targetCanvas.restore();
+
+        document.finishPage(targetPage);
     }
 
     private static float resolveFmAtIndex(List<Float> snapshotFmValues, int index, float fallbackFm) {
