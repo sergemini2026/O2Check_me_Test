@@ -190,11 +190,11 @@ public class TrainingDialogHelper {
 
     private static void showPranayamaSubMenu(Context context, TrainingStartCallback callback) {
         CharSequence[] pranayamaModes = {
-            "◾ 8-1 (Экстра Лонг)",
-            "◾ 5-1 (Лонг)",
-            "◾ 3-1 (Стандарт)",
-            "◾ 2-1 (Краткий)",
-            "◾ 1-1 (Экспресс)"
+            "🔳 8-1 (Экстра Лонг)",
+            "🔳 5-1 (Лонг)",
+            "🔳 3-1 (Стандарт)",
+            "🔳 2-1 (Краткий)",
+            "🔳 1-1 (Экспресс)"
         };
 
         int pranayamaLeftIndentDp = ITEM_LEFT_INDENT_DP + PRANAYAMA_EXTRA_LEFT_INDENT_DP;
