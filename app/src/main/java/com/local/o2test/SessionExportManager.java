@@ -171,7 +171,6 @@ public class SessionExportManager {
             if (testPoints != null) allPoints.addAll(testPoints);
         } else {
             if (sessionData != null) allPoints.addAll(sessionData);
-            // Шаг 3.1: безопасная инициализация без риска NullPointerException при sessionData == null
             trainingPoints = (sessionData != null) ? new ArrayList<>(sessionData) : new ArrayList<>();
             testPoints = new ArrayList<>();
         }
@@ -398,6 +397,30 @@ public class SessionExportManager {
                 // Сопоставляем каждый снимок отчёта с актуальным значением FM из capturedSnapshots
                 final List<Float> snapshotFmValues = resolveSnapshotFmValues(reportSnapshots, capturedSnapshots, profileFm);
 
+                // Определяем первичную частоту теста по снимкам тестового режима (при наличии) для сопоставления по хронологии
+                final float primaryTestFrequencyHz = resolvePrimaryTestFrequencyHz(
+                        reportSnapshots,
+                        snapshotFmValues,
+                        finalMayerTestRuns,
+                        finalConvergenceSummary,
+                        profileFm
+                );
+
+                // Переоценка частоты по всей хронологии сессии (LF/HF + HR + амплитуда волны пульса)
+                SessionFrequencyReevaluator reevaluator = new SessionFrequencyReevaluator();
+                final SessionFrequencyReevaluator.ReevaluationResult reevaluationResult = reevaluator.evaluate(
+                        reportSnapshots,
+                        trainingPoints,
+                        testPoints,
+                        primaryTestFrequencyHz,
+                        profileFm,
+                        finalConvergenceSummary
+                );
+
+                if (callback != null && reevaluationResult != null && !reevaluationResult.shortLogMessage.isEmpty()) {
+                    callback.onLog(reevaluationResult.shortLogMessage);
+                }
+
                 List<Integer> sessionRrList = new ArrayList<>();
                 for (DataPoint dp : trainingPoints) {
                     if (dp.rrMs > 0) {
@@ -429,7 +452,6 @@ public class SessionExportManager {
                 final List<HrvSnapshotEntity> finalReportSnapshots = reportSnapshots;
                 android.os.Handler mainHandler = new android.os.Handler(context.getMainLooper());
 
-                // Шаг 3.2: диагностический лог передачи истории сходимости ряда в PDF-отчет
                 if (DEBUG && callback != null && (!finalConvergenceSummary.isEmpty() || !finalMayerTestRuns.isEmpty())) {
                     callback.onLog("[EXPORT_MANAGER] Передача истории сходимости ряда в PDF-отчет (запусков=" + finalMayerTestRuns.size() + ", длина сводки=" + finalConvergenceSummary.length() + ")");
                 }
@@ -453,6 +475,7 @@ public class SessionExportManager {
                         snapshotFmValues,
                         finalConvergenceSummary,
                         finalMayerTestRuns,
+                        reevaluationResult,
                         new PdfExporter.PdfExportCallback() {
                             @Override
                             public void onSuccess(String pdfFilePath, String fileNamePdf) {
@@ -481,6 +504,44 @@ public class SessionExportManager {
                 }
             }
         });
+    }
+
+    /**
+     * Извлекает первичную частоту теста Майера (в Гц), если в сессии выполнялся тест частоты.
+     * Возвращает 0f, если тест в сессии не запускался.
+     */
+    private static float resolvePrimaryTestFrequencyHz(
+            List<HrvSnapshotEntity> reportSnapshots,
+            List<Float> snapshotFmValues,
+            List<MayerTestRunEntry> mayerTestRuns,
+            String convergenceSummary,
+            float profileFm
+    ) {
+        boolean hasTestRun = (mayerTestRuns != null && !mayerTestRuns.isEmpty())
+                || (convergenceSummary != null && !convergenceSummary.trim().isEmpty());
+
+        float lastTestSnapshotFm = 0f;
+        if (reportSnapshots != null) {
+            for (int i = 0; i < reportSnapshots.size(); i++) {
+                HrvSnapshotEntity s = reportSnapshots.get(i);
+                if (s != null && s.isMayerTestMode()) {
+                    hasTestRun = true;
+                    if (snapshotFmValues != null && i < snapshotFmValues.size() && snapshotFmValues.get(i) > 0f) {
+                        lastTestSnapshotFm = snapshotFmValues.get(i);
+                    } else if (s.getModulationSec() > 0f) {
+                        lastTestSnapshotFm = 1.0f / s.getModulationSec();
+                    }
+                }
+            }
+        }
+
+        if (!hasTestRun) {
+            return 0f;
+        }
+        if (profileFm > 0f) {
+            return profileFm;
+        }
+        return lastTestSnapshotFm;
     }
 
     /**
