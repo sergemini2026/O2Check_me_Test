@@ -4,11 +4,17 @@ import android.animation.ValueAnimator;
 import android.view.animation.LinearInterpolator;
 
 public class MasterClock {
+    private static final float MIN_PHASE_LEAD_OFFSET = -0.25f;
+    private static final float MAX_PHASE_LEAD_OFFSET = 0.25f;
+
     private ValueAnimator clockAnimator;
     private boolean isRunning = false;
     private MasterClockListener listener;
     private float currentPhaseValue = 0f;
-    
+
+    // Коэффициент упреждения фазы при автокоррекции (по умолчанию +12% цикла)
+    private float phaseLeadOffset = 0.12f;
+
     // Базовая длительность цикла в мс (динамическая, от 6000 до 14000 мс)
     private long baseDurationMs = 10000;
     private long targetDurationMs = 10000;
@@ -19,6 +25,17 @@ public class MasterClock {
 
     public MasterClock(MasterClockListener listener) {
         this.listener = listener;
+    }
+
+    public void setPhaseLeadOffset(float offset) {
+        if (Float.isNaN(offset) || Float.isInfinite(offset)) {
+            return;
+        }
+        this.phaseLeadOffset = Math.max(MIN_PHASE_LEAD_OFFSET, Math.min(MAX_PHASE_LEAD_OFFSET, offset));
+    }
+
+    public float getPhaseLeadOffset() {
+        return phaseLeadOffset;
     }
 
     public void setBaseDurationMs(long durationMs) {
@@ -58,7 +75,7 @@ public class MasterClock {
             if (!isRunning) return;
             float val = (float) animation.getAnimatedValue();
             currentPhaseValue = val % 1.0f;
-            
+
             // Плавное приближение baseDurationMs к targetDurationMs на границах циклов
             if (baseDurationMs != targetDurationMs) {
                 if (currentPhaseValue < 0.05f || currentPhaseValue > 0.95f) {
@@ -75,12 +92,15 @@ public class MasterClock {
     }
 
     /**
-     * Сверхмягкая фазовая автокоррекция без разрывов анимации.
+     * Сверхмягкая фазовая автокоррекция с учетом упреждения фазы без разрывов анимации.
      */
     public void adjustPhase(float targetPhase) {
         if (!isRunning || clockAnimator == null || !clockAnimator.isRunning()) return;
-        
+
         float normTarget = targetPhase % 1.0f;
+        if (normTarget < 0) normTarget += 1.0f;
+
+        normTarget = (normTarget + phaseLeadOffset) % 1.0f;
         if (normTarget < 0) normTarget += 1.0f;
 
         float diff = normTarget - currentPhaseValue;
@@ -90,7 +110,7 @@ public class MasterClock {
         if (Math.abs(diff) < 0.02f) return;
 
         long adjustedDuration = (long) (baseDurationMs * (1.0f - (diff * 0.2f)));
-        
+
         long minLimit = (long) (baseDurationMs * 0.85f);
         long maxLimit = (long) (baseDurationMs * 1.15f);
         if (adjustedDuration < minLimit) adjustedDuration = minLimit;
