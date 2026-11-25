@@ -49,6 +49,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private static final int PI_SMOOTHING_WINDOW = 5;
     private static final int CALIBRATION_TARGET = 100;
     private static final int TARGET_RR_PER_DUMP = 300;
+    private static final float PRESET_DISABLED_ALPHA = 0.45f;
 
     private O2BleManager bleManager;
     private PolarH10Manager polarManager;
@@ -150,6 +151,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             updateRightPanelStatus();
             updatePacerPeriodRegulatorState();
             updateMayerTestButtonAvailability();
+            updatePresetButtonsState();
             if (ui.btnHeart != null) {
                 ui.btnHeart.setAlpha(isProfileAuthorized && isTrainingSelected ? 1.0f : 0.5f);
             }
@@ -363,6 +365,38 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     /**
+     * Управление доступностью кнопок «1/1» и «1/2»:
+     * активны только при запущенной сессии (isRecording) на тренировочных фазах и
+     * неактивны до старта, после остановки и во время фазы «Тест PSTI».
+     */
+    private void updatePresetButtonsState() {
+        if (ui == null) return;
+        boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
+        boolean canUsePresets = isRecording && !isPostiActive;
+        float alpha = canUsePresets ? 1.0f : PRESET_DISABLED_ALPHA;
+
+        if (ui.btnPreset1of1 != null) {
+            ui.btnPreset1of1.setEnabled(canUsePresets);
+            ui.btnPreset1of1.setAlpha(alpha);
+        }
+        if (ui.btnPreset1of2 != null) {
+            ui.btnPreset1of2.setEnabled(canUsePresets);
+            ui.btnPreset1of2.setAlpha(alpha);
+        }
+    }
+
+    // Заглушки обработчиков для кнопок «1/1» и «1/2» (логика будет внедрена на следующем этапе)
+    private void onPreset1of1Clicked() {
+        if (ui != null && ui.btnPreset1of1 != null && !ui.btnPreset1of1.isEnabled()) return;
+        onLog("[КНОПКА 1/1] Нажата заглушка 1/1 (логика будет добавлена на следующем этапе)");
+    }
+
+    private void onPreset1of2Clicked() {
+        if (ui != null && ui.btnPreset1of2 != null && !ui.btnPreset1of2.isEnabled()) return;
+        onLog("[КНОПКА 1/2] Нажата заглушка 1/2 (логика будет добавлена на следующем этапе)");
+    }
+
+    /**
      * Доступность кнопки «Тест»:
      * - недоступна на 1-м дампе (dumpIndex < 2)
      * - недоступна на последних 250 интервалах любого из последующих дампов тренировочной фазы (currentDumpRrCount > 50, а также при 0 RR на стыке)
@@ -419,6 +453,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateMayerFrequencyIndexDisplay("--");
         updateRightPanelStatus();
         updatePacerPeriodRegulatorState();
+        updatePresetButtonsState();
 
         rebindUiListeners();
 
@@ -456,6 +491,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
             updatePacerPeriodRegulatorState();
             updateMayerTestButtonAvailability();
+            updatePresetButtonsState();
             if (wasActive) {
                 // Если тест был активен, восстанавливаем визуальное состояние кнопки
                 ui.btnTest.setBackgroundResource(R.drawable.bg_test_button_pink_gradient);
@@ -504,6 +540,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 runOnUiThread(() -> {
                     updatePacerPeriodRegulatorState();
                     updateMayerTestButtonAvailability();
+                    updatePresetButtonsState();
                 });
             }
 
@@ -612,6 +649,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     runOnUiThread(() -> {
                         updatePacerPeriodRegulatorState();
                         updateMayerTestButtonAvailability();
+                        updatePresetButtonsState();
                         if (isRecording && isBound && hrvService != null) {
                             startClockAndPacerAfterCalibration(0.0f);
                         }
@@ -628,6 +666,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     runOnUiThread(() -> {
                         updatePacerPeriodRegulatorState();
                         updateMayerTestButtonAvailability();
+                        updatePresetButtonsState();
                     });
                 }
 
@@ -658,6 +697,14 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
      */
     private void rebindUiListeners() {
         if (ui == null) return;
+
+        if (ui.btnPreset1of1 != null) {
+            ui.btnPreset1of1.setOnClickListener(v -> onPreset1of1Clicked());
+        }
+
+        if (ui.btnPreset1of2 != null) {
+            ui.btnPreset1of2.setOnClickListener(v -> onPreset1of2Clicked());
+        }
 
         if (ui.btnTest != null) {
             ui.btnTest.setOnClickListener(v -> {
@@ -756,6 +803,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     ui.pacerView.stopMonitoring();
                 }
                 isRecording = false;
+                updatePresetButtonsState();
                 finish();
             });
         }
@@ -816,6 +864,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         updateRightPanelStatus();
         updatePacerPeriodRegulatorState();
+        updatePresetButtonsState();
 
         if (isRecording && ui.btnHeart != null) {
             ui.btnHeart.setAlpha(1.0f);
@@ -1136,6 +1185,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     updatePhimIndexDisplay("--");
                     updateMayerFrequencyIndexDisplay("--");
                     updatePacerPeriodRegulatorState();
+                    updatePresetButtonsState();
                     onLog("[GATEKEEPER] Активный профиль удален. Сессия завершена.");
                     Toast.makeText(MainActivity.this, "Активный профиль был удален. Сессия остановлена.", Toast.LENGTH_LONG).show();
                 }
@@ -1201,6 +1251,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         stopAudioAndClockInService();
 
         isRecording = true;
+        updatePresetButtonsState();
         isCalibrationCompleted = false;
         sessionDumpCount = 0;
         currentBlockNumber = 1;
@@ -1265,6 +1316,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         updateRightPanelStatus();
         updatePacerPeriodRegulatorState();
         updateMayerTestButtonAvailability();
+        updatePresetButtonsState();
         if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
 
         if (DEBUG) {
@@ -1308,6 +1360,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         updateRightPanelStatus();
         updatePacerPeriodRegulatorState();
+        updatePresetButtonsState();
         onLog("[PSTI] Модуляция остановлена. Запуск замера индекса консолидации барорефлекса PSTI в сервисе...");
     }
 
@@ -1366,6 +1419,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         updateRightPanelStatus();
         updatePacerPeriodRegulatorState();
+        updatePresetButtonsState();
         updateMetricsDisplay("--", "--", "--", "--");
         updateAttractorIndexDisplay("--");
         updatePhimIndexDisplay("--");
@@ -1391,6 +1445,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                 ui.pacerView.setPointerValue(modulationManager.getModulationPeriodSec());
                             }
                             updatePacerPeriodRegulatorState();
+                            updatePresetButtonsState();
                         }
                     });
                 } catch (Exception e) {
@@ -1541,9 +1596,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                                     updatePhimIndexDisplay(initialPhase);
                                     updateMayerFrequencyIndexDisplay(fixedModulationPeriodMs);
 
-                                    // Пересчитываем доступность кнопки «Тест» с учетом номера дампа и окна первых 50 RR
+                                    // Пересчитываем доступность элементов управления с учетом номера дампа и окна первых 50 RR
                                     updatePacerPeriodRegulatorState();
                                     updateMayerTestButtonAvailability();
+                                    updatePresetButtonsState();
 
                                     if (isBound && hrvService != null) {
                                         hrvService.adjustServicePhase(initialPhase);
