@@ -15,6 +15,10 @@ import android.view.View;
 import java.util.Locale;
 
 public class BreatheAnimationView extends View {
+    private static final float DEFAULT_POINTER_VALUE_SEC = 12.0f;
+    private static final float MIN_POINTER_VALUE_SEC = 6.0f;
+    private static final float MAX_POINTER_VALUE_SEC = 14.0f;
+
     private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint petalPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint scalePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -28,8 +32,8 @@ public class BreatheAnimationView extends View {
     private boolean isMonitoringActive = false;
     private float animationProgress = 0f; // [0.0 ... 1.0] для лепестков пейсера
     private float progress = 1.0f;         // [0.0 ... 1.0] для внешнего кольца прогресса
-    
-    private float pointerValue = 10.0f;    // Текущее значение указателя [6.0 ... 14.0], шаг 0.5
+
+    private float pointerValue = DEFAULT_POINTER_VALUE_SEC; // Текущее значение указателя [6.0 ... 14.0], шаг 0.5
 
     private OnPointerChangeListener pointerChangeListener;
 
@@ -94,7 +98,7 @@ public class BreatheAnimationView extends View {
     }
 
     public void setPointerValue(float value) {
-        this.pointerValue = Math.max(6.0f, Math.min(14.0f, value));
+        this.pointerValue = Math.max(MIN_POINTER_VALUE_SEC, Math.min(MAX_POINTER_VALUE_SEC, value));
         invalidate();
     }
 
@@ -220,11 +224,11 @@ public class BreatheAnimationView extends View {
 
         float centerX = width / 2f;
         float centerY = height / 2f;
-        
+
         float radiusReduction = TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_MM, 5f, getResources().getDisplayMetrics()
         );
-        
+
         float padding = 35f * (width / 300f);
         float radius = (Math.min(width, height) / 2f) - padding - radiusReduction;
 
@@ -249,16 +253,16 @@ public class BreatheAnimationView extends View {
             petalPaint.setShader(new RadialGradient(100, 100, 24f,
                     new int[]{0xFFFF2D55, 0xDDFF2D55}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
             canvas.drawCircle(100, 100, 24f, petalPaint);
-            canvas.restore(); 
-            canvas.restore(); 
+            canvas.restore();
+            canvas.restore();
         } else {
             float breathPhase;
             if (animationProgress <= 0.5f) {
                 float t = animationProgress * 2.0f;
-                breathPhase = (float)(1.0 - Math.cos(t * Math.PI)) / 2f;
+                breathPhase = (float) (1.0 - Math.cos(t * Math.PI)) / 2f;
             } else {
                 float t = (animationProgress - 0.5f) * 2.0f;
-                breathPhase = (float)(1.0 + Math.cos(t * Math.PI)) / 2f;
+                breathPhase = (float) (1.0 + Math.cos(t * Math.PI)) / 2f;
             }
 
             float activeRotation = (float) (Math.sin(animationProgress * 2.0 * Math.PI) * 45.0f);
@@ -270,13 +274,13 @@ public class BreatheAnimationView extends View {
             int outerColor = interpolateColor(0xC8FF2D55, 0x40FF4081, breathPhase);
 
             int petalCount = 6;
-            float orbitDistance = 28f * breathPhase; 
+            float orbitDistance = 28f * breathPhase;
             float petalRadius = 26f;
 
             for (int i = 0; i < petalCount; i++) {
                 double angle = i * (2.0 * Math.PI / petalCount);
-                float cx = 100f + (float)(orbitDistance * Math.cos(angle));
-                float cy = 100f + (float)(orbitDistance * Math.sin(angle));
+                float cx = 100f + (float) (orbitDistance * Math.cos(angle));
+                float cy = 100f + (float) (orbitDistance * Math.sin(angle));
 
                 petalPaint.setShader(new RadialGradient(cx, cy, petalRadius,
                         new int[]{innerColor, outerColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
@@ -287,14 +291,14 @@ public class BreatheAnimationView extends View {
                     new int[]{innerColor, outerColor}, new float[]{0.0f, 1.0f}, Shader.TileMode.CLAMP));
             canvas.drawCircle(100, 100, petalRadius, petalPaint);
 
-            canvas.restore(); 
-            canvas.restore(); 
-            canvas.restore(); 
+            canvas.restore();
+            canvas.restore();
+            canvas.restore();
         }
 
         // 2. Отрисовка шкалы, делений, цифр и внешних колец прогресса
-        int totalSteps = 16; 
-        float scaleRadius = radius + 8f; 
+        int totalSteps = 16;
+        float scaleRadius = radius + 8f;
         float textRadius = radius + 26f;
 
         float ringRadius = textRadius + 32f;
@@ -313,7 +317,7 @@ public class BreatheAnimationView extends View {
 
         for (int i = 0; i <= totalSteps; i++) {
             float val = 6f + (i * 0.5f);
-            
+
             double angle = -Math.PI / 2 + (i - 8) * Math.toRadians(18.75);
 
             float cosA = (float) Math.cos(angle);
@@ -321,7 +325,7 @@ public class BreatheAnimationView extends View {
 
             boolean isInteger = (val % 1.0f == 0);
             float tickLen = isInteger ? 10f : 5f;
-            
+
             scalePaint.setStrokeWidth(isInteger ? 2.5f : 1.5f);
             float startX = centerX + scaleRadius * cosA;
             float startY = centerY + scaleRadius * sinA;
@@ -331,7 +335,7 @@ public class BreatheAnimationView extends View {
 
             if (isInteger) {
                 float txtX = centerX + (textRadius + 4f) * cosA;
-                float txtY = centerY + (textRadius + 4f) * sinA + 8f; 
+                float txtY = centerY + (textRadius + 4f) * sinA + 8f;
                 canvas.drawText(String.format(Locale.US, "%d", (int) val), txtX, txtY, textPaint);
             }
         }
