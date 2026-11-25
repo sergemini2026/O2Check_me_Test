@@ -36,6 +36,8 @@ import java.util.concurrent.ExecutorService;
 
 public class ProfileDialogHelper {
 
+    public static final float DEFAULT_MAYER_FREQUENCY_HZ = 1.0f / 12.0f; // ~0.083333336 Гц (соответствует периоду 12.0 с / 12000 мс)
+
     public interface ProfileCallback {
         void onProfileAuthorized(long profileId, String profileName);
         void onLog(String message);
@@ -62,7 +64,7 @@ public class ProfileDialogHelper {
                     }
                 });
             } catch (Exception e) {
-                ((android.app.Activity) context).runOnUiThread(() -> 
+                ((android.app.Activity) context).runOnUiThread(() ->
                     Toast.makeText(context, "Ошибка БД: " + e.getMessage(), Toast.LENGTH_SHORT).show()
                 );
             }
@@ -129,7 +131,7 @@ public class ProfileDialogHelper {
         List<String> profileNames = new ArrayList<>();
         for (ProfileEntity p : profiles) {
             String fullName = p.getFirstName() + (TextUtils.isEmpty(p.getLastName()) ? "" : " " + p.getLastName());
-            profileNames.add(String.format("ID: %d | %s | Возраст: %d | Вес: %.1fкг | FM: %.2fГц",
+            profileNames.add(String.format(Locale.US, "ID: %d | %s | Возраст: %d | Вес: %.1fкг | FM: %.4fГц",
                     p.getId(), fullName, p.getAge(), p.getWeightKg(), p.getFm()));
         }
 
@@ -200,7 +202,7 @@ public class ProfileDialogHelper {
                             for (int pos : selectedPositions) {
                                 if (pos >= 0 && pos < profiles.size()) {
                                     ProfileEntity profile = profiles.get(pos);
-                                    
+
                                     List<SessionEntity> sessions = db.sessionDao().getSessionsByProfileSync(profile.getId());
                                     for (SessionEntity session : sessions) {
                                         if (!TextUtils.isEmpty(session.getPdfPath())) {
@@ -214,9 +216,9 @@ public class ProfileDialogHelper {
                                             deleteFileWithMediaStore(context, file);
                                         }
                                     }
-                                    
+
                                     db.profileDao().deleteProfileSync(profile.getId());
-                                    
+
                                     ((android.app.Activity) context).runOnUiThread(() -> {
                                         callback.onProfileDeleted(profile.getId());
                                     });
@@ -260,7 +262,7 @@ public class ProfileDialogHelper {
 
         final EditText inputFirstName = new EditText(context);
         inputFirstName.setHint("Имя");
-        
+
         final EditText inputLastName = new EditText(context);
         inputLastName.setHint("Фамилия");
 
@@ -298,7 +300,7 @@ public class ProfileDialogHelper {
         tvGenderLabel.setText("Пол: ");
         tvGenderLabel.setTextSize(16);
         LinearLayout.LayoutParams genderLabelParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, 
+                LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
         );
         genderLabelParams.gravity = Gravity.CENTER_VERTICAL;
@@ -316,8 +318,8 @@ public class ProfileDialogHelper {
         }
 
         LinearLayout.LayoutParams genderSpinnerParams = new LinearLayout.LayoutParams(
-                0, 
-                LinearLayout.LayoutParams.WRAP_CONTENT, 
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
                 1.0f
         );
         spinnerGender.setLayoutParams(genderSpinnerParams);
@@ -338,10 +340,10 @@ public class ProfileDialogHelper {
         inputDiaBp.setText(isEditMode ? String.valueOf(editingProfile.getBaselineDiastolicBp()) : "80");
         layout.addView(inputDiaBp);
 
-        // --- ИЗМЕНЕНИЕ: Поле частоты Майера (FM) переведено в режим READ-ONLY (TextView) ---
-        final float currentFm = isEditMode ? editingProfile.getFm() : 0.1f;
+        // --- ИЗМЕНЕНИЕ: Поле частоты Майера (FM) переведено в режим READ-ONLY (TextView), по умолчанию 1/12 Гц (~0.0833 Гц / 12 с) ---
+        final float currentFm = isEditMode ? editingProfile.getFm() : DEFAULT_MAYER_FREQUENCY_HZ;
         final TextView tvFmLabel = new TextView(context);
-        tvFmLabel.setText(String.format(Locale.US, "Частота Майера FM: %.2f Гц (авто)", currentFm));
+        tvFmLabel.setText(String.format(Locale.US, "Частота Майера FM: %.4f Гц (авто)", currentFm));
         tvFmLabel.setTextSize(14f);
         tvFmLabel.setTextColor(0xFFAAAAAA);
         tvFmLabel.setPadding(5, 15, 5, 10);
@@ -355,7 +357,7 @@ public class ProfileDialogHelper {
         tvFitnessLabel.setText("Физический уровень: ");
         tvFitnessLabel.setTextSize(16);
         LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, 
+                LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
         );
         labelParams.gravity = Gravity.CENTER_VERTICAL;
@@ -366,7 +368,7 @@ public class ProfileDialogHelper {
         ArrayAdapter<String> spinnerAdapter = new ArrayAdapter<>(context, android.R.layout.simple_spinner_item, fitnessLevels);
         spinnerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerFitness.setAdapter(spinnerAdapter);
-        
+
         if (isEditMode && editingProfile.getFitnessLevel() != null) {
             for (int i = 0; i < fitnessLevels.length; i++) {
                 if (fitnessLevels[i].equals(editingProfile.getFitnessLevel())) {
@@ -379,8 +381,8 @@ public class ProfileDialogHelper {
         }
 
         LinearLayout.LayoutParams spinnerParams = new LinearLayout.LayoutParams(
-                0, 
-                LinearLayout.LayoutParams.WRAP_CONTENT, 
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
                 1.0f
         );
         spinnerFitness.setLayoutParams(spinnerParams);
@@ -390,7 +392,7 @@ public class ProfileDialogHelper {
         layout.addView(fitnessLayout);
 
         builder.setView(layout);
-        
+
         builder.setPositiveButton(isEditMode ? "Сохранить" : "Создать", (dialog, which) -> {
             String firstName = inputFirstName.getText().toString().trim();
             String lastName = inputLastName.getText().toString().trim();
@@ -406,10 +408,10 @@ public class ProfileDialogHelper {
             String gender = spinnerGender.getSelectedItem().toString();
             int sysBp = parseOrDefault(inputSysBp.getText().toString().trim(), 120);
             int diaBp = parseOrDefault(inputDiaBp.getText().toString().trim(), 80);
-            
-            // Берем FM строго из существующего профиля или дефолтный 0.1f (пользователь больше не вводит его вручную)
-            float fm = isEditMode ? editingProfile.getFm() : 0.1f;
-            
+
+            // Берем FM строго из существующего профиля или дефолтный 1/12 Гц (~0.0833 Гц) для нового профиля
+            float fm = isEditMode ? editingProfile.getFm() : DEFAULT_MAYER_FREQUENCY_HZ;
+
             String fitness = spinnerFitness.getSelectedItem().toString();
             long profileId = isEditMode ? editingProfile.getId() : 0;
             long createdAt = isEditMode ? editingProfile.getCreatedAt() : System.currentTimeMillis();
@@ -433,7 +435,7 @@ public class ProfileDialogHelper {
                         });
                     }
                 } catch (Exception e) {
-                    ((android.app.Activity) context).runOnUiThread(() -> 
+                    ((android.app.Activity) context).runOnUiThread(() ->
                         Toast.makeText(context, "Ошибка сохранения: " + e.getMessage(), Toast.LENGTH_SHORT).show()
                     );
                 }
@@ -441,7 +443,7 @@ public class ProfileDialogHelper {
         });
 
         builder.setNegativeButton("ПРОПУСТИТЬ", (dialog, which) -> dialog.dismiss());
-        
+
         AlertDialog dialog = builder.create();
         dialog.setCancelable(true);
         dialog.show();
