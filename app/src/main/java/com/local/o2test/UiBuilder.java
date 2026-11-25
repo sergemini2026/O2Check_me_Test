@@ -7,6 +7,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
@@ -42,6 +43,9 @@ import java.util.Locale;
 
 public class UiBuilder {
 
+    private static final int PACER_RIM_ORANGE_COLOR = 0xFFFF6D00;
+    private static final int PRESET_BUTTON_TEXT_COLOR = 0xFF0F172A;
+
     public interface ProfileCallback {
         void onProfileSelected(ProfileEntity profile);
     }
@@ -75,12 +79,12 @@ public class UiBuilder {
             tvLabel.setTextSize(11);
             tvLabel.setTextColor(Color.WHITE);
             tvLabel.setGravity(Gravity.CENTER);
-            
+
             FrameLayout.LayoutParams textParams = new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT);
-          // Добавляем отступ сверху 13 dp
-int topMarginPx = (int) (13 * context.getResources().getDisplayMetrics().density);
-textParams.topMargin = topMarginPx;
+            // Добавляем отступ сверху 13 dp
+            int topMarginPx = (int) (13 * context.getResources().getDisplayMetrics().density);
+            textParams.topMargin = topMarginPx;
             addView(tvLabel, textParams);
 
             // Инициализация по умолчанию: режим теста не активирован (шеврон виден, градиент скрыт)
@@ -122,6 +126,8 @@ textParams.topMargin = topMarginPx;
         public TextView tvPhimIndex;            // Индекс PhM над пейсером
         public TextView tvMayerFrequencyIndex;  // Индекс FM над пейсером
         public TextView tvAttractorIndex;       // Индекс Аттрактора (IA) над пейсером
+        public Button btnPreset1of1;          // Кнопка «1/1» над пейсером в его контейнере
+        public Button btnPreset1of2;          // Кнопка «1/2» над пейсером в его контейнере
         public TestButtonContainer btnTest;     // Контейнер кнопки ТЕСТ внутри пейсера
         public TextView tvLog;
         public ScrollView logScrollView;
@@ -214,7 +220,7 @@ textParams.topMargin = topMarginPx;
         v.tvStatusValue = new TextView(context);
         v.tvStatusValue.setText("");
         v.tvStatusValue.setTextSize(13);
-        v.tvStatusValue.setTextColor(0xFFFF6D00);
+        v.tvStatusValue.setTextColor(PACER_RIM_ORANGE_COLOR);
         v.tvStatusValue.setGravity(Gravity.CENTER);
 
         LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
@@ -288,24 +294,24 @@ textParams.topMargin = topMarginPx;
         pacerHeaderLayout.setLayoutParams(headerParams);
 
         v.tvPhimIndex = new TextView(context);
-        v.tvPhimIndex.setText("PhM:[--]  "); // Убран знак процента из строки-заглушки
+        v.tvPhimIndex.setText("PhM:[--]  ");
         v.tvPhimIndex.setTextSize(15);
-        v.tvPhimIndex.setTextColor(0xFFFF6D00);
+        v.tvPhimIndex.setTextColor(PACER_RIM_ORANGE_COLOR);
         pacerHeaderLayout.addView(v.tvPhimIndex);
 
         v.tvMayerFrequencyIndex = new TextView(context);
         v.tvMayerFrequencyIndex.setText("FM:[--]  ");
         v.tvMayerFrequencyIndex.setTextSize(15);
-        v.tvMayerFrequencyIndex.setTextColor(0xFFFF6D00);
+        v.tvMayerFrequencyIndex.setTextColor(PACER_RIM_ORANGE_COLOR);
         pacerHeaderLayout.addView(v.tvMayerFrequencyIndex);
 
         v.tvAttractorIndex = new TextView(context);
         v.tvAttractorIndex.setText("IA:[--]%");
         v.tvAttractorIndex.setTextSize(15);
-        v.tvAttractorIndex.setTextColor(0xFFFF6D00);
+        v.tvAttractorIndex.setTextColor(PACER_RIM_ORANGE_COLOR);
         pacerHeaderLayout.addView(v.tvAttractorIndex);
 
-        // Правая панель
+        // Правая панель (контейнер пейсера)
         v.rightPanel = new FrameLayout(context);
         LinearLayout.LayoutParams rightPanelParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
@@ -320,6 +326,32 @@ textParams.topMargin = topMarginPx;
         v.pacerView.setLayoutParams(pacerParams);
         v.rightPanel.addView(v.pacerView);
 
+        // Верхний ряд кнопок «1/1» и «1/2» внутри rightPanel над циферблатом пейсера.
+        // Прижат к верху (TOP) и растянут по ширине контейнера, чтобы расположение остальных
+        // элементов и поведение при повороте экрана не менялись.
+        LinearLayout pacerTopButtonsRow = new LinearLayout(context);
+        pacerTopButtonsRow.setOrientation(LinearLayout.HORIZONTAL);
+        pacerTopButtonsRow.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout.LayoutParams topRowParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+        topRowParams.gravity = Gravity.TOP;
+        topRowParams.topMargin = (int) ((isLandscape ? 2 : 4) * dm.density);
+        topRowParams.leftMargin = (int) (4 * dm.density);
+        topRowParams.rightMargin = (int) (4 * dm.density);
+        pacerTopButtonsRow.setLayoutParams(topRowParams);
+
+        int rimBtnSizeDp = isLandscape ? 32 : 36;
+        v.btnPreset1of1 = createPacerTopRimButton(context, "1/1", rimBtnSizeDp);
+        v.btnPreset1of2 = createPacerTopRimButton(context, "1/2", rimBtnSizeDp);
+
+        View spacerBetweenTopButtons = new View(context);
+        spacerBetweenTopButtons.setLayoutParams(new LinearLayout.LayoutParams(0, 1, 1.0f));
+
+        pacerTopButtonsRow.addView(v.btnPreset1of1);
+        pacerTopButtonsRow.addView(spacerBetweenTopButtons);
+        pacerTopButtonsRow.addView(v.btnPreset1of2);
+        v.rightPanel.addView(pacerTopButtonsRow);
+
         // Интеграция TestButtonContainer вместо обычной кнопки
         v.btnTest = new TestButtonContainer(context);
 
@@ -328,7 +360,7 @@ textParams.topMargin = topMarginPx;
         FrameLayout.LayoutParams testBtnParams = new FrameLayout.LayoutParams(btnWidthPx, btnHeightPx);
         testBtnParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
         testBtnParams.bottomMargin = (int) ((isLandscape ? 6 : 26) * dm.density);
-        
+
         v.btnTest.setLayoutParams(testBtnParams);
         v.rightPanel.addView(v.btnTest);
 
@@ -390,6 +422,35 @@ textParams.topMargin = topMarginPx;
         return v;
     }
 
+    /**
+     * Создает круглую кнопку с белой заливкой и ровным оранжевым ободом,
+     * согласованным по цвету с ободом циферблата пейсера.
+     */
+    private static Button createPacerTopRimButton(Context context, String label, int sizeDp) {
+        DisplayMetrics dm = context.getResources().getDisplayMetrics();
+        int sizePx = (int) (sizeDp * dm.density);
+        int strokePx = Math.max(2, (int) (2.5f * dm.density));
+
+        GradientDrawable background = new GradientDrawable();
+        background.setShape(GradientDrawable.OVAL);
+        background.setColor(Color.WHITE);
+        background.setStroke(strokePx, PACER_RIM_ORANGE_COLOR);
+
+        Button btn = new Button(context);
+        btn.setText(label);
+        btn.setTextSize(11);
+        btn.setTextColor(PRESET_BUTTON_TEXT_COLOR);
+        btn.setGravity(Gravity.CENTER);
+        btn.setPadding(0, 0, 0, 0);
+        btn.setMinWidth(0);
+        btn.setMinimumWidth(0);
+        btn.setMinHeight(0);
+        btn.setMinimumHeight(0);
+        btn.setBackground(background);
+        btn.setLayoutParams(new LinearLayout.LayoutParams(sizePx, sizePx));
+        return btn;
+    }
+
     public static void updateHrvDisplay(TextView tvHrvMetrics, String profileName, String rmssd, String pnn50, String lfHfStr, String tp) {
         if (tvHrvMetrics != null) {
             String displayStr = String.format(Locale.US,
@@ -401,7 +462,7 @@ textParams.topMargin = topMarginPx;
 
     public static void showSessionsDialog(Context context, ProfileEntity profile, List<SessionEntity> sessions) {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
-        
+
         TextView title = new TextView(context);
         String fullName = profile.getFirstName() + (TextUtils.isEmpty(profile.getLastName()) ? "" : " " + profile.getLastName());
         title.setText("Сессии: " + fullName);
@@ -432,8 +493,8 @@ textParams.topMargin = topMarginPx;
                 int dataIndex = sortedSessions.size() - 1 - position;
                 SessionEntity s = sortedSessions.get(dataIndex);
                 int sessionNumber = dataIndex + 1;
-                
-                sessionStrings.add("Сессия #" + sessionNumber + " | " + sdf.format(new Date(s.getStartTime())) + 
+
+                sessionStrings.add("Сессия #" + sessionNumber + " | " + sdf.format(new Date(s.getStartTime())) +
                                   " | " + s.getWorkoutMode() + " | SpO2: " + s.getAvgSpo2() + "%");
             }
 
