@@ -1,10 +1,15 @@
 package com.local.o2test;
 
 import android.content.Context;
-import java.util.Locale;
 
 public class SessionModulationManager {
-    private long currentModulationPeriodMs = 10000; // По умолчанию 10 секунд (10000 мс)
+    private static final long DEFAULT_MODULATION_PERIOD_MS = 12000L;
+    private static final long MIN_MODULATION_PERIOD_MS = 6000L;
+    private static final long MAX_MODULATION_PERIOD_MS = 14000L;
+    private static final float MIN_MODULATION_FREQUENCY_HZ = 0.0714f;
+    private static final float MAX_MODULATION_FREQUENCY_HZ = 0.1667f;
+
+    private long currentModulationPeriodMs = DEFAULT_MODULATION_PERIOD_MS; // По умолчанию 12 секунд (12000 мс)
     private final Context context;
 
     public SessionModulationManager(Context context) {
@@ -12,7 +17,7 @@ public class SessionModulationManager {
     }
 
     public void setModulationPeriodMs(long periodMs) {
-        this.currentModulationPeriodMs = Math.max(6000, Math.min(14000, periodMs));
+        this.currentModulationPeriodMs = Math.max(MIN_MODULATION_PERIOD_MS, Math.min(MAX_MODULATION_PERIOD_MS, periodMs));
     }
 
     public long getModulationPeriodMs() {
@@ -27,8 +32,15 @@ public class SessionModulationManager {
      * Установка периода на основе частоты в Герцах (с ограничением в пределах диапазона 6-14 секунд)
      */
     public void setModulationFrequencyHz(float frequencyHz) {
-        float clampedHz = Math.max(0.0714f, Math.min(0.1667f, frequencyHz));
-        this.currentModulationPeriodMs = (long) (1000.0f / clampedHz);
+        if (Float.isNaN(frequencyHz) || Float.isInfinite(frequencyHz) || frequencyHz <= 0f) {
+            this.currentModulationPeriodMs = DEFAULT_MODULATION_PERIOD_MS;
+            return;
+        }
+        float clampedHz = Math.max(MIN_MODULATION_FREQUENCY_HZ, Math.min(MAX_MODULATION_FREQUENCY_HZ, frequencyHz));
+        this.currentModulationPeriodMs = Math.max(
+                MIN_MODULATION_PERIOD_MS,
+                Math.min(MAX_MODULATION_PERIOD_MS, Math.round(1000.0f / clampedHz))
+        );
     }
 
     /**
