@@ -50,6 +50,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private static final int CALIBRATION_TARGET = 100;
     private static final int TARGET_RR_PER_DUMP = 300;
     private static final float PRESET_DISABLED_ALPHA = 0.45f;
+    private static final float DEFAULT_FM_HZ = 1.0f / 12.0f; // ~0.083333336 Гц (соответствует периоду 12.0 с / 12000 мс)
+    private static final long DEFAULT_MODULATION_PERIOD_MS = 12000L;
 
     private O2BleManager bleManager;
     private PolarH10Manager polarManager;
@@ -73,7 +75,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private long sessionStartTime = 0;
     private long postiStartTime = 0;
 
-    private long fixedModulationPeriodMs = 10000L;
+    private long fixedModulationPeriodMs = DEFAULT_MODULATION_PERIOD_MS;
     private int completedCyclesInCurrentDump = 0;
 
     private String currentWorkoutMode = "Базовый мониторинг";
@@ -235,7 +237,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         // Шаг 2.1: очищаем предыдущую сводку сходимости перед началом нового цикла тестирования
                         lastMayerConvergenceSummary = "";
                         long startAnchor = sessionStartTime > 0L ? sessionStartTime : currentMayerTestStartTimeMs;
-                        float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : 10.0f;
+                        float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : (DEFAULT_MODULATION_PERIOD_MS / 1000.0f);
                         int dumpIdx = (isBound && hrvService != null) ? hrvService.getCurrentDumpIndex() : (sessionDumpCount + 1);
                         mayerTestManager.configureSessionContext(startAnchor, basePeriodSec, dumpIdx);
                     }
@@ -265,9 +267,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             public void onTestPeriodChanged(float periodSec) {
                 if (periodSec <= 0f) return;
                 float freqHz = 1.0f / periodSec;
-                long periodMs = (long) (periodSec * 1000.0f);
+                long periodMs = Math.round(periodSec * 1000.0f);
                 runOnUiThread(() -> {
-                    updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.2f", freqHz));
+                    updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.4f", freqHz));
                     if (modulationManager != null) {
                         modulationManager.setModulationPeriodMs(periodMs);
                         modulationManager.applyModulation(hrvService, isBound);
@@ -309,7 +311,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         runOnUiThread(() -> {
-            updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.2f", calculatedFm));
+            updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.4f", calculatedFm));
 
             if (modulationManager != null) {
                 modulationManager.setModulationFrequencyHz(calculatedFm);
@@ -319,8 +321,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 }
             }
 
-            onLog(String.format(Locale.US, "[МАЙЕР ТЕСТ] Индивидуальный FM успешно определен: %.2f Hz", calculatedFm));
-            Toast.makeText(MainActivity.this, String.format(Locale.US, "Найден индивидуальный FM: %.2f Hz", calculatedFm), Toast.LENGTH_LONG).show();
+            onLog(String.format(Locale.US, "[МАЙЕР ТЕСТ] Индивидуальный FM успешно определен: %.4f Hz", calculatedFm));
+            Toast.makeText(MainActivity.this, String.format(Locale.US, "Найден индивидуальный FM: %.4f Hz", calculatedFm), Toast.LENGTH_LONG).show();
         });
 
         if (activeProfileId != -1L) {
@@ -332,7 +334,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         profile.setFm(calculatedFm);
                         db.profileDao().updateProfileSync(profile);
                         if (DEBUG) {
-                            onLog(String.format(Locale.US, "[БД] Паспортный FM (%.2f Hz) сохранен в профиль ID: %d", calculatedFm, activeProfileId));
+                            onLog(String.format(Locale.US, "[БД] Паспортный FM (%.4f Hz) сохранен в профиль ID: %d", calculatedFm, activeProfileId));
                         }
                     }
                 } catch (Exception e) {
@@ -411,7 +413,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         if (mayerTestManager != null && isRecording) {
             long startAnchor = sessionStartTime > 0L ? sessionStartTime : System.currentTimeMillis();
-            float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : 10.0f;
+            float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : (DEFAULT_MODULATION_PERIOD_MS / 1000.0f);
             mayerTestManager.configureSessionContext(startAnchor, basePeriodSec, dumpIndex);
         }
 
@@ -485,7 +487,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
             mayerTestManager = new MayerTestManager(this, ui.btnTest, createMayerTestListener());
             long startAnchor = sessionStartTime > 0L ? sessionStartTime : System.currentTimeMillis();
-            float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : 10.0f;
+            float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : (DEFAULT_MODULATION_PERIOD_MS / 1000.0f);
             int dumpIdx = (isBound && hrvService != null) ? hrvService.getCurrentDumpIndex() : (sessionDumpCount + 1);
             mayerTestManager.configureSessionContext(startAnchor, basePeriodSec, dumpIdx);
 
@@ -722,7 +724,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     }
                     return;
                 }
-                long newDurationMs = (long) (value * 1000.0);
+                long newDurationMs = Math.round(value * 1000.0);
                 modulationManager.setModulationPeriodMs(newDurationMs);
                 modulationManager.applyModulation(hrvService, isBound);
                 onLog(String.format(Locale.US, "[МОДУЛЯЦИЯ] Период изменен пользователем: %.1f сек", value));
@@ -1081,10 +1083,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     private void updateMayerFrequencyIndexDisplay(float modulationPeriodMs) {
-        float frequencyHz = 1000.0f / modulationPeriodMs;
-        cachedFm = String.format(Locale.US, "%.2f", frequencyHz);
+        float frequencyHz = (modulationPeriodMs > 0f) ? (1000.0f / modulationPeriodMs) : DEFAULT_FM_HZ;
+        cachedFm = String.format(Locale.US, "%.4f", frequencyHz);
         if (ui.tvMayerFrequencyIndex != null) {
-            ui.tvMayerFrequencyIndex.setText(String.format(Locale.US, "FM:[%.2f] Hz  ", frequencyHz));
+            ui.tvMayerFrequencyIndex.setText(String.format(Locale.US, "FM:[%.4f] Hz  ", frequencyHz));
         }
     }
 
@@ -1132,11 +1134,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     try {
                         AppDatabase db = AppDatabase.getInstance(MainActivity.this);
                         ProfileEntity profile = db.profileDao().getProfileSync(profileId);
-                        final float profileFm = (profile != null && profile.getFm() > 0f) ? profile.getFm() : 0.1f;
+                        final float profileFm = (profile != null && profile.getFm() > 0f) ? profile.getFm() : DEFAULT_FM_HZ;
 
                         runOnUiThread(() -> {
                             // Обновляем строку статуса (FM в скобках, Hz снаружи)
-                            updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.2f", profileFm));
+                            updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.4f", profileFm));
 
                             // Переводим менеджер модуляции и указатель пейсера на значение профиля
                             modulationManager.setModulationFrequencyHz(profileFm);
@@ -1150,7 +1152,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                             updatePacerPeriodRegulatorState();
 
                             if (DEBUG) {
-                                onLog(String.format(Locale.US, "[ПРОФИЛЬ] Инициализирован FM из базы: %.2f Hz", profileFm));
+                                onLog(String.format(Locale.US, "[ПРОФИЛЬ] Инициализирован FM из базы: %.4f Hz", profileFm));
                             }
                         });
                     } catch (Exception e) {
@@ -1280,6 +1282,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             // Шаг 2.2 и 2.3: передаем FM и период модуляции в сервис ДО startSessionRecording()
             if (modulationManager != null && modulationManager.getModulationFrequencyHz() > 0f) {
                 hrvService.setSessionFmHz(modulationManager.getModulationFrequencyHz());
+            } else if (modulationManager != null) {
+                modulationManager.setModulationFrequencyHz(DEFAULT_FM_HZ);
+                hrvService.setSessionFmHz(DEFAULT_FM_HZ);
             }
             if (modulationManager != null) {
                 modulationManager.applyModulation(hrvService, isBound);
@@ -1289,6 +1294,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             hrvService.setCallback(createServiceCallback());
             fixedModulationPeriodMs = hrvService.getModulationPeriodMs();
         } else if (modulationManager != null) {
+            if (modulationManager.getModulationFrequencyHz() <= 0f) {
+                modulationManager.setModulationFrequencyHz(DEFAULT_FM_HZ);
+            }
             fixedModulationPeriodMs = modulationManager.getModulationPeriodMs();
         }
 
@@ -1429,11 +1437,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 try {
                     AppDatabase db = AppDatabase.getInstance(MainActivity.this);
                     ProfileEntity profile = db.profileDao().getProfileSync(activeProfileId);
-                    final float profileFm = (profile != null && profile.getFm() > 0f) ? profile.getFm() : 0.1f;
+                    final float profileFm = (profile != null && profile.getFm() > 0f) ? profile.getFm() : DEFAULT_FM_HZ;
 
                     runOnUiThread(() -> {
                         if (!isRecording) {
-                            updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.2f", profileFm));
+                            updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.4f", profileFm));
                             if (modulationManager != null) {
                                 modulationManager.setModulationFrequencyHz(profileFm);
                                 modulationManager.applyModulation(hrvService, isBound);
