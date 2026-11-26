@@ -14,9 +14,10 @@ public class MasterClock {
     private boolean isRunning = false;
     private MasterClockListener listener;
     private float currentPhaseValue = 0f;
+  
+    // Коэффициент упреждения фазы при автокоррекции (по умолчанию +30% цикла)
+    private float phaseLeadOffset = 0.30f;
 
-    // Коэффициент упреждения фазы при автокоррекции (по умолчанию +25% цикла)
-    private float phaseLeadOffset = 0.25f;
 
     // Базовая длительность цикла в мс (динамическая, от 6000 до 14000 мс; по умолчанию 12000 мс / 0.0833 Гц)
     private long baseDurationMs = DEFAULT_DURATION_MS;
