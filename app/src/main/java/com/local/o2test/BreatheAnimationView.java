@@ -21,6 +21,8 @@ public class BreatheAnimationView extends View {
     private static final float POINTER_STEP_SEC = 0.5f;
     private static final int TOTAL_SCALE_STEPS = 24;
     private static final int CENTER_STEP_INDEX = 12; // 12.0 с в верхней точке дуги
+    private static final float SCALE_ARC_SWEEP_DEG = 300.0f;
+    private static final float STEP_ANGLE_DEG = SCALE_ARC_SWEEP_DEG / TOTAL_SCALE_STEPS; // 300.0f / 24 = 12.5f
 
     private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint petalPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -188,7 +190,7 @@ public class BreatheAnimationView extends View {
                 float minSqDist = Float.MAX_VALUE;
 
                 for (int i = 0; i <= totalSteps; i++) {
-                    double angle = -Math.PI / 2 + (i - CENTER_STEP_INDEX) * Math.toRadians(18.75);
+                    double angle = -Math.PI / 2 + (i - CENTER_STEP_INDEX) * Math.toRadians(STEP_ANGLE_DEG);
                     float tx = centerX + scaleRadius * (float) Math.cos(angle);
                     float ty = centerY + scaleRadius * (float) Math.sin(angle);
 
@@ -321,7 +323,7 @@ public class BreatheAnimationView extends View {
         for (int i = 0; i <= totalSteps; i++) {
             float val = MIN_POINTER_VALUE_SEC + (i * POINTER_STEP_SEC);
 
-            double angle = -Math.PI / 2 + (i - CENTER_STEP_INDEX) * Math.toRadians(18.75);
+            double angle = -Math.PI / 2 + (i - CENTER_STEP_INDEX) * Math.toRadians(STEP_ANGLE_DEG);
 
             float cosA = (float) Math.cos(angle);
             float sinA = (float) Math.sin(angle);
@@ -345,7 +347,7 @@ public class BreatheAnimationView extends View {
 
         // Указатель поверх шкалы
         float stepIndex = (pointerValue - MIN_POINTER_VALUE_SEC) / POINTER_STEP_SEC;
-        double pointerAngle = -Math.PI / 2 + (stepIndex - CENTER_STEP_INDEX) * Math.toRadians(18.75);
+        double pointerAngle = -Math.PI / 2 + (stepIndex - CENTER_STEP_INDEX) * Math.toRadians(STEP_ANGLE_DEG);
         float cosP = (float) Math.cos(pointerAngle);
         float sinP = (float) Math.sin(pointerAngle);
 
