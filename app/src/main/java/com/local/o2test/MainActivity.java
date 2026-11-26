@@ -1,137 +1,1661 @@
 package com.local.o2test;
 
-import android.animation.ValueAnimator;
-import android.view.animation.LinearInterpolator;
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.ServiceConnection;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.content.res.Configuration;
+import android.location.LocationManager;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.IBinder;
+import android.os.Looper;
+import android.provider.Settings;
+import android.text.Layout;
+import android.text.SpannableString;
+import android.text.style.AlignmentSpan;
+import android.view.Gravity;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import android.widget.Toast;
 
-public class MasterClock {
-    private static final long DEFAULT_DURATION_MS = 12000L;
-    private static final long MIN_DURATION_MS = 6000L;
-    private static final long MAX_DURATION_MS = 14000L;
-    private static final float MIN_PHASE_LEAD_OFFSET = -0.35f;
-    private static final float MAX_PHASE_LEAD_OFFSET = 0.35f;
+import com.local.o2test.db.AppDatabase;
+import com.local.o2test.db.entity.ProfileEntity;
 
-    private ValueAnimator clockAnimator;
-    private boolean isRunning = false;
-    private MasterClockListener listener;
-    private float currentPhaseValue = 0f;
+import java.io.File;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Queue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
-    // Коэффициент упреждения фазы при автокоррекции (по умолчанию +25% цикла)
-    private float phaseLeadOffset = 0.25f;
+public class MainActivity extends Activity implements O2BleManager.BleListener {
 
-    // Базовая длительность цикла в мс (динамическая, от 6000 до 14000 мс; по умолчанию 12000 мс / 0.0833 Гц)
-    private long baseDurationMs = DEFAULT_DURATION_MS;
-    private long targetDurationMs = DEFAULT_DURATION_MS;
+    private static final boolean DEBUG = true;
+    private static final String TAG = "MainActivity";
 
-    public interface MasterClockListener {
-        void onTick(float phase);
+    private static final String PREF_NAME = "O2AppPrefs";
+    private static final int PI_SMOOTHING_WINDOW = 5;
+    private static final int CALIBRATION_TARGET = 100;
+    private static final int TARGET_RR_PER_DUMP = 300;
+    private static final float PRESET_DISABLED_ALPHA = 0.45f;
+    private static final float DEFAULT_FM_HZ = 1.0f / 12.0f; // ~0.083333336 Гц (соответствует периоду 12.0 с / 12000 мс)
+    private static final long DEFAULT_MODULATION_PERIOD_MS = 12000L;
+
+    private O2BleManager bleManager;
+    private PolarH10Manager polarManager;
+    private UiBuilder.Views ui;
+    private OxygenSensorManager oxygenSensorManager;
+    private SessionModulationManager modulationManager;
+    private BreatheProgressManager progressManager;
+    private MayerTestManager mayerTestManager;
+
+    private HrvForegroundService hrvService;
+    private boolean isBound = false;
+
+    private boolean isRecording = false;
+    private boolean isTrainingModeActive = false;
+    private boolean isTrainingSelected = false;
+    private int trainingTargetX = 1;
+
+    private boolean isCalibrationCompleted = false;
+    private int sessionDumpCount = 0;
+    private int currentBlockNumber = 1;
+    private long sessionStartTime = 0;
+    private long postiStartTime = 0;
+
+    private long fixedModulationPeriodMs = DEFAULT_MODULATION_PERIOD_MS;
+    private int completedCyclesInCurrentDump = 0;
+
+    private String currentWorkoutMode = "Базовый мониторинг";
+    private final List<DataPoint> sessionData = new ArrayList<>();
+    private final List<Integer> phaseBuffer = new ArrayList<>();
+    private final Queue<Float> piWindow = new LinkedList<>();
+    private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
+
+    private double lastPstiScore = 0.0;
+    private double lastPstiRmssdRatio = 0.0;
+    private String lastMayerConvergenceSummary = "";
+    private final List<SessionExportManager.MayerTestRunEntry> mayerTestRuns = new ArrayList<>();
+    private long currentMayerTestStartTimeMs = 0L;
+
+    private double baselineLfHf = 0.0;
+    private final List<Double> cycleLfHfValuesList = new ArrayList<>();
+    private String currentLfHfDisplayStr = "--";
+
+    // Поля-кэши для сохранения состояния метрик при повороте экрана
+    private String cachedRmssd = "--";
+    private String cachedPnn50 = "--";
+    private String cachedLfHf = "--";
+    private String cachedTp = "--";
+    private String cachedIa = "--";
+    private String cachedPhim = "--";
+    private String cachedFm = "--";
+
+    private int currentSpo2 = 0;
+    private float currentPi = 0.0f;
+    private int currentBattery = 0;
+    private int currentPolarHr = 0;
+    private int currentPolarBattery = 0;
+    private int prevRrMs = 0;
+    private int consecutiveArtifactsCount = 0;
+
+    private long activeProfileId = -1L;
+    private boolean isProfileAuthorized = false;
+    private String activeProfileName = "Не выбран";
+
+    // Флаг отслеживания текущей физической ориентации экрана для безопасной перестройки UI на лету
+    private boolean wasLandscape = false;
+
+    private final ExecutorService dbExecutor = Executors.newSingleThreadExecutor();
+
+    private static SpannableString getCenteredTitle(String title) {
+        SpannableString s = new SpannableString(title);
+        s.setSpan(new AlignmentSpan.Standard(Layout.Alignment.ALIGN_CENTER), 0, s.length(), 0);
+        return s;
     }
 
-    public MasterClock(MasterClockListener listener) {
-        this.listener = listener;
-    }
+    private final ServiceConnection serviceConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            HrvForegroundService.LocalBinder binder = (HrvForegroundService.LocalBinder) service;
+            hrvService = binder.getService();
+            isBound = true;
 
-    public void setPhaseLeadOffset(float offset) {
-        if (Float.isNaN(offset) || Float.isInfinite(offset)) {
-            return;
-        }
-        this.phaseLeadOffset = Math.max(MIN_PHASE_LEAD_OFFSET, Math.min(MAX_PHASE_LEAD_OFFSET, offset));
-    }
+            if (DEBUG) {
+                onLog("[SERVICE] Сервис успешно привязан к MainActivity");
+            }
 
-    public float getPhaseLeadOffset() {
-        return phaseLeadOffset;
-    }
-
-    public void setBaseDurationMs(long durationMs) {
-        this.targetDurationMs = Math.max(MIN_DURATION_MS, Math.min(MAX_DURATION_MS, durationMs));
-        // Если часы не запущены, сразу применяем длительность
-        if (!isRunning || clockAnimator == null || !clockAnimator.isRunning()) {
-            this.baseDurationMs = this.targetDurationMs;
-        }
-    }
-
-    public long getBaseDurationMs() {
-        return baseDurationMs;
-    }
-
-    public void start(float initialPhase) {
-        if (isRunning) return;
-        isRunning = true;
-
-        float normalizedPhase = initialPhase % 1.0f;
-        if (normalizedPhase < 0) normalizedPhase += 1.0f;
-        currentPhaseValue = normalizedPhase;
-
-        baseDurationMs = targetDurationMs;
-        createAndStartAnimator(normalizedPhase, baseDurationMs);
-    }
-
-    private void createAndStartAnimator(float startPhase, long durationMs) {
-        if (clockAnimator != null) {
-            clockAnimator.cancel();
-        }
-
-        clockAnimator = ValueAnimator.ofFloat(startPhase, startPhase + 1.0f);
-        clockAnimator.setDuration(durationMs);
-        clockAnimator.setInterpolator(new LinearInterpolator());
-        clockAnimator.setRepeatCount(ValueAnimator.INFINITE);
-        clockAnimator.addUpdateListener(animation -> {
-            if (!isRunning) return;
-            float val = (float) animation.getAnimatedValue();
-            currentPhaseValue = val % 1.0f;
-
-            // Плавное приближение baseDurationMs к targetDurationMs на границах циклов
-            if (baseDurationMs != targetDurationMs) {
-                if (currentPhaseValue < 0.05f || currentPhaseValue > 0.95f) {
-                    long diff = targetDurationMs - baseDurationMs;
-                    baseDurationMs += Math.signum(diff) * Math.min(Math.abs(diff), 150);
+            if (hrvService != null) {
+                if (isRecording) {
+                    hrvService.setCallback(createServiceCallback());
+                }
+                // Шаг 2.1: синхронизируем FM и период модуляции из modulationManager при подключении/ребиндинге сервиса
+                if (modulationManager != null) {
+                    if (modulationManager.getModulationFrequencyHz() > 0f) {
+                        hrvService.setSessionFmHz(modulationManager.getModulationFrequencyHz());
+                    }
+                    modulationManager.applyModulation(hrvService, isBound);
                 }
             }
 
-            if (listener != null) {
-                listener.onTick(currentPhaseValue);
+            updateRightPanelStatus();
+            updatePacerPeriodRegulatorState();
+            updateMayerTestButtonAvailability();
+            updatePresetButtonsState();
+            if (ui.btnHeart != null) {
+                ui.btnHeart.setAlpha(isProfileAuthorized && isTrainingSelected ? 1.0f : 0.5f);
             }
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            isBound = false;
+            hrvService = null;
+            if (DEBUG) {
+                onLog("[SERVICE] Соединение с сервисом разорвано");
+            }
+        }
+    };
+
+    private final SettingsDialogManager.SettingsCallback settingsCallback = new SettingsDialogManager.SettingsCallback() {
+        @Override
+        public void onLog(String message) {
+            MainActivity.this.onLog(message);
+        }
+
+        @Override
+        public void onAudioResourceChanged(int resId, String trackName) {
+            if (isBound && hrvService != null) {
+                hrvService.setAudioResource(resId);
+            }
+        }
+
+        @Override
+        public void onExportBackupRequested(File backupFile) {
+            SessionExportManager.exportDatabaseBackup(MainActivity.this, backupFile, dbExecutor, msg -> onLog(msg));
+        }
+
+        @Override
+        public void onImportBackupRequested(File backupFile) {
+            SessionExportManager.importDatabaseBackup(MainActivity.this, backupFile, dbExecutor, msg -> onLog(msg));
+        }
+
+        @Override
+        public boolean isProfileAuthorized() {
+            return isProfileAuthorized;
+        }
+
+        @Override
+        public String getActiveProfileName() {
+            return activeProfileName;
+        }
+
+        @Override
+        public void openProfilesManager() {
+            MainActivity.this.openProfilesManager();
+        }
+    };
+
+    private final PasswordAuthManager.AuthCallback authCallback = new PasswordAuthManager.AuthCallback() {
+        @Override
+        public void onPasswordAuthorized() {
+            onLog("Система запущена. Выберите профиль для начала работы.");
+        }
+
+        @Override
+        public void onExitRequested() {
+            stopAudioAndClockInService();
+            if (ui != null && ui.pacerView != null) ui.pacerView.stopMonitoring();
+            finish();
+        }
+
+        @Override
+        public void onLog(String message) {
+            MainActivity.this.onLog(message);
+        }
+    };
+
+    private MayerTestManager.MayerTestListener createMayerTestListener() {
+        return new MayerTestManager.MayerTestListener() {
+            @Override
+            public void onTestModeChanged(boolean isActive) {
+                if (isActive) {
+                    currentMayerTestStartTimeMs = System.currentTimeMillis();
+                    if (mayerTestManager != null) {
+                        // Шаг 2.1: очищаем предыдущую сводку сходимости перед началом нового цикла тестирования
+                        lastMayerConvergenceSummary = "";
+                        long startAnchor = sessionStartTime > 0L ? sessionStartTime : currentMayerTestStartTimeMs;
+                        float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : (DEFAULT_MODULATION_PERIOD_MS / 1000.0f);
+                        int dumpIdx = (isBound && hrvService != null) ? hrvService.getCurrentDumpIndex() : (sessionDumpCount + 1);
+                        mayerTestManager.configureSessionContext(startAnchor, basePeriodSec, dumpIdx);
+                    }
+                } else {
+                    currentMayerTestStartTimeMs = 0L;
+                }
+                if (isBound && hrvService != null) {
+                    hrvService.setMayerTestMode(isActive);
+                }
+            }
+
+            @Override
+            public void onLog(String message) {
+                MainActivity.this.onLog(message);
+            }
+
+            @Override
+            public List<Integer> getValidRrIntervalsForTest() {
+                // Берем валидные RR-интервалы (после фильтрации артефактов) из активного сервиса
+                if (isBound && hrvService != null) {
+                    return hrvService.getFilteredSessionRrData();
+                }
+                return null;
+            }
+
+            @Override
+            public void onTestPeriodChanged(float periodSec) {
+                if (periodSec <= 0f) return;
+                float freqHz = 1.0f / periodSec;
+                long periodMs = Math.round(periodSec * 1000.0f);
+                runOnUiThread(() -> {
+                    updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.4f", freqHz));
+                    if (modulationManager != null) {
+                        modulationManager.setModulationPeriodMs(periodMs);
+                        modulationManager.applyModulation(hrvService, isBound);
+                    }
+                    if (ui != null && ui.pacerView != null) {
+                        ui.pacerView.setPointerValue(periodSec);
+                    }
+                });
+            }
+
+            @Override
+            public void onMayerTestCompleted(float calculatedFmHz) {
+                applyCalculatedMayerFrequency(calculatedFmHz);
+            }
+
+            @Override
+            public void onMayerTestConvergenceSummary(String summary) {
+                // Шаг 2.2: сохраняем резюме сходимости и фиксируем запуск теста для блока 6 отчёта
+                lastMayerConvergenceSummary = (summary != null) ? summary.trim() : "";
+                if (!lastMayerConvergenceSummary.isEmpty()) {
+                    long now = System.currentTimeMillis();
+                    long startTs = (currentMayerTestStartTimeMs > 0L) ? currentMayerTestStartTimeMs : now;
+                    mayerTestRuns.add(new SessionExportManager.MayerTestRunEntry(startTs, now, lastMayerConvergenceSummary));
+                }
+                currentMayerTestStartTimeMs = 0L;
+
+                if (DEBUG && !lastMayerConvergenceSummary.isEmpty()) {
+                    onLog("[МАЙЕР ТЕСТ | СХОДИМОСТЬ] " + lastMayerConvergenceSummary);
+                }
+            }
+        };
+    }
+
+    private void applyCalculatedMayerFrequency(float calculatedFm) {
+        if (calculatedFm <= 0f) return;
+
+        if (isBound && hrvService != null) {
+            hrvService.setSessionFmHz(calculatedFm);
+        }
+
+        runOnUiThread(() -> {
+            updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.4f", calculatedFm));
+
+            if (modulationManager != null) {
+                modulationManager.setModulationFrequencyHz(calculatedFm);
+                modulationManager.applyModulation(hrvService, isBound);
+                if (ui != null && ui.pacerView != null) {
+                    ui.pacerView.setPointerValue(modulationManager.getModulationPeriodSec());
+                }
+            }
+
+            onLog(String.format(Locale.US, "[МАЙЕР ТЕСТ] Индивидуальный FM успешно определен: %.4f Hz", calculatedFm));
+            Toast.makeText(MainActivity.this, String.format(Locale.US, "Найден индивидуальный FM: %.4f Hz", calculatedFm), Toast.LENGTH_LONG).show();
         });
-        clockAnimator.start();
-    }
 
-    /**
-     * Сверхмягкая фазовая автокоррекция с учетом упреждения фазы без разрывов анимации.
-     */
-    public void adjustPhase(float targetPhase) {
-        if (!isRunning || clockAnimator == null || !clockAnimator.isRunning()) return;
-
-        float normTarget = targetPhase % 1.0f;
-        if (normTarget < 0) normTarget += 1.0f;
-
-        normTarget = (normTarget + phaseLeadOffset) % 1.0f;
-        if (normTarget < 0) normTarget += 1.0f;
-
-        float diff = normTarget - currentPhaseValue;
-        if (diff > 0.5f) diff -= 1.0f;
-        if (diff < -0.5f) diff += 1.0f;
-
-        if (Math.abs(diff) < 0.02f) return;
-
-        long adjustedDuration = (long) (baseDurationMs * (1.0f - (diff * 0.2f)));
-
-        long minLimit = (long) (baseDurationMs * 0.85f);
-        long maxLimit = (long) (baseDurationMs * 1.15f);
-        if (adjustedDuration < minLimit) adjustedDuration = minLimit;
-        if (adjustedDuration > maxLimit) adjustedDuration = maxLimit;
-
-        float currentAnimatedValue = (float) clockAnimator.getAnimatedValue();
-        createAndStartAnimator(currentAnimatedValue, adjustedDuration);
-    }
-
-    public void stop() {
-        isRunning = false;
-        if (clockAnimator != null) {
-            clockAnimator.cancel();
-            clockAnimator = null;
+        if (activeProfileId != -1L) {
+            dbExecutor.execute(() -> {
+                try {
+                    AppDatabase db = AppDatabase.getInstance(MainActivity.this);
+                    ProfileEntity profile = db.profileDao().getProfileSync(activeProfileId);
+                    if (profile != null) {
+                        profile.setFm(calculatedFm);
+                        db.profileDao().updateProfileSync(profile);
+                        if (DEBUG) {
+                            onLog(String.format(Locale.US, "[БД] Паспортный FM (%.4f Hz) сохранен в профиль ID: %d", calculatedFm, activeProfileId));
+                        }
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            });
         }
     }
 
-    public boolean isRunning() {
-        return isRunning;
+    /**
+     * Единое правило доступности регулятора периода на циферблате пейсера:
+     * разблокирован ТОЛЬКО во время активной записи сессии, вне фазы PSTI, начиная со 2-го дампа.
+     * Во всех остальных случаях (до старта, после остановки, на 1-м дампе, в фазе PSTI) — заблокирован.
+     */
+    private boolean isPacerPeriodRegulatorUnlocked() {
+        if (!isRecording) return false;
+        boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
+        if (isPostiActive) return false;
+        int dumpIndex = (isBound && hrvService != null) ? hrvService.getCurrentDumpIndex() : (sessionDumpCount + 1);
+        return dumpIndex >= 2;
+    }
+
+    /**
+     * Управление активностью регулятора периода на циферблате пейсера.
+     * Прозрачность всего виджета не изменяется, чтобы центральный пейсер оставался хорошо виден.
+     */
+    private void updatePacerPeriodRegulatorState() {
+        if (ui == null || ui.pacerView == null) return;
+        ui.pacerView.setEnabled(isPacerPeriodRegulatorUnlocked());
+    }
+
+    /**
+     * Управление доступностью кнопок «1/1» и «1/2»:
+     * активны только при запущенной сессии (isRecording) на тренировочных фазах и
+     * неактивны до старта, после остановки и во время фазы «Тест PSTI».
+     */
+    private void updatePresetButtonsState() {
+        if (ui == null) return;
+        boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
+        boolean canUsePresets = isRecording && !isPostiActive;
+        float alpha = canUsePresets ? 1.0f : PRESET_DISABLED_ALPHA;
+
+        if (ui.btnPreset1of1 != null) {
+            ui.btnPreset1of1.setEnabled(canUsePresets);
+            ui.btnPreset1of1.setAlpha(alpha);
+        }
+        if (ui.btnPreset1of2 != null) {
+            ui.btnPreset1of2.setEnabled(canUsePresets);
+            ui.btnPreset1of2.setAlpha(alpha);
+        }
+    }
+
+    // Заглушки обработчиков для кнопок «1/1» и «1/2» (логика будет внедрена на следующем этапе)
+    private void onPreset1of1Clicked() {
+        if (ui != null && ui.btnPreset1of1 != null && !ui.btnPreset1of1.isEnabled()) return;
+        onLog("[КНОПКА 1/1] Нажата заглушка 1/1 (логика будет добавлена на следующем этапе)");
+    }
+
+    private void onPreset1of2Clicked() {
+        if (ui != null && ui.btnPreset1of2 != null && !ui.btnPreset1of2.isEnabled()) return;
+        onLog("[КНОПКА 1/2] Нажата заглушка 1/2 (логика будет добавлена на следующем этапе)");
+    }
+
+    /**
+     * Доступность кнопки «Тест»:
+     * - недоступна на 1-м дампе (dumpIndex < 2)
+     * - недоступна на последних 250 интервалах любого из последующих дампов тренировочной фазы (currentDumpRrCount > 50, а также при 0 RR на стыке)
+     * - всегда недоступна в фазе «Тест PSTI»
+     */
+    private void updateMayerTestButtonAvailability() {
+        if (mayerTestManager == null) return;
+
+        boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
+        int dumpIndex = (isBound && hrvService != null) ? hrvService.getCurrentDumpIndex() : (sessionDumpCount + 1);
+        int currentDumpRrCount = (isBound && hrvService != null) ? hrvService.getCurrentMacroRrCount() : 0;
+
+        if (mayerTestManager != null && isRecording) {
+            long startAnchor = sessionStartTime > 0L ? sessionStartTime : System.currentTimeMillis();
+            float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : (DEFAULT_MODULATION_PERIOD_MS / 1000.0f);
+            mayerTestManager.configureSessionContext(startAnchor, basePeriodSec, dumpIndex);
+        }
+
+        boolean isDumpEligible = dumpIndex >= 2;
+        boolean isWithinFirst50Rr = currentDumpRrCount >= 1 && currentDumpRrCount <= 50;
+
+        boolean canEnableTest = isRecording
+                && isCalibrationCompleted
+                && !isPostiActive
+                && isDumpEligible
+                && isWithinFirst50Rr;
+
+        mayerTestManager.setAvailable(canEnableTest);
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        bleManager = new O2BleManager(this, this);
+        polarManager = new PolarH10Manager(this, polarCallback);
+        modulationManager = new SessionModulationManager(this);
+
+        wasLandscape = getResources().getDisplayMetrics().widthPixels > getResources().getDisplayMetrics().heightPixels;
+
+        ui = UiBuilder.buildUi(this);
+        oxygenSensorManager = new OxygenSensorManager(ui);
+        progressManager = new BreatheProgressManager(ui.pacerView);
+
+        // Инициализация менеджера кнопки «Тест» (MayerTestManager)
+        mayerTestManager = new MayerTestManager(this, ui.btnTest, createMayerTestListener());
+
+        UiBuilder.updateStatusHeader(ui.tvLiveMetrics, 0, 0, 0f, 0, 0);
+
+        setInterfaceAuthorizedState(false);
+        updateMetricsDisplay("--", "--", "--", "--");
+        updateAttractorIndexDisplay("--");
+        updatePhimIndexDisplay("--");
+        updateMayerFrequencyIndexDisplay("--");
+        updateRightPanelStatus();
+        updatePacerPeriodRegulatorState();
+        updatePresetButtonsState();
+
+        rebindUiListeners();
+
+        setContentView(ui.mainLayout);
+        PasswordAuthManager.checkMasterPasswordOnStart(this, getSharedPreferences(PREF_NAME, MODE_PRIVATE), authCallback);
+    }
+
+    /**
+     * Перехват изменения конфигурации без перезапуска Activity (сохраняет BLE-соединение и фоновую сессию).
+     */
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+
+        boolean currentLandscape = getResources().getDisplayMetrics().widthPixels > getResources().getDisplayMetrics().heightPixels;
+        if (currentLandscape != wasLandscape) {
+            wasLandscape = currentLandscape;
+
+            // Сохраняем накопленный лог перед пересозданием визуальных элементов
+            String savedLogText = (ui != null && ui.tvLog != null) ? ui.tvLog.getText().toString() : "";
+
+            // Пересоздаем UI под новую ориентацию
+            ui = UiBuilder.buildUi(this);
+            oxygenSensorManager = new OxygenSensorManager(ui);
+            progressManager = new BreatheProgressManager(ui.pacerView);
+
+            // Реинициализируем MayerTestManager для нового экземпляра кнопки из пересозданного UI
+            boolean wasActive = mayerTestManager != null && mayerTestManager.isMayerTestModeActive();
+
+            mayerTestManager = new MayerTestManager(this, ui.btnTest, createMayerTestListener());
+            long startAnchor = sessionStartTime > 0L ? sessionStartTime : System.currentTimeMillis();
+            float basePeriodSec = fixedModulationPeriodMs > 0L ? (fixedModulationPeriodMs / 1000.0f) : (DEFAULT_MODULATION_PERIOD_MS / 1000.0f);
+            int dumpIdx = (isBound && hrvService != null) ? hrvService.getCurrentDumpIndex() : (sessionDumpCount + 1);
+            mayerTestManager.configureSessionContext(startAnchor, basePeriodSec, dumpIdx);
+
+            updatePacerPeriodRegulatorState();
+            updateMayerTestButtonAvailability();
+            updatePresetButtonsState();
+            if (wasActive) {
+                // Если тест был активен, восстанавливаем визуальное состояние кнопки
+                ui.btnTest.setBackgroundResource(R.drawable.bg_test_button_pink_gradient);
+            }
+
+            setContentView(ui.mainLayout);
+
+            // Перепривязываем слушатели к новым элементам UI
+            rebindUiListeners();
+
+            // Восстанавливаем состояние интерфейса (логи, статус, метрики, график, профиль)
+            restoreUiState(savedLogText);
+
+            // Восстанавливаем активность прогресс-бара при активной сессии
+            if (isRecording && progressManager != null) {
+                progressManager.start();
+            }
+
+            if (DEBUG) {
+                onLog("[UI] Интерфейс успешно перестроен под ориентацию: " + (currentLandscape ? "Альбомная (Landscape)" : "Книжная (Portrait)"));
+            }
+        }
+    }
+
+    /**
+     * Единый метод-помощник для инициализации callback-интерфейса сервиса
+     */
+    private HrvForegroundService.ServiceCallback createServiceCallback() {
+        return new HrvForegroundService.ServiceCallback() {
+            @Override
+            public void onRrDataReceived(int rrMs, int hr) {}
+            @Override
+            public void onO2DataReceived(int spo2, int hr) {}
+            @Override
+            public void onConnectionStatusChanged(String deviceType, boolean isConnected) {}
+
+            @Override
+            public void onFirstDumpBaselineReady(float periodSec, List<Integer> validRrIntervals) {
+                if (mayerTestManager != null) {
+                    mayerTestManager.registerFirstDumpBaseline(periodSec, validRrIntervals);
+                }
+            }
+
+            @Override
+            public void onMacroRrCountChanged(int currentRrCount, int dumpIndex, boolean isPstiPhase) {
+                runOnUiThread(() -> {
+                    updatePacerPeriodRegulatorState();
+                    updateMayerTestButtonAvailability();
+                    updatePresetButtonsState();
+                });
+            }
+
+            @Override
+            public void onMicroSliceCalculated(int sliceIndex, int dumpIndex, boolean isPstiPhase, HrvCalculator.Metrics metrics) {
+                if (metrics != null && metrics.isValid) {
+                    final String updatedLfHfStr = String.format(Locale.US, "%.2f", metrics.lfHfRatio);
+                    currentLfHfDisplayStr = updatedLfHfStr;
+                    runOnUiThread(() -> updateMetricsDisplay(cachedRmssd, cachedPnn50, updatedLfHfStr, cachedTp));
+                }
+            }
+
+            @Override
+            public void onPhaseCorrectionCalculated(float correctionDelta) {
+                runOnUiThread(() -> {
+                    if (isBound && hrvService != null && isRecording) {
+                        hrvService.adjustServicePhase(correctionDelta);
+                    }
+                });
+            }
+
+            @Override
+            public void onMayerTestModeAutoReset() {
+                runOnUiThread(() -> {
+                    // Шаг 2.3: сначала штатно сбрасываем режим менеджера теста (фиксируя частичную историю при наличии), затем обновляем кнопку
+                    if (mayerTestManager != null && mayerTestManager.isMayerTestModeActive()) {
+                        mayerTestManager.resetTestMode();
+                    }
+                    currentMayerTestStartTimeMs = 0L;
+                    updateMayerTestButtonAvailability();
+                });
+            }
+
+            @Override
+            public void onMayerTestCompleted(float calculatedFm) {
+                applyCalculatedMayerFrequency(calculatedFm);
+            }
+
+            @Override
+            public void onMacroProgressUpdated(int rrCount, int totalCount, int currentHr, HrvCalculator.Metrics partialMetrics) {
+                float percent = Math.min(100.0f, (rrCount / (float) totalCount) * 100.0f);
+                int remainingBeats = Math.max(0, totalCount - rrCount);
+
+                int remainingSec = 0;
+                if (currentHr > 0 && remainingBeats > 0) {
+                    remainingSec = (int) Math.round((remainingBeats * 60.0) / currentHr);
+                }
+                int remMin = remainingSec / 60;
+                int remSec = remainingSec % 60;
+
+                String rmssdStr = (partialMetrics != null) ? String.format(Locale.US, "%.1f ms", partialMetrics.rmssd) : "--";
+                String logMsg = String.format(Locale.US,
+                        "[Сбор дампа] %.1f%% (%d/%d) | До конца: %02d:%02d | HR: %d bpm | RMSSD: %s",
+                        percent, rrCount, totalCount, remMin, remSec, currentHr, rmssdStr);
+                onLog(logMsg);
+            }
+
+            @Override
+            public void onMacroDumpCompleted(int avgHr, HrvCalculator.Metrics hrv, int rrCount, HrvForegroundService.QuantumContext context) {
+                boolean isPostiPhase = context != null && context.isPstiPhase();
+                boolean nextIsPstiPhase = context != null && context.isNextIsPstiPhase();
+
+                int totalBlocks = trainingTargetX;
+                int rawContextBlock = (context != null) ? context.getBlockNumber() : currentBlockNumber;
+                int currentDumpIndex = context != null ? context.getDumpIndex() : (sessionDumpCount + 1);
+
+                String blockInfo = isPostiPhase ? "Тест PSTI" : String.format(Locale.US, "Блок %d/%d", rawContextBlock, totalBlocks);
+
+                // Синхронизируем фазовое значение из контекста сервиса
+                if (context != null) {
+                    float macroPhase = context.getMacroPhase();
+                    runOnUiThread(() -> updatePhimIndexDisplay(macroPhase));
+                }
+
+                String logMsg = String.format(Locale.US,
+                        "[Дамп ГОТОВ 100%%] %s (#%d) | HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %s | TP: %.0f ms²",
+                        blockInfo, currentDumpIndex, avgHr, hrv != null ? hrv.rmssd : 0.0, hrv != null ? hrv.pnn50 : 0.0, currentLfHfDisplayStr, hrv != null ? hrv.totalPower : 0.0);
+                onLog(logMsg);
+
+                sessionDumpCount++;
+                completedCyclesInCurrentDump = 0;
+
+                if (progressManager != null) {
+                    progressManager.restart();
+                }
+
+                if (isPostiPhase) {
+                    onLog(String.format(Locale.US, "[Дамп (Тест PSTI #%d) завершен]", currentDumpIndex));
+
+                    // Вычисление индекса консолидации барорефлекса PSTI
+                    if (hrv != null) {
+                        lastPstiScore = Math.min(100.0, (hrv.rmssd / 50.0) * 50.0 + (Math.min(hrv.totalPower, 2500.0) / 2500.0) * 50.0);
+                        lastPstiRmssdRatio = (baselineLfHf > 0 && hrv.lfHfRatio > 0) ? (hrv.lfHfRatio / baselineLfHf) : 1.0;
+
+                        onLog(String.format(Locale.US, "[PSTI РЕЗУЛЬТАТ] Индекс консолидации барорефлекса PSTI: %.1f%% (RMSSD ratio: %.2f)",
+                                lastPstiScore, lastPstiRmssdRatio));
+                    }
+
+                    // После завершения PSTI дампа в сервисе: возобновляем сбор пульса
+                    if (polarManager != null) {
+                        polarManager.startCollection();
+                    }
+                    // При возврате из PSTI к тренировочному циклу следующий собираемый блок — №1
+                    currentBlockNumber = 1;
+                    onLog("[Мониторинг] Возврат к тренировочному циклу...");
+                    runOnUiThread(() -> {
+                        updatePacerPeriodRegulatorState();
+                        updateMayerTestButtonAvailability();
+                        updatePresetButtonsState();
+                        if (isRecording && isBound && hrvService != null) {
+                            startClockAndPacerAfterCalibration(0.0f);
+                        }
+                    });
+                } else {
+                    if (nextIsPstiPhase) {
+                        currentBlockNumber = 1;
+                        startPostiTraceWindow();
+                    } else {
+                        // После закрытия очередного тренировочного блока переводим счетчик на следующий блок (1..totalBlocks)
+                        currentBlockNumber = Math.min(totalBlocks, Math.max(1, rawContextBlock + 1));
+                        onLog("[Мониторинг] Продолжение сеанса дыхания...");
+                    }
+                    runOnUiThread(() -> {
+                        updatePacerPeriodRegulatorState();
+                        updateMayerTestButtonAvailability();
+                        updatePresetButtonsState();
+                    });
+                }
+
+                runOnUiThread(() -> updateRightPanelStatus());
+
+                if (hrv != null) {
+                    String rmssdStr = String.format(Locale.US, "%.1f ms", hrv.rmssd);
+                    String pnn50Str = String.format(Locale.US, "%.1f%%", hrv.pnn50);
+
+                    double iaNorm = (hrv.lfPower + hrv.hfPower > 0) ? (2.0 * hrv.lfPower / (hrv.lfPower + hrv.hfPower)) : 1.0;
+                    double iaPct = Math.max(0.0, Math.min(100.0, (iaNorm - 1.0) * 100.0));
+                    String iaStr = String.format(Locale.US, "%.0f", iaPct);
+
+                    String tpStr = String.format(Locale.US, "%.0f ms²", hrv.totalPower);
+
+                    final String finalLfHfStr = currentLfHfDisplayStr;
+                    runOnUiThread(() -> {
+                        updateMetricsDisplay(rmssdStr, pnn50Str, finalLfHfStr, tpStr);
+                        updateAttractorIndexDisplay(iaStr);
+                    });
+                }
+            }
+        };
+    }
+
+    /**
+     * Привязка обработчиков нажатий и слушателей к элементам управления интерфейса
+     */
+    private void rebindUiListeners() {
+        if (ui == null) return;
+
+        if (ui.btnPreset1of1 != null) {
+            ui.btnPreset1of1.setOnClickListener(v -> onPreset1of1Clicked());
+        }
+
+        if (ui.btnPreset1of2 != null) {
+            ui.btnPreset1of2.setOnClickListener(v -> onPreset1of2Clicked());
+        }
+
+        if (ui.btnTest != null) {
+            ui.btnTest.setOnClickListener(v -> {
+                if (mayerTestManager != null) {
+                    mayerTestManager.handleTestButtonClick();
+                }
+            });
+        }
+
+        if (ui.pacerView != null) {
+            ui.pacerView.setOnPointerChangeListener(value -> {
+                if (!isPacerPeriodRegulatorUnlocked()) {
+                    if (DEBUG) {
+                        onLog("[PACER_LOCK] Переключение периода на пейсере заблокировано до завершения дампа #1 активной сессии.");
+                    }
+                    return;
+                }
+                long newDurationMs = Math.round(value * 1000.0);
+                modulationManager.setModulationPeriodMs(newDurationMs);
+                modulationManager.applyModulation(hrvService, isBound);
+                onLog(String.format(Locale.US, "[МОДУЛЯЦИЯ] Период изменен пользователем: %.1f сек", value));
+            });
+        }
+
+        if (ui.btnHeart != null) {
+            ui.btnHeart.setOnClickListener(v -> {
+                if (!isProfileAuthorized) {
+                    Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
+                    openProfilesManager();
+                    return;
+                }
+                if (!isTrainingSelected) {
+                    Toast.makeText(this, "Сначала выберите тип тренировки в меню!", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+
+                boolean isPolarConnected = polarManager != null && polarManager.isConnected();
+                if (!isRecording && !isPolarConnected) {
+                    showSensorNotConnectedAlert();
+                    return;
+                }
+
+                if (!isRecording) {
+                    isTrainingModeActive = true;
+                    startMonitoringPanel();
+                } else {
+                    stopMonitoring();
+                }
+            });
+        }
+
+        if (ui.btnReconnect != null) {
+            ui.btnReconnect.setOnClickListener(v -> {
+                if (!isProfileAuthorized) {
+                    Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
+                    openProfilesManager();
+                    return;
+                }
+
+                if (!isLocationEnabled(this)) {
+                    Toast.makeText(this, "Для работы Bluetooth необходимо включить геолокацию!", Toast.LENGTH_LONG).show();
+                    try {
+                        startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS));
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                    return;
+                }
+
+                onLog("Подключение BLE устройств и запрос прав...");
+                checkAndRequestBlePermissions();
+            });
+        }
+
+        if (ui.btnSave != null) {
+            ui.btnSave.setOnClickListener(v -> {
+                if (!isProfileAuthorized) {
+                    Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
+                    openProfilesManager();
+                    return;
+                }
+                saveSessionAutomatically();
+            });
+        }
+
+        if (ui.btnSettings != null) {
+            ui.btnSettings.setOnClickListener(v -> {
+                SettingsDialogManager.showSettingsDialog(this, getSharedPreferences(PREF_NAME, MODE_PRIVATE), settingsCallback);
+            });
+        }
+
+        if (ui.btnExit != null) {
+            ui.btnExit.setOnClickListener(v -> {
+                stopAudioAndClockInService();
+                if (ui != null && ui.pacerView != null) {
+                    ui.pacerView.stopMonitoring();
+                }
+                isRecording = false;
+                updatePresetButtonsState();
+                finish();
+            });
+        }
+
+        if (ui.btnWorkout != null) {
+            ui.btnWorkout.setOnClickListener(v -> openTrainingSelectionDialog());
+        }
+
+        if (ui.btnSessions != null) {
+            ui.btnSessions.setOnClickListener(v -> SessionDialogHelper.openSessionsDialog(
+                    this, dbExecutor, activeProfileId, activeProfileName, isProfileAuthorized
+            ));
+        }
+
+        if (ui.btnProfiles != null) {
+            ui.btnProfiles.setOnClickListener(v -> openProfilesManager());
+        }
+    }
+
+    /**
+     * Восстановление визуального состояния интерфейса после перестройки UI на лету
+     */
+    private void restoreUiState(String previousLogText) {
+        if (ui == null) return;
+
+        // 1. Восстановление истории логов
+        if (ui.tvLog != null && previousLogText != null && !previousLogText.isEmpty()) {
+            ui.tvLog.setText(previousLogText);
+            if (ui.logScrollView != null) {
+                ui.logScrollView.post(() -> ui.logScrollView.fullScroll(ScrollView.FOCUS_DOWN));
+            }
+        }
+
+        // 2. Восстановление статуса авторизации и кнопок
+        setInterfaceAuthorizedState(isProfileAuthorized);
+
+        // 3. Восстановление метрик ВСР, имени профиля, PhM, FM и IA из кэшей
+        updateMetricsDisplay(cachedRmssd, cachedPnn50, cachedLfHf, cachedTp);
+        updateAttractorIndexDisplay(cachedIa);
+        updatePhimIndexDisplay(cachedPhim);
+        updateMayerFrequencyIndexDisplay(cachedFm);
+
+        // 4. Восстановление графика из накопленного массива sessionData
+        if (ui.chartView != null) {
+            ui.chartView.clearData();
+            synchronized (sessionData) {
+                for (DataPoint dp : sessionData) {
+                    ui.chartView.addDataPoint(dp);
+                }
+            }
+        }
+
+        // 5. Обновление заголовков и панели статуса
+        int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
+        boolean isPolarActive = polarManager != null && polarManager.isConnected();
+        int hrToDisplay = isPolarActive ? currentPolarHr : 0;
+        UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery, polarBatt);
+
+        updateRightPanelStatus();
+        updatePacerPeriodRegulatorState();
+        updatePresetButtonsState();
+
+        if (isRecording && ui.btnHeart != null) {
+            ui.btnHeart.setAlpha(1.0f);
+        }
+    }
+
+    private void openTrainingSelectionDialog() {
+        TrainingDialogHelper.openTrainingDialog(
+                this, dbExecutor, activeProfileId, activeProfileName, isProfileAuthorized,
+                new TrainingDialogHelper.TrainingStartCallback() {
+                    @Override
+                    public void onTrainingSelected(String trainingType, String modeName, int targetX, int[] pattern) {
+                        Runnable applySelection = () -> {
+                            currentWorkoutMode = trainingType + " " + modeName;
+                            isTrainingSelected = true;
+
+                            // Прямое присвоение численного параметра из структуры без строковых зависимостей
+                            trainingTargetX = targetX;
+
+                            if (hrvService != null) {
+                                hrvService.setPresetPattern(trainingTargetX);
+                            }
+
+                            if (ui.btnHeart != null) {
+                                ui.btnHeart.setEnabled(true);
+                                ui.btnHeart.setAlpha(1.0f);
+                            }
+                            updateRightPanelStatus();
+                            updatePacerPeriodRegulatorState();
+                            updateMayerTestButtonAvailability();
+
+                            if (DEBUG) {
+                                onLog(String.format(Locale.US, "[ТРЕНИРОВКА ВЫБРАНА] %s | Целевой x = %d", currentWorkoutMode, trainingTargetX));
+                            } else {
+                                onLog("[ТРЕНИРОВКА ВЫБРАНА] " + currentWorkoutMode);
+                            }
+
+                            if (isRecording) {
+                                isTrainingModeActive = true;
+                                startMonitoringPanel();
+                            }
+                        };
+
+                        if (isRecording) {
+                            new AlertDialog.Builder(MainActivity.this)
+                                .setTitle(getCenteredTitle("⚠️ [ВНИМАНИЕ!]"))
+                                .setMessage("Смена режима тренировки во время текущей сессии приведет к ее перезапуску.")
+                                .setPositiveButton("Подтвердить", (d, w) -> {
+                                    if (ui.chartView != null) ui.chartView.clearData();
+                                    stopMonitoring();
+                                    applySelection.run();
+                                })
+                                .setNegativeButton("Отменить", null)
+                                .show();
+                        } else {
+                            applySelection.run();
+                        }
+                    }
+
+                    @Override
+                    public void onRequireProfileAuth() {
+                        openProfilesManager();
+                    }
+                }
+        );
+    }
+
+    private void showSensorNotConnectedAlert() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(getCenteredTitle("⚠️ [ВНИМАНИЕ!]"));
+        builder.setMessage("\nДатчики не подключены, обновите связь.");
+        builder.setPositiveButton("ОК", null);
+        AlertDialog dialog = builder.create();
+        dialog.show();
+    }
+
+    private boolean isLocationEnabled(Context context) {
+        LocationManager lm = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
+        boolean gpsEnabled = false;
+        boolean networkEnabled = false;
+        try {
+            gpsEnabled = lm.isProviderEnabled(LocationManager.GPS_PROVIDER);
+        } catch (Exception ignored) {}
+        try {
+            networkEnabled = lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
+        } catch (Exception ignored) {}
+        return gpsEnabled || networkEnabled;
+    }
+
+    private void checkAndRequestBlePermissions() {
+        if (!isProfileAuthorized) {
+            Toast.makeText(this, "Сначала выберите профиль!", Toast.LENGTH_SHORT).show();
+            openProfilesManager();
+            return;
+        }
+        if (PermissionHelper.checkAndRequestBlePermissions(this)) {
+            startHrvForegroundService();
+            bleManager.initAndStartScan();
+        } else {
+            onLog("Запрос разрешений BLE датчиков...");
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PermissionHelper.BLE_PERMISSION_REQUEST_CODE) {
+            boolean allGranted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) { allGranted = false; break; }
+            }
+            if (allGranted) {
+                onLog("Разрешения BLE получены, запуск сканирования...");
+                startHrvForegroundService();
+                bleManager.initAndStartScan();
+            } else {
+                onLog("Ошибка: необходимые разрешения BLE не предоставлены!");
+            }
+        }
+    }
+
+    private void saveSessionAutomatically() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < cycleLfHfValuesList.size(); i++) {
+            if (i > 0) sb.append(",");
+            sb.append(String.format(Locale.US, "%.2f", cycleLfHfValuesList.get(i)));
+        }
+        String cycleLfHfStr = sb.toString();
+
+        SessionExportManager.saveSessionAutomatically(
+                this,
+                getSharedPreferences(PREF_NAME, MODE_PRIVATE),
+                sessionData,
+                activeProfileId,
+                activeProfileName,
+                currentWorkoutMode,
+                trainingTargetX,
+                sessionStartTime,
+                currentPolarHr,
+                currentSpo2,
+                lastPstiScore,
+                lastPstiRmssdRatio,
+                baselineLfHf,
+                cycleLfHfStr,
+                lastMayerConvergenceSummary,
+                mayerTestRuns,
+                dbExecutor,
+                hrvService,
+                isBound,
+                msg -> onLog(msg)
+        );
+    }
+
+    private void updateRightPanelStatus() {
+        if (ui.tvStatusValue == null) return;
+        boolean isPostiActive = isBound && hrvService != null && hrvService.isPostiTraceActive();
+
+        String pstiSuffix = (lastPstiScore > 0.0) ? String.format(Locale.US, " PSTI [%.1f%%]", lastPstiScore) : "";
+
+        if (!isRecording) {
+            if (!isTrainingSelected) {
+                ui.tvStatusValue.setText("Статус: Выберите тренировку" + pstiSuffix);
+            } else {
+                ui.tvStatusValue.setText("Статус: Готов " + currentWorkoutMode + pstiSuffix);
+            }
+        } else {
+            if (isPostiActive) {
+                ui.tvStatusValue.setText(String.format(Locale.US, "Статус: Замер следа (PSTI)%s", pstiSuffix));
+            } else if (isTrainingModeActive) {
+                int totalBlocks = trainingTargetX;
+                int nextBlockNum = Math.min(totalBlocks, Math.max(1, currentBlockNumber));
+                String blockInfo = String.format(Locale.US, "Блок %d/%d", nextBlockNum, totalBlocks);
+                ui.tvStatusValue.setText(String.format(Locale.US, "Статус: %s - %s%s", currentWorkoutMode, blockInfo, pstiSuffix));
+            } else {
+                ui.tvStatusValue.setText("Статус: Пранаяма" + pstiSuffix);
+            }
+        }
+    }
+
+    private void updateMetricsDisplay(String rmssd, String pnn50, String lfHfStr, String tp) {
+        cachedRmssd = rmssd;
+        cachedPnn50 = pnn50;
+        cachedLfHf = lfHfStr;
+        cachedTp = tp;
+        UiBuilder.updateHrvDisplay(ui.tvHrvMetrics, activeProfileName, rmssd, pnn50, lfHfStr, tp);
+    }
+
+    private void updateAttractorIndexDisplay(String iaValue) {
+        cachedIa = iaValue;
+        if (ui.tvAttractorIndex != null) {
+            ui.tvAttractorIndex.setText(String.format(Locale.US, "IA:[%s]%%", iaValue));
+        }
+    }
+
+    private void updatePhimIndexDisplay(String phimValue) {
+        cachedPhim = phimValue;
+        if (ui.tvPhimIndex != null) {
+            ui.tvPhimIndex.setText(String.format(Locale.US, "PhM:[%s]  ", phimValue));
+        }
+    }
+
+    private void updatePhimIndexDisplay(float phimValue) {
+        cachedPhim = String.format(Locale.US, "%.2f", phimValue);
+        if (ui.tvPhimIndex != null) {
+            ui.tvPhimIndex.setText(String.format(Locale.US, "PhM:[%.2f]  ", phimValue));
+        }
+    }
+
+    private void updateMayerFrequencyIndexDisplay(String fmValue) {
+        cachedFm = fmValue;
+        if (ui.tvMayerFrequencyIndex != null) {
+            ui.tvMayerFrequencyIndex.setText(String.format(Locale.US, "FM:[%s] Hz  ", fmValue));
+        }
+    }
+
+    private void updateMayerFrequencyIndexDisplay(float modulationPeriodMs) {
+        float frequencyHz = (modulationPeriodMs > 0f) ? (1000.0f / modulationPeriodMs) : DEFAULT_FM_HZ;
+        cachedFm = String.format(Locale.US, "%.4f", frequencyHz);
+        if (ui.tvMayerFrequencyIndex != null) {
+            ui.tvMayerFrequencyIndex.setText(String.format(Locale.US, "FM:[%.4f] Hz  ", frequencyHz));
+        }
+    }
+
+    private void setInterfaceAuthorizedState(boolean authorized) {
+        float alphaVal = authorized ? 1.0f : 0.5f;
+
+        if (ui.btnWorkout != null) {
+            ui.btnWorkout.setEnabled(authorized);
+            ui.btnWorkout.setAlpha(alphaVal);
+        }
+        if (ui.btnSessions != null) {
+            ui.btnSessions.setEnabled(authorized);
+            ui.btnSessions.setAlpha(alphaVal);
+        }
+        if (ui.btnHeart != null) {
+            boolean canEnableHeart = authorized && isTrainingSelected;
+            ui.btnHeart.setEnabled(canEnableHeart);
+            ui.btnHeart.setAlpha(canEnableHeart && isRecording ? 1.0f : alphaVal);
+        }
+        if (ui.btnReconnect != null) {
+            ui.btnReconnect.setEnabled(authorized);
+            ui.btnReconnect.setAlpha(alphaVal);
+        }
+        if (ui.btnSave != null) {
+            ui.btnSave.setEnabled(authorized);
+            ui.btnSave.setAlpha(alphaVal);
+        }
+    }
+
+    private void openProfilesManager() {
+        ProfileDialogHelper.openProfilesDialog(this, dbExecutor, new ProfileDialogHelper.ProfileCallback() {
+            @Override
+            public void onProfileAuthorized(long profileId, String profileName) {
+                activeProfileId = profileId;
+                activeProfileName = profileName;
+                isProfileAuthorized = true;
+
+                setInterfaceAuthorizedState(true);
+                updateMetricsDisplay("--", "--", "--", "--");
+                updateAttractorIndexDisplay("--");
+                updatePhimIndexDisplay("--");
+
+                // Шаг 6: Автоматическая инициализация сессии, статуса и пейсера по сохраненному в профиле FM
+                dbExecutor.execute(() -> {
+                    try {
+                        AppDatabase db = AppDatabase.getInstance(MainActivity.this);
+                        ProfileEntity profile = db.profileDao().getProfileSync(profileId);
+                        final float profileFm = (profile != null && profile.getFm() > 0f) ? profile.getFm() : DEFAULT_FM_HZ;
+
+                        runOnUiThread(() -> {
+                            // Обновляем строку статуса (FM в скобках, Hz снаружи)
+                            updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.4f", profileFm));
+
+                            // Переводим менеджер модуляции и указатель пейсера на значение профиля
+                            modulationManager.setModulationFrequencyHz(profileFm);
+                            modulationManager.applyModulation(hrvService, isBound);
+                            if (isBound && hrvService != null) {
+                                hrvService.setSessionFmHz(profileFm);
+                            }
+                            if (ui.pacerView != null) {
+                                ui.pacerView.setPointerValue(modulationManager.getModulationPeriodSec());
+                            }
+                            updatePacerPeriodRegulatorState();
+
+                            if (DEBUG) {
+                                onLog(String.format(Locale.US, "[ПРОФИЛЬ] Инициализирован FM из базы: %.4f Hz", profileFm));
+                            }
+                        });
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                });
+
+                if (DEBUG) {
+                    onLog("[GATEKEEPER] Активный профиль авторизован: " + profileName + " (ID: " + profileId + ")");
+                } else {
+                    onLog("[GATEKEEPER] Активный профиль: " + profileName);
+                }
+                Toast.makeText(MainActivity.this, "Профиль активирован. Выберите тип тренировки.", Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void onProfileDeleted(long deletedProfileId) {
+                if (activeProfileId == deletedProfileId) {
+                    if (isRecording) {
+                        stopMonitoring();
+                    }
+                    if (ui.chartView != null) {
+                        ui.chartView.clearData();
+                    }
+                    activeProfileId = -1L;
+                    activeProfileName = "Не выбран";
+                    isProfileAuthorized = false;
+                    isTrainingSelected = false;
+                    setInterfaceAuthorizedState(false);
+                    updateMetricsDisplay("--", "--", "--", "--");
+                    updateAttractorIndexDisplay("--");
+                    updatePhimIndexDisplay("--");
+                    updateMayerFrequencyIndexDisplay("--");
+                    updatePacerPeriodRegulatorState();
+                    updatePresetButtonsState();
+                    onLog("[GATEKEEPER] Активный профиль удален. Сессия завершена.");
+                    Toast.makeText(MainActivity.this, "Активный профиль был удален. Сессия остановлена.", Toast.LENGTH_LONG).show();
+                }
+            }
+
+            @Override
+            public void onLog(String message) {
+                MainActivity.this.onLog(message);
+            }
+        });
+    }
+
+    private void startHrvForegroundService() {
+        Intent serviceIntent = new Intent(this, HrvForegroundService.class);
+        serviceIntent.setAction(HrvForegroundService.ACTION_START_FOREGROUND);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent);
+        } else {
+            startService(serviceIntent);
+        }
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        Intent intent = new Intent(this, HrvForegroundService.class);
+        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE);
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        if (isBound) {
+            unbindService(serviceConnection);
+            isBound = false;
+        }
+    }
+
+    private void animateHeartPulse() {
+        if (ui.btnHeart == null || !isRecording) return;
+        ui.btnHeart.animate().scaleX(1.18f).scaleY(1.18f).setDuration(110)
+            .withEndAction(() -> {
+                if (ui.btnHeart != null) {
+                    ui.btnHeart.animate().scaleX(1.0f).scaleY(1.0f).setDuration(110).start();
+                }
+            }).start();
+    }
+
+    private void startMonitoringPanel() {
+        if (!isProfileAuthorized || activeProfileId == -1L) {
+            onLog("[GATEKEEPER] Сеанс заблокирован: профиль не выбран!");
+            Toast.makeText(this, "Требуется авторизация в профиле!", Toast.LENGTH_SHORT).show();
+            openProfilesManager();
+            return;
+        }
+
+        if (!isTrainingSelected) {
+            onLog("[GATEKEEPER] Сеанс заблокирован: тренировка не выбрана!");
+            Toast.makeText(this, "Сначала выберите тип тренировки в меню!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        stopAudioAndClockInService();
+
+        isRecording = true;
+        updatePresetButtonsState();
+        isCalibrationCompleted = false;
+        sessionDumpCount = 0;
+        currentBlockNumber = 1;
+        completedCyclesInCurrentDump = 0;
+        lastPstiScore = 0.0;
+        lastPstiRmssdRatio = 0.0;
+        lastMayerConvergenceSummary = "";
+        mayerTestRuns.clear();
+        currentMayerTestStartTimeMs = 0L;
+        baselineLfHf = 0.0;
+        cycleLfHfValuesList.clear();
+        currentLfHfDisplayStr = "--";
+
+        if (mayerTestManager != null) {
+            mayerTestManager.clearSessionPairHistory();
+        }
+
+        if (progressManager != null) {
+            progressManager.start();
+        }
+
+        if (isBound && hrvService != null) {
+            hrvService.stopPostiRecording();
+            hrvService.setPresetPattern(trainingTargetX);
+
+            // Шаг 2.2 и 2.3: передаем FM и период модуляции в сервис ДО startSessionRecording()
+            if (modulationManager != null && modulationManager.getModulationFrequencyHz() > 0f) {
+                hrvService.setSessionFmHz(modulationManager.getModulationFrequencyHz());
+            } else if (modulationManager != null) {
+                modulationManager.setModulationFrequencyHz(DEFAULT_FM_HZ);
+                hrvService.setSessionFmHz(DEFAULT_FM_HZ);
+            }
+            if (modulationManager != null) {
+                modulationManager.applyModulation(hrvService, isBound);
+            }
+
+            hrvService.startSessionRecording();
+            hrvService.setCallback(createServiceCallback());
+            fixedModulationPeriodMs = hrvService.getModulationPeriodMs();
+        } else if (modulationManager != null) {
+            if (modulationManager.getModulationFrequencyHz() <= 0f) {
+                modulationManager.setModulationFrequencyHz(DEFAULT_FM_HZ);
+            }
+            fixedModulationPeriodMs = modulationManager.getModulationPeriodMs();
+        }
+
+        if (polarManager != null) {
+            polarManager.startCollection();
+        }
+
+        sessionStartTime = System.currentTimeMillis();
+        int initialDumpIdx = (isBound && hrvService != null) ? hrvService.getCurrentDumpIndex() : 1;
+        if (mayerTestManager != null) {
+            mayerTestManager.configureSessionContext(sessionStartTime, fixedModulationPeriodMs / 1000.0f, initialDumpIdx);
+        }
+
+        synchronized (sessionData) { sessionData.clear(); }
+        synchronized (phaseBuffer) { phaseBuffer.clear(); }
+        piWindow.clear();
+        prevRrMs = 0;
+        consecutiveArtifactsCount = 0;
+        if (ui.chartView != null) ui.chartView.clearData();
+
+        updateMetricsDisplay("--", "--", "--", "--");
+        updateAttractorIndexDisplay("--");
+        updatePhimIndexDisplay("--");
+        updateMayerFrequencyIndexDisplay(fixedModulationPeriodMs);
+        updateRightPanelStatus();
+        updatePacerPeriodRegulatorState();
+        updateMayerTestButtonAvailability();
+        updatePresetButtonsState();
+        if (ui.btnHeart != null) ui.btnHeart.setAlpha(1.0f);
+
+        if (DEBUG) {
+            onLog(String.format(Locale.US, "[MONITORING] Активен профиль: %s | Режим: %s | Период T=%.1fс | Целевой x = %d",
+                    activeProfileName, currentWorkoutMode, fixedModulationPeriodMs / 1000.0f, trainingTargetX));
+        } else {
+            onLog("Мониторинг активен для профиля: " + activeProfileName + ", режим: " + currentWorkoutMode);
+        }
+    }
+
+    private void startClockAndPacerAfterCalibration(float initialPhase) {
+        if (!isRecording || !isBound || hrvService == null) return;
+
+        hrvService.startAudioAndClock(MainActivity.this, initialPhase, phase -> {
+            if (isRecording && !hrvService.isPostiTraceActive() && isCalibrationCompleted) {
+                if (ui.pacerView != null) {
+                    ui.pacerView.updatePhaseExternal(phase);
+                }
+            }
+        });
+    }
+
+    private void startPostiTraceWindow() {
+        postiStartTime = System.currentTimeMillis();
+
+        stopAudioAndClockInService();
+
+        // Событийная деактивация кнопки «Тест» на время фазы PSTI
+        if (mayerTestManager != null) {
+            mayerTestManager.resetTestMode();
+            mayerTestManager.setAvailable(false);
+        }
+
+        if (isBound && hrvService != null) {
+            hrvService.startPostiRecording();
+        }
+
+        if (progressManager != null) {
+            progressManager.restart();
+        }
+
+        updateRightPanelStatus();
+        updatePacerPeriodRegulatorState();
+        updatePresetButtonsState();
+        onLog("[PSTI] Модуляция остановлена. Запуск замера индекса консолидации барорефлекса PSTI в сервисе...");
+    }
+
+    private double calculateBaselineLfHf(List<Integer> rrList) {
+        if (rrList == null || rrList.size() < 10) return 0.0;
+        return HrvCalculator.calculateStandardLfHf(rrList);
+    }
+
+    private double calculateTestLfHfWithFiltering(List<Integer> rrList) {
+        if (rrList == null || rrList.size() < 30) return 0.0;
+        try {
+            return HrvCalculator.calculateTestLfHfWithNotch(rrList);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return 0.0;
+        }
+    }
+
+    private void stopMonitoring() {
+        isRecording = false;
+        isTrainingModeActive = false;
+        isCalibrationCompleted = false;
+        sessionDumpCount = 0;
+        currentBlockNumber = 1;
+        completedCyclesInCurrentDump = 0;
+        lastMayerConvergenceSummary = "";
+        mayerTestRuns.clear();
+        currentMayerTestStartTimeMs = 0L;
+
+        stopAudioAndClockInService();
+
+        if (mayerTestManager != null) {
+            mayerTestManager.resetTestMode();
+            mayerTestManager.clearSessionPairHistory();
+            mayerTestManager.setAvailable(false);
+        }
+
+        if (isBound && hrvService != null) {
+            hrvService.stopSessionRecording();
+            hrvService.stopPostiRecording();
+        }
+
+        if (polarManager != null) {
+            polarManager.stopCollection();
+        }
+
+        piWindow.clear();
+
+        if (progressManager != null) {
+            progressManager.stop();
+        }
+
+        if (ui.chartView != null) {
+            ui.chartView.clearData();
+        }
+
+        updateRightPanelStatus();
+        updatePacerPeriodRegulatorState();
+        updatePresetButtonsState();
+        updateMetricsDisplay("--", "--", "--", "--");
+        updateAttractorIndexDisplay("--");
+        updatePhimIndexDisplay("--");
+
+        if (isProfileAuthorized && activeProfileId != -1L) {
+            dbExecutor.execute(() -> {
+                try {
+                    AppDatabase db = AppDatabase.getInstance(MainActivity.this);
+                    ProfileEntity profile = db.profileDao().getProfileSync(activeProfileId);
+                    final float profileFm = (profile != null && profile.getFm() > 0f) ? profile.getFm() : DEFAULT_FM_HZ;
+
+                    runOnUiThread(() -> {
+                        if (!isRecording) {
+                            updateMayerFrequencyIndexDisplay(String.format(Locale.US, "%.4f", profileFm));
+                            if (modulationManager != null) {
+                                modulationManager.setModulationFrequencyHz(profileFm);
+                                modulationManager.applyModulation(hrvService, isBound);
+                            }
+                            if (isBound && hrvService != null) {
+                                hrvService.setSessionFmHz(profileFm);
+                            }
+                            if (ui != null && ui.pacerView != null && modulationManager != null) {
+                                ui.pacerView.setPointerValue(modulationManager.getModulationPeriodSec());
+                            }
+                            updatePacerPeriodRegulatorState();
+                            updatePresetButtonsState();
+                        }
+                    });
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            });
+        } else {
+            updateMayerFrequencyIndexDisplay("--");
+        }
+
+        if (ui.btnHeart != null) {
+            ui.btnHeart.setAlpha(isProfileAuthorized && isTrainingSelected ? 1.0f : 0.5f);
+        }
+        onLog("Мониторинг остановлен и сброшен.");
+    }
+
+    private void stopAudioAndClockInService() {
+        if (isBound && hrvService != null) {
+            hrvService.stopAudioAndClock();
+        }
+    }
+
+    private float getSmoothedPi(float rawPi) {
+        piWindow.add(rawPi);
+        if (piWindow.size() > PI_SMOOTHING_WINDOW) piWindow.poll();
+        float sum = 0f;
+        for (float val : piWindow) sum += val;
+        return sum / piWindow.size();
+    }
+
+    @Override
+    public void onLog(String message) {
+        runOnUiThread(() -> {
+            if (ui.tvLog != null) {
+                ui.tvLog.append(message + "\n");
+                if (ui.logScrollView != null) {
+                    ui.logScrollView.post(() -> ui.logScrollView.fullScroll(ScrollView.FOCUS_DOWN));
+                }
+            }
+        });
+    }
+
+    @Override
+    public void onDataReceived(byte[] data) {
+        O2Parser.ParseResult res = O2Parser.parse(data);
+        long now = System.currentTimeMillis();
+        float smoothedPi = getSmoothedPi(res.pi);
+
+        currentSpo2 = res.spo2;
+        currentPi = smoothedPi;
+        currentBattery = res.battery;
+
+        boolean isPolarActive = polarManager != null && polarManager.isConnected();
+        int hrToDisplay = isPolarActive ? currentPolarHr : res.hr;
+        int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
+
+        runOnUiThread(() -> UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery, polarBatt));
+
+        if (!isPolarActive && res.isFingerOn && isRecording) {
+            if (sessionStartTime == 0) sessionStartTime = now;
+            int elapsedSec = (int) ((now - sessionStartTime) / 1000);
+            String timestamp = timeFormat.format(new Date(now));
+            DataPoint dp = new DataPoint(timestamp, elapsedSec, currentSpo2, res.hr, currentPi, 0);
+
+            synchronized (sessionData) { sessionData.add(dp); }
+            if (isBound && hrvService != null) {
+                hrvService.addDataPoint(dp);
+            }
+            runOnUiThread(() -> ui.chartView.addDataPoint(dp));
+        }
+    }
+
+    @Override
+    public void onPolarDeviceFound(BluetoothDevice device) {
+        if (polarManager != null) polarManager.connect(device);
+    }
+
+    private final PolarH10Manager.PolarCallback polarCallback = new PolarH10Manager.PolarCallback() {
+        @Override
+        public void onPolarLog(String message) { onLog(message); }
+
+        @Override
+        public void onPolarBatteryReceived(int battery) {
+            currentPolarBattery = battery;
+            int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
+            boolean isPolarActive = polarManager != null && polarManager.isConnected();
+            int hrToDisplay = isPolarActive ? currentPolarHr : 0;
+            runOnUiThread(() -> UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery, polarBatt));
+        }
+
+        @Override
+        public void onRrReceived(int rrMs, float instantHr) {
+            if (isRecording) {
+                boolean isArtifact = false;
+                if (prevRrMs > 0) {
+                    if (Math.abs(rrMs - prevRrMs) / (float) prevRrMs > 0.20) {
+                        consecutiveArtifactsCount++;
+                        if (consecutiveArtifactsCount < 3) {
+                            isArtifact = true;
+                            onLog("[АРТЕФАКТ] Скачок RR: исключен.");
+                        }
+                    }
+                }
+                if (!isArtifact) {
+                    if (isBound && hrvService != null) {
+                        hrvService.addRrInterval(rrMs);
+                    }
+
+                    consecutiveArtifactsCount = 0;
+                    prevRrMs = rrMs;
+                    currentPolarHr = Math.round(instantHr);
+
+                    if (!isCalibrationCompleted && (!isBound || hrvService == null || !hrvService.isPostiTraceActive())) {
+                        synchronized (phaseBuffer) {
+                            phaseBuffer.add(rrMs);
+                            int count = phaseBuffer.size();
+
+                            if (count < CALIBRATION_TARGET) {
+                                float percent = Math.min(100.0f, (count / (float) CALIBRATION_TARGET) * 100.0f);
+                                String statusText = String.format(Locale.US, "Идет сбор данных для фазовой автоподстройки: %.0f%%", percent);
+                                runOnUiThread(() -> {
+                                    if (ui.tvStatusValue != null) {
+                                        ui.tvStatusValue.setText(statusText);
+                                    }
+                                });
+                            } else {
+                                isCalibrationCompleted = true;
+                                completedCyclesInCurrentDump = 0;
+
+                                baselineLfHf = calculateBaselineLfHf(phaseBuffer);
+                                currentLfHfDisplayStr = String.format(Locale.US, "%.2f", baselineLfHf);
+                                onLog(String.format(Locale.US, "[Калибровка] Базовый Baseline LF/HF (по 100 интервалам): %.2f", baselineLfHf));
+
+                                final float initialPhase = MayerWaveAnalyzer.calculateInitialPhase(phaseBuffer, fixedModulationPeriodMs);
+
+                                if (DEBUG) {
+                                    onLog(String.format(Locale.US, "[CALIBRATION] Калибровка завершена. Вычисленная фаза Майера: %.2f", initialPhase));
+                                } else {
+                                    onLog(String.format(Locale.US, "[Калибровка завершена] Вычисленная фаза Майера: %.2f", initialPhase));
+                                }
+
+                                runOnUiThread(() -> {
+                                    if (ui.tvStatusValue != null) {
+                                        ui.tvStatusValue.setText("Сбор завершен");
+                                    }
+
+                                    updateMetricsDisplay("--", "--", currentLfHfDisplayStr, "--");
+                                    updatePhimIndexDisplay(initialPhase);
+                                    updateMayerFrequencyIndexDisplay(fixedModulationPeriodMs);
+
+                                    // Пересчитываем доступность элементов управления с учетом номера дампа и окна первых 50 RR
+                                    updatePacerPeriodRegulatorState();
+                                    updateMayerTestButtonAvailability();
+                                    updatePresetButtonsState();
+
+                                    if (isBound && hrvService != null) {
+                                        hrvService.adjustServicePhase(initialPhase);
+                                    }
+
+                                    if (ui.tvStatusValue != null) {
+                                        ui.tvStatusValue.postDelayed(() -> updateRightPanelStatus(), 1000);
+                                    }
+
+                                    startClockAndPacerAfterCalibration(initialPhase);
+                                });
+                            }
+                        }
+                    }
+
+                    long now = System.currentTimeMillis();
+                    if (sessionStartTime == 0) sessionStartTime = now;
+                    float elapsedSec = (now - sessionStartTime) / 1000f;
+                    String timestamp = timeFormat.format(new Date(now));
+                    DataPoint dp = new DataPoint(timestamp, (int) elapsedSec, currentSpo2, currentPolarHr, currentPi, rrMs);
+
+                    synchronized (sessionData) { sessionData.add(dp); }
+                    if (isBound && hrvService != null) {
+                        hrvService.addDataPoint(dp);
+                    }
+                    int polarBatt = polarManager != null ? polarManager.getBatteryLevel() : currentPolarBattery;
+
+                    runOnUiThread(() -> {
+                        UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, currentPolarHr, currentPi, currentBattery, polarBatt);
+                        ui.chartView.addDataPoint(dp);
+                        animateHeartPulse();
+                    });
+                }
+            }
+        }
+    };
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        stopMonitoring();
+        stopAudioAndClockInService();
+
+        if (ui != null && ui.pacerView != null) {
+            ui.pacerView.stopMonitoring();
+        }
+
+        if (bleManager != null) bleManager.close();
+        if (polarManager != null) polarManager.disconnect();
     }
 }
