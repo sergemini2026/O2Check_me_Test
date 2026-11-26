@@ -31,6 +31,11 @@ public class HrvForegroundService extends Service {
     public static final String ACTION_START_FOREGROUND = "ACTION_START_FOREGROUND";
     public static final String ACTION_STOP_FOREGROUND = "ACTION_STOP_FOREGROUND";
 
+    private static final float DEFAULT_FM_HZ = 1.0f / 12.0f; // ~0.083333336 Гц (соответствует периоду 12.0 с / 12000 мс)
+    private static final long DEFAULT_MODULATION_PERIOD_MS = 12000L;
+    private static final long MIN_MODULATION_PERIOD_MS = 6000L;
+    private static final long MAX_MODULATION_PERIOD_MS = 14000L;
+
     private final IBinder binder = new LocalBinder();
     private PowerManager.WakeLock wakeLock;
 
@@ -79,10 +84,10 @@ public class HrvForegroundService extends Service {
     private AudioPacerEngine serviceAudioEngine;
     private MasterClock serviceMasterClock;
     private int currentAudioResId = R.raw.o2test_01;
-    private long currentModulationPeriodMs = 10000;
+    private long currentModulationPeriodMs = DEFAULT_MODULATION_PERIOD_MS;
 
     // Актуальное действующее/вычисленное значение частоты Майера (FM, Гц) сессии
-    private float currentSessionFmHz = 0.1f;
+    private float currentSessionFmHz = DEFAULT_FM_HZ;
 
     public static class QuantumContext {
         private final int dumpIndex;
@@ -263,9 +268,9 @@ public class HrvForegroundService extends Service {
      * (профиль / вычисленное значение в сессии; ручная смена периода не вызывает этот метод).
      */
     public void setSessionFmHz(float fmHz) {
-        this.currentSessionFmHz = (fmHz > 0f) ? fmHz : 0.1f;
+        this.currentSessionFmHz = (fmHz > 0f) ? fmHz : DEFAULT_FM_HZ;
         if (DEBUG) {
-            Log.d(TAG, String.format(Locale.US, "[FM] Действующее значение FM сессии установлено: %.2f Hz", this.currentSessionFmHz));
+            Log.d(TAG, String.format(Locale.US, "[FM] Действующее значение FM сессии установлено: %.4f Hz", this.currentSessionFmHz));
         }
     }
 
@@ -296,7 +301,7 @@ public class HrvForegroundService extends Service {
             }
             return;
         }
-        this.currentModulationPeriodMs = Math.max(6000, Math.min(14000, durationMs));
+        this.currentModulationPeriodMs = Math.max(MIN_MODULATION_PERIOD_MS, Math.min(MAX_MODULATION_PERIOD_MS, durationMs));
         if (serviceMasterClock != null) {
             serviceMasterClock.setBaseDurationMs(this.currentModulationPeriodMs);
         }
@@ -368,8 +373,9 @@ public class HrvForegroundService extends Service {
         currentBlockNumber = 0;
         isMayerTestMode = false;
 
-        long derivedPeriodMs = Math.round(1000.0f / (currentSessionFmHz > 0f ? currentSessionFmHz : 0.1f));
-        this.currentModulationPeriodMs = Math.max(6000L, Math.min(14000L, derivedPeriodMs));
+        float effectiveFmHz = (currentSessionFmHz > 0f) ? currentSessionFmHz : DEFAULT_FM_HZ;
+        long derivedPeriodMs = Math.round(1000.0f / effectiveFmHz);
+        this.currentModulationPeriodMs = Math.max(MIN_MODULATION_PERIOD_MS, Math.min(MAX_MODULATION_PERIOD_MS, derivedPeriodMs));
         if (serviceMasterClock != null) {
             serviceMasterClock.setBaseDurationMs(this.currentModulationPeriodMs);
         }
@@ -600,7 +606,7 @@ public class HrvForegroundService extends Service {
                 }
 
                 if (DEBUG) {
-                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Dump #%d, PSTI phase: %b) | Тест Майера: %b | Блок %d/%d | RMSSD: %.1f ms | Фаза Майера: %.2f | FM: %.2f Hz",
+                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Dump #%d, PSTI phase: %b) | Тест Майера: %b | Блок %d/%d | RMSSD: %.1f ms | Фаза Майера: %.2f | FM: %.4f Hz",
                             dumpCounter, wasPstiPhase, snapshotTestMode, completedBlockNumber, trainingTargetX, metrics.rmssd, macroPhase, snapshotFmHz));
                 }
 
@@ -614,7 +620,7 @@ public class HrvForegroundService extends Service {
 
                     if (snapshotTestMode) {
                         // Шаг 4.2: безопасный расчёт частоты FM в Гц с защитой от некорректного периода
-                        float calculatedFm = (currentModulationPeriodMs > 0L) ? (1000.0f / currentModulationPeriodMs) : 0.1f;
+                        float calculatedFm = (currentModulationPeriodMs > 0L) ? (1000.0f / currentModulationPeriodMs) : DEFAULT_FM_HZ;
                         currentSessionFmHz = calculatedFm;
                         callback.onMayerTestCompleted(calculatedFm);
                     }
