@@ -7,16 +7,16 @@ public class MasterClock {
     private static final long DEFAULT_DURATION_MS = 12000L;
     private static final long MIN_DURATION_MS = 6000L;
     private static final long MAX_DURATION_MS = 14000L;
-    private static final float MIN_PHASE_LEAD_OFFSET = -0.25f;
-    private static final float MAX_PHASE_LEAD_OFFSET = 0.25f;
+    private static final float MIN_PHASE_LEAD_OFFSET = -0.35f;
+    private static final float MAX_PHASE_LEAD_OFFSET = 0.35f;
 
     private ValueAnimator clockAnimator;
     private boolean isRunning = false;
     private MasterClockListener listener;
     private float currentPhaseValue = 0f;
 
-    // Коэффициент упреждения фазы при автокоррекции (по умолчанию +12% цикла)
-    private float phaseLeadOffset = 0.12f;
+    // Коэффициент упреждения фазы при автокоррекции (по умолчанию +25% цикла)
+    private float phaseLeadOffset = 0.25f;
 
     // Базовая длительность цикла в мс (динамическая, от 6000 до 14000 мс; по умолчанию 12000 мс / 0.0833 Гц)
     private long baseDurationMs = DEFAULT_DURATION_MS;
