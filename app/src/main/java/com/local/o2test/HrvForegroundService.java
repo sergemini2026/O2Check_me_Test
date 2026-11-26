@@ -34,7 +34,7 @@ public class HrvForegroundService extends Service {
     private static final float DEFAULT_FM_HZ = 1.0f / 12.0f; // ~0.083333336 Гц (соответствует периоду 12.0 с / 12000 мс)
     private static final long DEFAULT_MODULATION_PERIOD_MS = 12000L;
     private static final long MIN_MODULATION_PERIOD_MS = 6000L;
-    private static final long MAX_MODULATION_PERIOD_MS = 14000L;
+    private static final long MAX_MODULATION_PERIOD_MS = 18000L;
 
     private final IBinder binder = new LocalBinder();
     private PowerManager.WakeLock wakeLock;
