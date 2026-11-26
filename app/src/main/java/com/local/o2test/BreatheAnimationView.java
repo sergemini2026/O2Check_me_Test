@@ -17,7 +17,10 @@ import java.util.Locale;
 public class BreatheAnimationView extends View {
     private static final float DEFAULT_POINTER_VALUE_SEC = 12.0f;
     private static final float MIN_POINTER_VALUE_SEC = 6.0f;
-    private static final float MAX_POINTER_VALUE_SEC = 14.0f;
+    private static final float MAX_POINTER_VALUE_SEC = 18.0f;
+    private static final float POINTER_STEP_SEC = 0.5f;
+    private static final int TOTAL_SCALE_STEPS = 24;
+    private static final int CENTER_STEP_INDEX = 12; // 12.0 с в верхней точке дуги
 
     private final Paint bgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint petalPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -33,7 +36,7 @@ public class BreatheAnimationView extends View {
     private float animationProgress = 0f; // [0.0 ... 1.0] для лепестков пейсера
     private float progress = 1.0f;         // [0.0 ... 1.0] для внешнего кольца прогресса
 
-    private float pointerValue = DEFAULT_POINTER_VALUE_SEC; // Текущее значение указателя [6.0 ... 14.0], шаг 0.5
+    private float pointerValue = DEFAULT_POINTER_VALUE_SEC; // Текущее значение указателя [6.0 ... 18.0], шаг 0.5
 
     private OnPointerChangeListener pointerChangeListener;
 
@@ -173,7 +176,7 @@ public class BreatheAnimationView extends View {
         switch (event.getAction()) {
             case MotionEvent.ACTION_DOWN:
             case MotionEvent.ACTION_MOVE:
-                int totalSteps = 16;
+                int totalSteps = TOTAL_SCALE_STEPS;
                 float radiusReduction = TypedValue.applyDimension(
                         TypedValue.COMPLEX_UNIT_MM, 5f, getResources().getDisplayMetrics()
                 );
@@ -185,7 +188,7 @@ public class BreatheAnimationView extends View {
                 float minSqDist = Float.MAX_VALUE;
 
                 for (int i = 0; i <= totalSteps; i++) {
-                    double angle = -Math.PI / 2 + (i - 8) * Math.toRadians(18.75);
+                    double angle = -Math.PI / 2 + (i - CENTER_STEP_INDEX) * Math.toRadians(18.75);
                     float tx = centerX + scaleRadius * (float) Math.cos(angle);
                     float ty = centerY + scaleRadius * (float) Math.sin(angle);
 
@@ -196,7 +199,7 @@ public class BreatheAnimationView extends View {
                     }
                 }
 
-                float newVal = 6f + (bestIndex * 0.5f);
+                float newVal = MIN_POINTER_VALUE_SEC + (bestIndex * POINTER_STEP_SEC);
                 if (pointerValue != newVal) {
                     pointerValue = newVal;
                     invalidate();
@@ -297,7 +300,7 @@ public class BreatheAnimationView extends View {
         }
 
         // 2. Отрисовка шкалы, делений, цифр и внешних колец прогресса
-        int totalSteps = 16;
+        int totalSteps = TOTAL_SCALE_STEPS;
         float scaleRadius = radius + 8f;
         float textRadius = radius + 26f;
 
@@ -316,9 +319,9 @@ public class BreatheAnimationView extends View {
         }
 
         for (int i = 0; i <= totalSteps; i++) {
-            float val = 6f + (i * 0.5f);
+            float val = MIN_POINTER_VALUE_SEC + (i * POINTER_STEP_SEC);
 
-            double angle = -Math.PI / 2 + (i - 8) * Math.toRadians(18.75);
+            double angle = -Math.PI / 2 + (i - CENTER_STEP_INDEX) * Math.toRadians(18.75);
 
             float cosA = (float) Math.cos(angle);
             float sinA = (float) Math.sin(angle);
@@ -341,8 +344,8 @@ public class BreatheAnimationView extends View {
         }
 
         // Указатель поверх шкалы
-        float stepIndex = (pointerValue - 6.0f) / 0.5f;
-        double pointerAngle = -Math.PI / 2 + (stepIndex - 8) * Math.toRadians(18.75);
+        float stepIndex = (pointerValue - MIN_POINTER_VALUE_SEC) / POINTER_STEP_SEC;
+        double pointerAngle = -Math.PI / 2 + (stepIndex - CENTER_STEP_INDEX) * Math.toRadians(18.75);
         float cosP = (float) Math.cos(pointerAngle);
         float sinP = (float) Math.sin(pointerAngle);
 
