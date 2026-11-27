@@ -347,7 +347,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     }
 
     /**
-     * Вычисление медианы списка значений LF/HF тренировочной фазы до теста PSTI.
+     * Вычисление медианы списка значений LF/HF микросрезов тренировочной фазы до теста PSTI.
      */
     private double calculateMedianLfHf(List<Double> samples) {
         if (samples == null || samples.isEmpty()) return 0.0;
@@ -679,13 +679,12 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 if (isPostiPhase) {
                     onLog(String.format(Locale.US, "[Дамп (Тест PSTI #%d) завершен]", currentDumpIndex));
 
-                    // Вычисление индекса PSTI по логарифмическому сравнению LF/HF теста с медианой LF/HF тренировки до теста
-                    // (без участия RMSSD и TP; всплески выше медианы отбраковываются как артефакт)
+                    // Вычисление индекса PSTI по логарифмическому сравнению LF/HF теста с медианой LF/HF микросрезов тренировки до теста
                     if (hrv != null) {
-                        List<Double> trainingSamples = (isBound && hrvService != null)
-                                ? hrvService.getTrainingLfHfSamples()
+                        List<Double> trainingMicroSamples = (isBound && hrvService != null)
+                                ? hrvService.getTrainingMicroSliceLfHfList()
                                 : new ArrayList<>();
-                        double medianTrainingLfHf = calculateMedianLfHf(trainingSamples);
+                        double medianTrainingLfHf = calculateMedianLfHf(trainingMicroSamples);
                         double testLfHf = hrv.lfHfRatio;
 
                         if (medianTrainingLfHf <= 0.0 || Double.isNaN(testLfHf) || Double.isInfinite(testLfHf) || testLfHf <= 0.0) {
