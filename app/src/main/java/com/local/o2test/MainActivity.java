@@ -591,6 +591,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             }
 
             @Override
+            public void onMicroSlicePhaseCalculated(int sliceIndex, int dumpIndex, boolean isPstiPhase, float phim) {
+                runOnUiThread(() -> updatePhimIndexDisplay(phim));
+            }
+
+            @Override
             public void onPhaseCorrectionCalculated(float correctionDelta) {
                 runOnUiThread(() -> {
                     if (isBound && hrvService != null && isRecording) {
