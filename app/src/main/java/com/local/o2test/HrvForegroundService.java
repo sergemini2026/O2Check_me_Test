@@ -49,8 +49,8 @@ public class HrvForegroundService extends Service {
     private final List<DataPoint> trainingDataPoints = Collections.synchronizedList(new ArrayList<>());
     private final List<DataPoint> testDataPoints = Collections.synchronizedList(new ArrayList<>());
 
-    // Буфер валидных значений LF/HF тренировочной фазы до теста PSTI (очищается при старте нового замера PSTI и сбросе сессии)
-    private final List<Double> trainingLfHfBuffer = Collections.synchronizedList(new ArrayList<>());
+    // Список значений LF/HF, рассчитанных по микросрезам текущей тренировочной фазы (очищается только после завершения PSTI или при сбросе сессии)
+    private final List<Double> trainingMicroSliceLfHfList = Collections.synchronizedList(new ArrayList<>());
 
     // Время начала текущего макро-дампа (инициализируется моментом старта сессии)
     private long currentDumpStartTime = 0L;
@@ -366,7 +366,7 @@ public class HrvForegroundService extends Service {
         synchronized (rawSessionDataPoints) { rawSessionDataPoints.clear(); }
         synchronized (trainingDataPoints) { trainingDataPoints.clear(); }
         synchronized (testDataPoints) { testDataPoints.clear(); }
-        synchronized (trainingLfHfBuffer) { trainingLfHfBuffer.clear(); }
+        synchronized (trainingMicroSliceLfHfList) { trainingMicroSliceLfHfList.clear(); }
         synchronized (slidingWindowList) { slidingWindowList.clear(); }
         synchronized (snapshotBuffer) { snapshotBuffer.clear(); }
         synchronized (rsaCycleBuffer) { rsaCycleBuffer.clear(); }
@@ -416,8 +416,8 @@ public class HrvForegroundService extends Service {
         synchronized (macroHrWindow) {
             macroHrWindow.clear();
         }
-        synchronized (trainingLfHfBuffer) {
-            trainingLfHfBuffer.clear();
+        synchronized (trainingMicroSliceLfHfList) {
+            trainingMicroSliceLfHfList.clear();
         }
         rsaCycleAccumulatedMs = 0;
 
@@ -425,11 +425,6 @@ public class HrvForegroundService extends Service {
     }
 
     public void startPostiRecording() {
-        // Очищаем буфер тренировочной выборки LF/HF на старте нового цикла замера PSTI,
-        // чтобы предыдущий цикл уже успел отработать расчёт медианы до теста PSTI.
-        synchronized (trainingLfHfBuffer) {
-            trainingLfHfBuffer.clear();
-        }
         isPostiTraceActive = true;
         postiCompletionTriggered = false;
         stopAudioAndClock();
@@ -442,23 +437,9 @@ public class HrvForegroundService extends Service {
         updateNotificationText("Замер PSTI завершен");
     }
 
-    private void recordTrainingLfHfSample(double lfHfValue) {
-        if (!Double.isNaN(lfHfValue) && !Double.isInfinite(lfHfValue) && lfHfValue > 0.0) {
-            synchronized (trainingLfHfBuffer) {
-                trainingLfHfBuffer.add(lfHfValue);
-            }
-        }
-    }
-
-    public List<Double> getTrainingLfHfSamples() {
-        synchronized (trainingLfHfBuffer) {
-            return new ArrayList<>(trainingLfHfBuffer);
-        }
-    }
-
-    public void clearTrainingLfHfSamples() {
-        synchronized (trainingLfHfBuffer) {
-            trainingLfHfBuffer.clear();
+    public List<Double> getTrainingMicroSliceLfHfList() {
+        synchronized (trainingMicroSliceLfHfList) {
+            return new ArrayList<>(trainingMicroSliceLfHfList);
         }
     }
 
@@ -582,7 +563,6 @@ public class HrvForegroundService extends Service {
 
                 if (!wasPstiPhase) {
                     currentBlockNumber++;
-                    recordTrainingLfHfSample(metrics.lfHfRatio);
                 }
 
                 int completedBlockNumber = currentBlockNumber;
@@ -664,6 +644,13 @@ public class HrvForegroundService extends Service {
                     }
                 }
 
+                // Очищаем список микросрезов тренировочной фазы при старте нового тренировочного цикла после PSTI
+                if (wasPstiPhase) {
+                    synchronized (trainingMicroSliceLfHfList) {
+                        trainingMicroSliceLfHfList.clear();
+                    }
+                }
+
                 // Инкремент сквозного счетчика дампов
                 dumpCounter++;
 
@@ -738,8 +725,10 @@ public class HrvForegroundService extends Service {
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
                 int activeBlockNum = Math.max(1, currentBlockNumber);
 
-                if (!isPostiTraceActive) {
-                    recordTrainingLfHfSample(metrics.lfHfRatio);
+                if (!isPostiTraceActive && !Double.isNaN(metrics.lfHfRatio) && !Double.isInfinite(metrics.lfHfRatio) && metrics.lfHfRatio > 0.0) {
+                    synchronized (trainingMicroSliceLfHfList) {
+                        trainingMicroSliceLfHfList.add(metrics.lfHfRatio);
+                    }
                 }
 
                 float phim = MayerWaveAnalyzer.calculateInitialPhase(windowData, currentModulationPeriodMs);
