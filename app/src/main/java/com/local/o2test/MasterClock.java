@@ -6,7 +6,7 @@ import android.view.animation.LinearInterpolator;
 public class MasterClock {
     private static final long DEFAULT_DURATION_MS = 12000L;
     private static final long MIN_DURATION_MS = 6000L;
-    private static final long MAX_DURATION_MS = 14000L;
+    private static final long MAX_DURATION_MS = 18000L;
     private static final float MIN_PHASE_LEAD_OFFSET = -0.35f;
     private static final float MAX_PHASE_LEAD_OFFSET = 0.35f;
 
@@ -19,7 +19,7 @@ public class MasterClock {
     private float phaseLeadOffset = 0.30f;
 
 
-    // Базовая длительность цикла в мс (динамическая, от 6000 до 14000 мс; по умолчанию 12000 мс / 0.0833 Гц)
+    // Базовая длительность цикла в мс (динамическая, от 6000 до 18000 мс; по умолчанию 12000 мс / 0.0833 Гц)
     private long baseDurationMs = DEFAULT_DURATION_MS;
     private long targetDurationMs = DEFAULT_DURATION_MS;
 
@@ -113,7 +113,7 @@ public class MasterClock {
 
         if (Math.abs(diff) < 0.02f) return;
 
-        long adjustedDuration = (long) (baseDurationMs * (1.0f - (diff * 0.2f)));
+        long adjustedDuration = (long) (baseDurationMs * (1.0f - (diff * 0.4f)));
 
         long minLimit = (long) (baseDurationMs * 0.85f);
         long maxLimit = (long) (baseDurationMs * 1.15f);
