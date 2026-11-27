@@ -7,8 +7,8 @@ public class MasterClock {
     private static final long DEFAULT_DURATION_MS = 12000L;
     private static final long MIN_DURATION_MS = 6000L;
     private static final long MAX_DURATION_MS = 18000L;
-    private static final float MIN_PHASE_LEAD_OFFSET = -0.35f;
-    private static final float MAX_PHASE_LEAD_OFFSET = 0.35f;
+    private static final float MIN_PHASE_LEAD_OFFSET = -0.45f;
+    private static final float MAX_PHASE_LEAD_OFFSET = 0.45f;
 
     private ValueAnimator clockAnimator;
     private boolean isRunning = false;
@@ -84,7 +84,7 @@ public class MasterClock {
             if (baseDurationMs != targetDurationMs) {
                 if (currentPhaseValue < 0.05f || currentPhaseValue > 0.95f) {
                     long diff = targetDurationMs - baseDurationMs;
-                    baseDurationMs += Math.signum(diff) * Math.min(Math.abs(diff), 150);
+                    baseDurationMs += Math.signum(diff) * Math.min(Math.abs(diff), 250);
                 }
             }
 
@@ -113,7 +113,7 @@ public class MasterClock {
 
         if (Math.abs(diff) < 0.02f) return;
 
-        long adjustedDuration = (long) (baseDurationMs * (1.0f - (diff * 0.5f)));
+        long adjustedDuration = (long) (baseDurationMs * (1.0f - (diff * 0.4f)));
 
         long minLimit = (long) (baseDurationMs * 0.85f);
         long maxLimit = (long) (baseDurationMs * 1.15f);
