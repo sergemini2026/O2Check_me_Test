@@ -295,7 +295,7 @@ public class PdfExporter {
 
             double iaPercent = Math.max(0.0, Math.min(100.0, (avgLfHf - 1.0) * 100.0));
             drawMetricRow(canvas1, 86, "Индекс Аттрактора (IA):", String.format(Locale.US, "%.1f%%", iaPercent), "Степень вовлечения в когерентность (0-100%)");
-            drawMetricRow(canvas1, 99, "Индекс PSTI (след):", String.format(Locale.US, "%.1f%% (LF/HF ratio: %.2f)", pstiScore, pstiLfHfRatio), "Средний индекс по дампам теста PSTI");
+            drawMetricRow(canvas1, 99, "Индекс PSTI (след):", String.format(Locale.US, "%.1f%%", pstiScore, pstiLfHfRatio), "Средний индекс по дампам теста PSTI");
             drawMetricRow(canvas1, 112, "Индекс Баевского (SI):", String.format(Locale.US, "%.1f у.е.", avgSi), "Индекс напряжения регуляторных систем");
             drawMetricRow(canvas1, 125, "Энтропия (SampEn):", String.format(Locale.US, "%.2f", avgSampEn), "Хаотичность и сложность регуляции");
             drawMetricRow(canvas1, 138, "DFA alpha1:", String.format(Locale.US, "%.2f", avgDfa), "Фрактальная корреляция (самоподобие)");
