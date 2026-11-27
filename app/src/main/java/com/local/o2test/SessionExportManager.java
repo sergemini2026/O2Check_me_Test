@@ -157,6 +157,8 @@ public class SessionExportManager {
                                                 final HrvForegroundService hrvService,
                                                 final boolean isBound,
                                                 final ExportCallback callback) {
+        final double lastPstiLfHfRatio = lastPstiRmssdRatio;
+
         if (callback != null) {
             callback.onLog("Сохранение сессии в папку профиля " + activeProfileName + "...");
         }
@@ -202,7 +204,7 @@ public class SessionExportManager {
                 }
                 proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, finalTestPoints, csvFilePath,
                         activeProfileId, activeProfileName, finalWorkoutMode, trainingTargetX, sessionStartTime, currentPolarHr, currentSpo2,
-                        lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, finalConvergenceSummary, finalMayerTestRuns,
+                        lastPstiScore, lastPstiLfHfRatio, baselineLfHf, cycleLfHfValues, finalConvergenceSummary, finalMayerTestRuns,
                         dbExecutor, hrvService, isBound, callback);
             }
 
@@ -213,7 +215,7 @@ public class SessionExportManager {
                 }
                 proceedWithDatabaseAndPdf(context, prefs, finalTrainingPoints, finalTestPoints, "",
                         activeProfileId, activeProfileName, finalWorkoutMode, trainingTargetX, sessionStartTime, currentPolarHr, currentSpo2,
-                        lastPstiScore, lastPstiRmssdRatio, baselineLfHf, cycleLfHfValues, finalConvergenceSummary, finalMayerTestRuns,
+                        lastPstiScore, lastPstiLfHfRatio, baselineLfHf, cycleLfHfValues, finalConvergenceSummary, finalMayerTestRuns,
                         dbExecutor, hrvService, isBound, callback);
             }
         });
@@ -300,6 +302,7 @@ public class SessionExportManager {
                                                   final HrvForegroundService hrvService,
                                                   final boolean isBound,
                                                   final ExportCallback callback) {
+        final double lastPstiLfHfRatio = lastPstiRmssdRatio;
         if (activeProfileId == -1L) return;
 
         final List<SessionSnapshot> capturedSnapshots;
@@ -345,7 +348,7 @@ public class SessionExportManager {
                         "",
                         csvPath,
                         lastPstiScore,
-                        lastPstiRmssdRatio,
+                        lastPstiLfHfRatio,
                         baselineLfHf,
                         cycleLfHfValues
                 );
@@ -469,7 +472,7 @@ public class SessionExportManager {
                         testPoints,
                         customPath,
                         lastPstiScore,
-                        lastPstiRmssdRatio,
+                        lastPstiLfHfRatio,
                         pstiHistory,
                         profileFm,
                         snapshotFmValues,
