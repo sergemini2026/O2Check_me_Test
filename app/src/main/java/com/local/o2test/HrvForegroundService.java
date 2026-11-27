@@ -49,7 +49,7 @@ public class HrvForegroundService extends Service {
     private final List<DataPoint> trainingDataPoints = Collections.synchronizedList(new ArrayList<>());
     private final List<DataPoint> testDataPoints = Collections.synchronizedList(new ArrayList<>());
 
-    // Буфер валидных значений LF/HF тренировочной фазы до теста PSTI (обнуляется после завершения теста PSTI)
+    // Буфер валидных значений LF/HF тренировочной фазы до теста PSTI (очищается при старте нового замера PSTI и сбросе сессии)
     private final List<Double> trainingLfHfBuffer = Collections.synchronizedList(new ArrayList<>());
 
     // Время начала текущего макро-дампа (инициализируется моментом старта сессии)
@@ -129,6 +129,7 @@ public class HrvForegroundService extends Service {
         default void onMayerTestCompleted(float calculatedFm) {}
         default void onMacroRrCountChanged(int currentRrCount, int dumpIndex, boolean isPstiPhase) {}
         default void onMicroSliceCalculated(int sliceIndex, int dumpIndex, boolean isPstiPhase, HrvCalculator.Metrics metrics) {}
+        default void onMicroSlicePhaseCalculated(int sliceIndex, int dumpIndex, boolean isPstiPhase, float phim) {}
     }
 
     public class LocalBinder extends Binder {
@@ -424,6 +425,11 @@ public class HrvForegroundService extends Service {
     }
 
     public void startPostiRecording() {
+        // Очищаем буфер тренировочной выборки LF/HF на старте нового цикла замера PSTI,
+        // чтобы предыдущий цикл уже успел отработать расчёт медианы до теста PSTI.
+        synchronized (trainingLfHfBuffer) {
+            trainingLfHfBuffer.clear();
+        }
         isPostiTraceActive = true;
         postiCompletionTriggered = false;
         stopAudioAndClock();
@@ -433,9 +439,6 @@ public class HrvForegroundService extends Service {
     public void stopPostiRecording() {
         isPostiTraceActive = false;
         postiCompletionTriggered = false;
-        synchronized (trainingLfHfBuffer) {
-            trainingLfHfBuffer.clear();
-        }
         updateNotificationText("Замер PSTI завершен");
     }
 
@@ -761,6 +764,7 @@ public class HrvForegroundService extends Service {
 
                 if (callback != null) {
                     callback.onMicroSliceCalculated(sliceCounter, dumpCounter, isPostiTraceActive, metrics);
+                    callback.onMicroSlicePhaseCalculated(sliceCounter, dumpCounter, isPostiTraceActive, phim);
                 }
             }
         } catch (Exception e) {
