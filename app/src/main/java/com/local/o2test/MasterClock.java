@@ -113,7 +113,7 @@ public class MasterClock {
 
         if (Math.abs(diff) < 0.02f) return;
 
-        long adjustedDuration = (long) (baseDurationMs * (1.0f - (diff * 0.4f)));
+        long adjustedDuration = (long) (baseDurationMs * (1.0f - (diff * 0.5f)));
 
         long minLimit = (long) (baseDurationMs * 0.85f);
         long maxLimit = (long) (baseDurationMs * 1.15f);
