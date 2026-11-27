@@ -32,6 +32,7 @@ import com.local.o2test.db.entity.ProfileEntity;
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedList;
 import java.util.List;
@@ -85,7 +86,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private final SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm:ss", Locale.US);
 
     private double lastPstiScore = 0.0;
-    private double lastPstiRmssdRatio = 0.0;
+    private double lastPstiLfHfRatio = 0.0;
+    private final List<Double> pstiDumpScoresList = new ArrayList<>();
     private String lastMayerConvergenceSummary = "";
     private final List<SessionExportManager.MayerTestRunEntry> mayerTestRuns = new ArrayList<>();
     private long currentMayerTestStartTimeMs = 0L;
@@ -342,6 +344,39 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 }
             });
         }
+    }
+
+    /**
+     * Вычисление медианы списка значений LF/HF тренировочной фазы до теста PSTI.
+     */
+    private double calculateMedianLfHf(List<Double> samples) {
+        if (samples == null || samples.isEmpty()) return 0.0;
+        List<Double> valid = new ArrayList<>();
+        for (Double val : samples) {
+            if (val != null && !Double.isNaN(val) && !Double.isInfinite(val) && val > 0.0) {
+                valid.add(val);
+            }
+        }
+        if (valid.isEmpty()) return 0.0;
+        Collections.sort(valid);
+        int size = valid.size();
+        int mid = size / 2;
+        if (size % 2 == 1) {
+            return valid.get(mid);
+        }
+        return (valid.get(mid - 1) + valid.get(mid)) / 2.0;
+    }
+
+    /**
+     * Вычисление среднего значения PSTI по всем валидным дампам фазы теста PSTI.
+     */
+    private double getAveragePstiScore() {
+        if (pstiDumpScoresList.isEmpty()) return 0.0;
+        double sum = 0.0;
+        for (double score : pstiDumpScoresList) {
+            sum += score;
+        }
+        return sum / pstiDumpScoresList.size();
     }
 
     /**
@@ -617,9 +652,16 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     runOnUiThread(() -> updatePhimIndexDisplay(macroPhase));
                 }
 
+                // Финальное значение LF/HF завершённого макро-дампа из сервиса
+                double dumpLfHf = (hrv != null) ? hrv.lfHfRatio : 0.0;
+                String dumpLfHfStr = (hrv != null) ? String.format(Locale.US, "%.2f", dumpLfHf) : "--";
+                if (hrv != null) {
+                    currentLfHfDisplayStr = dumpLfHfStr;
+                }
+
                 String logMsg = String.format(Locale.US,
                         "[Дамп ГОТОВ 100%%] %s (#%d) | HR: %d bpm | RMSSD: %.1f ms | pNN50: %.1f%% | LF/HF: %s | TP: %.0f ms²",
-                        blockInfo, currentDumpIndex, avgHr, hrv != null ? hrv.rmssd : 0.0, hrv != null ? hrv.pnn50 : 0.0, currentLfHfDisplayStr, hrv != null ? hrv.totalPower : 0.0);
+                        blockInfo, currentDumpIndex, avgHr, hrv != null ? hrv.rmssd : 0.0, hrv != null ? hrv.pnn50 : 0.0, dumpLfHfStr, hrv != null ? hrv.totalPower : 0.0);
                 onLog(logMsg);
 
                 sessionDumpCount++;
@@ -632,13 +674,37 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 if (isPostiPhase) {
                     onLog(String.format(Locale.US, "[Дамп (Тест PSTI #%d) завершен]", currentDumpIndex));
 
-                    // Вычисление индекса консолидации барорефлекса PSTI
+                    // Вычисление индекса PSTI по логарифмическому сравнению LF/HF теста с медианой LF/HF тренировки до теста
+                    // (без участия RMSSD и TP; всплески выше медианы отбраковываются как артефакт)
                     if (hrv != null) {
-                        lastPstiScore = Math.min(100.0, (hrv.rmssd / 50.0) * 50.0 + (Math.min(hrv.totalPower, 2500.0) / 2500.0) * 50.0);
-                        lastPstiRmssdRatio = (baselineLfHf > 0 && hrv.lfHfRatio > 0) ? (hrv.lfHfRatio / baselineLfHf) : 1.0;
+                        List<Double> trainingSamples = (isBound && hrvService != null)
+                                ? hrvService.getTrainingLfHfSamples()
+                                : new ArrayList<>();
+                        double medianTrainingLfHf = calculateMedianLfHf(trainingSamples);
+                        double testLfHf = hrv.lfHfRatio;
 
-                        onLog(String.format(Locale.US, "[PSTI РЕЗУЛЬТАТ] Индекс консолидации барорефлекса PSTI: %.1f%% (RMSSD ratio: %.2f)",
-                                lastPstiScore, lastPstiRmssdRatio));
+                        if (medianTrainingLfHf <= 0.0 || Double.isNaN(testLfHf) || Double.isInfinite(testLfHf) || testLfHf <= 0.0) {
+                            onLog(String.format(Locale.US,
+                                    "[PSTI АРТЕФАКТ/ПРОПУСК] Дамп #%d пропущен: некорректные данные (медиана LF/HF до теста=%.4f, LF/HF теста=%.4f)",
+                                    currentDumpIndex, medianTrainingLfHf, testLfHf));
+                        } else if (testLfHf > medianTrainingLfHf) {
+                            onLog(String.format(Locale.US,
+                                    "[PSTI АРТЕФАКТ] Замер дампа #%d отбракован: LF/HF теста (%.4f) выше медианы тренировки до теста (%.4f)",
+                                    currentDumpIndex, testLfHf, medianTrainingLfHf));
+                        } else {
+                            double lfHfRatio = testLfHf / medianTrainingLfHf;
+                            double logDelta = Math.log(lfHfRatio);
+                            // Логарифмическое сравнение сглаживает эффект низкой базы; потолок 100% не накладывается
+                            double dumpPstiScore = 100.0 * Math.exp(logDelta);
+
+                            lastPstiLfHfRatio = lfHfRatio;
+                            pstiDumpScoresList.add(dumpPstiScore);
+                            lastPstiScore = getAveragePstiScore();
+
+                            onLog(String.format(Locale.US,
+                                    "[PSTI РЕЗУЛЬТАТ] Дамп #%d: %.1f%% (среднее по тесту: %.1f%%, LF/HF ratio: %.2f, logDelta: %.3f, медиана до теста: %.2f)",
+                                    currentDumpIndex, dumpPstiScore, lastPstiScore, lastPstiLfHfRatio, logDelta, medianTrainingLfHf));
+                        }
                     }
 
                     // После завершения PSTI дампа в сервисе: возобновляем сбор пульса
@@ -684,7 +750,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
                     String tpStr = String.format(Locale.US, "%.0f ms²", hrv.totalPower);
 
-                    final String finalLfHfStr = currentLfHfDisplayStr;
+                    final String finalLfHfStr = dumpLfHfStr;
                     runOnUiThread(() -> {
                         updateMetricsDisplay(rmssdStr, pnn50Str, finalLfHfStr, tpStr);
                         updateAttractorIndexDisplay(iaStr);
@@ -1008,7 +1074,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 currentPolarHr,
                 currentSpo2,
                 lastPstiScore,
-                lastPstiRmssdRatio,
+                lastPstiLfHfRatio,
                 baselineLfHf,
                 cycleLfHfStr,
                 lastMayerConvergenceSummary,
@@ -1259,7 +1325,8 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         currentBlockNumber = 1;
         completedCyclesInCurrentDump = 0;
         lastPstiScore = 0.0;
-        lastPstiRmssdRatio = 0.0;
+        lastPstiLfHfRatio = 0.0;
+        pstiDumpScoresList.clear();
         lastMayerConvergenceSummary = "";
         mayerTestRuns.clear();
         currentMayerTestStartTimeMs = 0L;
@@ -1394,6 +1461,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         sessionDumpCount = 0;
         currentBlockNumber = 1;
         completedCyclesInCurrentDump = 0;
+        lastPstiScore = 0.0;
+        lastPstiLfHfRatio = 0.0;
+        pstiDumpScoresList.clear();
         lastMayerConvergenceSummary = "";
         mayerTestRuns.clear();
         currentMayerTestStartTimeMs = 0L;
