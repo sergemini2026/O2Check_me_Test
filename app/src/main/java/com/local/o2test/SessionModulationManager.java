@@ -5,8 +5,8 @@ import android.content.Context;
 public class SessionModulationManager {
     private static final long DEFAULT_MODULATION_PERIOD_MS = 12000L;
     private static final long MIN_MODULATION_PERIOD_MS = 6000L;
-    private static final long MAX_MODULATION_PERIOD_MS = 14000L;
-    private static final float MIN_MODULATION_FREQUENCY_HZ = 0.0714f;
+    private static final long MAX_MODULATION_PERIOD_MS = 18000L;
+    private static final float MIN_MODULATION_FREQUENCY_HZ = 0.0556f;
     private static final float MAX_MODULATION_FREQUENCY_HZ = 0.1667f;
 
     private long currentModulationPeriodMs = DEFAULT_MODULATION_PERIOD_MS; // По умолчанию 12 секунд (12000 мс)
@@ -29,7 +29,7 @@ public class SessionModulationManager {
     }
 
     /**
-     * Установка периода на основе частоты в Герцах (с ограничением в пределах диапазона 6-14 секунд)
+     * Установка периода на основе частоты в Герцах (с ограничением в пределах диапазона 6-18 секунд)
      */
     public void setModulationFrequencyHz(float frequencyHz) {
         if (Float.isNaN(frequencyHz) || Float.isInfinite(frequencyHz) || frequencyHz <= 0f) {
