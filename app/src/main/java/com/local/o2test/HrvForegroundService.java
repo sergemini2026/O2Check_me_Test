@@ -49,6 +49,9 @@ public class HrvForegroundService extends Service {
     private final List<DataPoint> trainingDataPoints = Collections.synchronizedList(new ArrayList<>());
     private final List<DataPoint> testDataPoints = Collections.synchronizedList(new ArrayList<>());
 
+    // Буфер валидных значений LF/HF тренировочной фазы до теста PSTI (обнуляется после завершения теста PSTI)
+    private final List<Double> trainingLfHfBuffer = Collections.synchronizedList(new ArrayList<>());
+
     // Время начала текущего макро-дампа (инициализируется моментом старта сессии)
     private long currentDumpStartTime = 0L;
 
@@ -362,6 +365,7 @@ public class HrvForegroundService extends Service {
         synchronized (rawSessionDataPoints) { rawSessionDataPoints.clear(); }
         synchronized (trainingDataPoints) { trainingDataPoints.clear(); }
         synchronized (testDataPoints) { testDataPoints.clear(); }
+        synchronized (trainingLfHfBuffer) { trainingLfHfBuffer.clear(); }
         synchronized (slidingWindowList) { slidingWindowList.clear(); }
         synchronized (snapshotBuffer) { snapshotBuffer.clear(); }
         synchronized (rsaCycleBuffer) { rsaCycleBuffer.clear(); }
@@ -411,6 +415,9 @@ public class HrvForegroundService extends Service {
         synchronized (macroHrWindow) {
             macroHrWindow.clear();
         }
+        synchronized (trainingLfHfBuffer) {
+            trainingLfHfBuffer.clear();
+        }
         rsaCycleAccumulatedMs = 0;
 
         updateNotificationText("Мониторинг активен (запись остановлена)");
@@ -426,7 +433,30 @@ public class HrvForegroundService extends Service {
     public void stopPostiRecording() {
         isPostiTraceActive = false;
         postiCompletionTriggered = false;
+        synchronized (trainingLfHfBuffer) {
+            trainingLfHfBuffer.clear();
+        }
         updateNotificationText("Замер PSTI завершен");
+    }
+
+    private void recordTrainingLfHfSample(double lfHfValue) {
+        if (!Double.isNaN(lfHfValue) && !Double.isInfinite(lfHfValue) && lfHfValue > 0.0) {
+            synchronized (trainingLfHfBuffer) {
+                trainingLfHfBuffer.add(lfHfValue);
+            }
+        }
+    }
+
+    public List<Double> getTrainingLfHfSamples() {
+        synchronized (trainingLfHfBuffer) {
+            return new ArrayList<>(trainingLfHfBuffer);
+        }
+    }
+
+    public void clearTrainingLfHfSamples() {
+        synchronized (trainingLfHfBuffer) {
+            trainingLfHfBuffer.clear();
+        }
     }
 
     public boolean isPostiTraceActive() {
@@ -549,6 +579,7 @@ public class HrvForegroundService extends Service {
 
                 if (!wasPstiPhase) {
                     currentBlockNumber++;
+                    recordTrainingLfHfSample(metrics.lfHfRatio);
                 }
 
                 int completedBlockNumber = currentBlockNumber;
@@ -600,14 +631,18 @@ public class HrvForegroundService extends Service {
                 // Автономное переключение фаз внутри сервиса ДО вызова колбэка
                 if (wasPstiPhase) {
                     stopPostiRecording();
+                    if (DEBUG) {
+                        Log.d(TAG, String.format(Locale.US, "[PSTI] Завершён макро-дамп теста PSTI (Dump #%d) | Финальный LF/HF дампа: %.4f",
+                                dumpCounter, metrics.lfHfRatio));
+                    }
                 } else if (isTrainingCycleComplete) {
                     currentBlockNumber = 0;
                     startPostiRecording();
                 }
 
                 if (DEBUG) {
-                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Dump #%d, PSTI phase: %b) | Тест Майера: %b | Блок %d/%d | RMSSD: %.1f ms | Фаза Майера: %.2f | FM: %.4f Hz",
-                            dumpCounter, wasPstiPhase, snapshotTestMode, completedBlockNumber, trainingTargetX, metrics.rmssd, macroPhase, snapshotFmHz));
+                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Dump #%d, PSTI phase: %b) | Тест Майера: %b | Блок %d/%d | RMSSD: %.1f ms | LF/HF: %.2f | Фаза Майера: %.2f | FM: %.4f Hz",
+                            dumpCounter, wasPstiPhase, snapshotTestMode, completedBlockNumber, trainingTargetX, metrics.rmssd, metrics.lfHfRatio, macroPhase, snapshotFmHz));
                 }
 
                 if (callback != null) {
@@ -699,6 +734,10 @@ public class HrvForegroundService extends Service {
                 sliceCounter++;
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
                 int activeBlockNum = Math.max(1, currentBlockNumber);
+
+                if (!isPostiTraceActive) {
+                    recordTrainingLfHfSample(metrics.lfHfRatio);
+                }
 
                 float phim = MayerWaveAnalyzer.calculateInitialPhase(windowData, currentModulationPeriodMs);
                 float snapshotFmHz = currentSessionFmHz;
