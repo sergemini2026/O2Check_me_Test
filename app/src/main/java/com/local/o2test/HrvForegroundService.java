@@ -60,6 +60,9 @@ public class HrvForegroundService extends Service {
     private boolean postiCompletionTriggered = false;
     private boolean isMayerTestMode = false;
 
+    // Шаг Б.5: источник правды для текущего соотношения фаз дыхательного цикла ("1/1" или "1/2")
+    private volatile String currentBreathRatio = "1/1";
+
     private final List<Integer> rsaCycleBuffer = Collections.synchronizedList(new ArrayList<>());
     private int rsaCycleAccumulatedMs = 0;
     private static final int TARGET_CYCLE_MS = 10000;
@@ -256,10 +259,41 @@ public class HrvForegroundService extends Service {
         }
     }
 
+    /**
+     * Шаг Б.5: установка соотношения фаз дыхательного цикла ("1/1" или "1/2").
+     * Во время теста частоты Майера или PSTI режим остаётся в "1/1" по умолчанию.
+     */
+    public synchronized void setBreathRatio(String ratio) {
+        String normalized = ("1/2".equals(ratio != null ? ratio.trim() : "")) ? "1/2" : "1/1";
+        if (isMayerTestMode && !"1/1".equals(normalized)) {
+            normalized = "1/1";
+        }
+        this.currentBreathRatio = normalized;
+        if (serviceAudioEngine != null) {
+            serviceAudioEngine.setBreathRatio(this.currentBreathRatio);
+        }
+        if (DEBUG) {
+            Log.d(TAG, "[BREATH_RATIO] Актуальное соотношение в сервисе: " + this.currentBreathRatio);
+        }
+    }
+
+    public String getBreathRatio() {
+        return currentBreathRatio;
+    }
+
+    /**
+     * Шаг Б.5: при входе в тест частоты Майера принудительно переводим дыхательный цикл в "1/1".
+     * При завершении теста режим остаётся "1/1" по умолчанию (без восстановления прежнего выбора).
+     */
     public void setMayerTestMode(boolean active) {
         this.isMayerTestMode = active;
+        if (active) {
+            setBreathRatio("1/1");
+        } else {
+            setBreathRatio("1/1");
+        }
         if (DEBUG) {
-            Log.d(TAG, "[MAYER_TEST] Режим тестирования частоты Майера в сервисе: " + active);
+            Log.d(TAG, "[MAYER_TEST] Режим тестирования частоты Майера в сервисе: " + active + ", breathRatio=" + currentBreathRatio);
         }
     }
 
@@ -290,6 +324,7 @@ public class HrvForegroundService extends Service {
                 serviceAudioEngine = null;
             }
             serviceAudioEngine = new AudioPacerEngine(this, currentAudioResId);
+            serviceAudioEngine.setBreathRatio(currentBreathRatio);
             serviceAudioEngine.prepareAsync(() -> {
                 if (serviceAudioEngine != null && isRecording) {
                     serviceAudioEngine.start();
@@ -319,6 +354,7 @@ public class HrvForegroundService extends Service {
         stopAudioAndClock();
 
         serviceAudioEngine = new AudioPacerEngine(context, currentAudioResId);
+        serviceAudioEngine.setBreathRatio(currentBreathRatio);
         serviceAudioEngine.prepareAsync(() -> {
             if (serviceAudioEngine != null && isRecording) {
                 serviceAudioEngine.start();
@@ -377,6 +413,7 @@ public class HrvForegroundService extends Service {
         dumpCounter = 1;
         currentBlockNumber = 0;
         isMayerTestMode = false;
+        currentBreathRatio = "1/1";
 
         float effectiveFmHz = (currentSessionFmHz > 0f) ? currentSessionFmHz : DEFAULT_FM_HZ;
         long derivedPeriodMs = Math.round(1000.0f / effectiveFmHz);
@@ -400,6 +437,7 @@ public class HrvForegroundService extends Service {
         isPostiTraceActive = false;
         postiCompletionTriggered = false;
         isMayerTestMode = false;
+        currentBreathRatio = "1/1";
         stopAudioAndClock();
 
         synchronized (slidingWindowList) {
@@ -555,6 +593,16 @@ public class HrvForegroundService extends Service {
         return Math.round((float) sum / hrList.size());
     }
 
+    private String resolveSnapshotBreathRatio(boolean pstiPhase, boolean mayerTestMode) {
+        if (pstiPhase) {
+            return "--";
+        }
+        if (mayerTestMode) {
+            return "1/1";
+        }
+        return "1/2".equals(currentBreathRatio) ? "1/2" : "1/1";
+    }
+
     private void processAndSaveMacroDump(List<Integer> dumpData, int avgHr) {
         try {
             HrvCalculator.Metrics metrics = HrvCalculator.calculate(dumpData);
@@ -568,6 +616,7 @@ public class HrvForegroundService extends Service {
                 int completedBlockNumber = currentBlockNumber;
                 boolean isTrainingCycleComplete = (!wasPstiPhase && currentBlockNumber >= trainingTargetX);
                 boolean snapshotTestMode = isMayerTestMode;
+                String snapshotBreathRatio = resolveSnapshotBreathRatio(wasPstiPhase, snapshotTestMode);
 
                 float macroPhase = MayerWaveAnalyzer.calculateInitialPhase(dumpData, currentModulationPeriodMs);
                 float currentModulationSec = currentModulationPeriodMs / 1000.0f;
@@ -576,7 +625,7 @@ public class HrvForegroundService extends Service {
                 // Точный момент завершения макро-дампа (мастер-таймлайн Room)
                 long dumpEndTime = System.currentTimeMillis();
 
-                // Автономное формирование неизменяемого SessionSnapshot с текущим сквозным dumpIndex и актуальным FM
+                // Автономное формирование неизменяемого SessionSnapshot с текущим сквозным dumpIndex, актуальным FM и breathRatio
                 SessionSnapshot dumpSnapshot = new SessionSnapshot(
                         dumpEndTime,
                         metrics,
@@ -588,7 +637,8 @@ public class HrvForegroundService extends Service {
                         dumpCounter,
                         completedBlockNumber,
                         macroPhase,
-                        snapshotFmHz
+                        snapshotFmHz,
+                        snapshotBreathRatio
                 );
 
                 synchronized (snapshotBuffer) {
@@ -624,8 +674,8 @@ public class HrvForegroundService extends Service {
                 }
 
                 if (DEBUG) {
-                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Dump #%d, PSTI phase: %b) | Тест Майера: %b | Блок %d/%d | RMSSD: %.1f ms | LF/HF: %.2f | Фаза Майера: %.2f | FM: %.4f Hz",
-                            dumpCounter, wasPstiPhase, snapshotTestMode, completedBlockNumber, trainingTargetX, metrics.rmssd, metrics.lfHfRatio, macroPhase, snapshotFmHz));
+                    Log.d(TAG, String.format(Locale.US, "[HRV_SERVICE] [МАКРО-ДАМП] Сформирован дамп (Dump #%d, PSTI phase: %b) | Тест Майера: %b | Блок %d/%d | RMSSD: %.1f ms | LF/HF: %.2f | Фаза Майера: %.2f | FM: %.4f Hz | Ratio: %s",
+                            dumpCounter, wasPstiPhase, snapshotTestMode, completedBlockNumber, trainingTargetX, metrics.rmssd, metrics.lfHfRatio, macroPhase, snapshotFmHz, snapshotBreathRatio));
                 }
 
                 if (callback != null) {
@@ -660,6 +710,10 @@ public class HrvForegroundService extends Service {
 
                 if (snapshotTestMode) {
                     isMayerTestMode = false;
+                    currentBreathRatio = "1/1";
+                    if (serviceAudioEngine != null) {
+                        serviceAudioEngine.setBreathRatio("1/1");
+                    }
                     // Шаг 4.1: диагностический лог автосброса режима теста Майера по границе макро-дампа
                     if (DEBUG) {
                         Log.d(TAG, String.format(Locale.US, "[MAYER_TEST] Автосброс режима теста Майера после макро-дампа #%d", dumpCounter - 1));
@@ -733,6 +787,7 @@ public class HrvForegroundService extends Service {
 
                 float phim = MayerWaveAnalyzer.calculateInitialPhase(windowData, currentModulationPeriodMs);
                 float snapshotFmHz = currentSessionFmHz;
+                String snapshotBreathRatio = resolveSnapshotBreathRatio(isPostiTraceActive, isMayerTestMode);
 
                 SessionSnapshot snapshot = new SessionSnapshot(
                         System.currentTimeMillis(),
@@ -745,7 +800,8 @@ public class HrvForegroundService extends Service {
                         dumpCounter,
                         activeBlockNum,
                         phim,
-                        snapshotFmHz
+                        snapshotFmHz,
+                        snapshotBreathRatio
                 );
                 synchronized (snapshotBuffer) {
                     snapshotBuffer.add(snapshot);
