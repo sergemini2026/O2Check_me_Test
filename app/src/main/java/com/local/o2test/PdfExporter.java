@@ -755,7 +755,8 @@ public class PdfExporter {
                     canvasN.drawText(String.format(Locale.US, "%.2f", s.getDfaAlpha1()), MARGIN + 392, currentYLog, textPaint);
 
                     float modSec = s.getModulationSec() > 0 ? s.getModulationSec() : 10.0f;
-                    canvasN.drawText(String.format(Locale.US, "%.1f с", modSec), MARGIN + 440, currentYLog, textPaint);
+                    String ratioLabel = isPstiPhase ? "--" : ("1/2".equals(s.getBreathRatio()) ? "1/2" : "1/1");
+                    canvasN.drawText(String.format(Locale.US, "%.1f с (%s)", modSec, ratioLabel), MARGIN + 440, currentYLog, textPaint);
 
                     currentYLog += 18;
                     rowsOnPage++;
