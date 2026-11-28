@@ -38,6 +38,9 @@ public class BreatheAnimationView extends View {
     private float animationProgress = 0f; // [0.0 ... 1.0] для лепестков пейсера
     private float progress = 1.0f;         // [0.0 ... 1.0] для внешнего кольца прогресса
 
+    // Шаг Б.3: текущее соотношение фаз дыхательного цикла ("1/1" — 50/50 или "1/2" — 1/3 вдох / 2/3 выдох)
+    private String breathRatio = "1/1";
+
     private float pointerValue = DEFAULT_POINTER_VALUE_SEC; // Текущее значение указателя [6.0 ... 18.0], шаг 0.5
 
     private OnPointerChangeListener pointerChangeListener;
@@ -96,6 +99,41 @@ public class BreatheAnimationView extends View {
         setLayerType(View.LAYER_TYPE_HARDWARE, null);
         isMonitoringActive = false;
         progress = 1.0f;
+    }
+
+    /**
+     * Шаг Б.3: установка соотношения фаз ("1/1" или "1/2") для визуального пейсера.
+     */
+    public void setBreathRatio(String ratio) {
+        String normalized = ("1/2".equals(ratio != null ? ratio.trim() : "")) ? "1/2" : "1/1";
+        if (!normalized.equals(this.breathRatio)) {
+            this.breathRatio = normalized;
+            invalidate();
+        }
+    }
+
+    public String getBreathRatio() {
+        return breathRatio;
+    }
+
+    /**
+     * Шаг Б.1 / Б.3: маппинг сырой фазы [0.0..1.0) в отображаемую фазу [0.0..1.0)
+     * с учётом выбранного соотношения вдох/выдох ("1/1" — 50/50, "1/2" — 1/3 вдох, 2/3 выдох).
+     */
+    private static float mapPhaseForRatio(float rawPhase, String ratio) {
+        float p = rawPhase % 1.0f;
+        if (p < 0f) {
+            p += 1.0f;
+        }
+        if ("1/2".equals(ratio)) {
+            float inhaleSplit = 1.0f / 3.0f;
+            if (p < inhaleSplit) {
+                return 0.5f * (p / inhaleSplit);
+            } else {
+                return 0.5f + 0.5f * ((p - inhaleSplit) / (1.0f - inhaleSplit));
+            }
+        }
+        return p;
     }
 
     public float getPointerValue() {
@@ -261,16 +299,19 @@ public class BreatheAnimationView extends View {
             canvas.restore();
             canvas.restore();
         } else {
+            // Шаг Б.3: применяем маппинг фазы ("1/1" -> 0.5 разворот, "1/2" -> 1/3 вдох / 2/3 выдох)
+            float mappedProgress = mapPhaseForRatio(animationProgress, breathRatio);
+
             float breathPhase;
-            if (animationProgress <= 0.5f) {
-                float t = animationProgress * 2.0f;
+            if (mappedProgress <= 0.5f) {
+                float t = mappedProgress * 2.0f;
                 breathPhase = (float) (1.0 - Math.cos(t * Math.PI)) / 2f;
             } else {
-                float t = (animationProgress - 0.5f) * 2.0f;
+                float t = (mappedProgress - 0.5f) * 2.0f;
                 breathPhase = (float) (1.0 + Math.cos(t * Math.PI)) / 2f;
             }
 
-            float activeRotation = (float) (Math.sin(animationProgress * 2.0 * Math.PI) * 45.0f);
+            float activeRotation = (float) (Math.sin(mappedProgress * 2.0 * Math.PI) * 45.0f);
 
             canvas.save();
             canvas.rotate(activeRotation, 100f, 100f);
