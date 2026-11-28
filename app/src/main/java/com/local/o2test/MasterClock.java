@@ -14,10 +14,9 @@ public class MasterClock {
     private boolean isRunning = false;
     private MasterClockListener listener;
     private float currentPhaseValue = 0f;
-  
+
     // Коэффициент упреждения фазы при автокоррекции (по умолчанию +30% цикла)
     private float phaseLeadOffset = 0.30f;
-
 
     // Базовая длительность цикла в мс (динамическая, от 6000 до 18000 мс; по умолчанию 12000 мс / 0.0833 Гц)
     private long baseDurationMs = DEFAULT_DURATION_MS;
@@ -29,6 +28,26 @@ public class MasterClock {
 
     public MasterClock(MasterClockListener listener) {
         this.listener = listener;
+    }
+
+    /**
+     * Шаг Б.1 / Б.2: единый маппинг сырой фазы [0.0..1.0) в фазу [0.0..1.0)
+     * для соотношений вдох/выдох ("1/1" — 50/50, "1/2" — 1/3 вдох, 2/3 выдох).
+     */
+    public static float mapPhaseForRatio(float rawPhase, String breathRatio) {
+        float p = rawPhase % 1.0f;
+        if (p < 0f) {
+            p += 1.0f;
+        }
+        if ("1/2".equals(breathRatio)) {
+            float inhaleSplit = 1.0f / 3.0f;
+            if (p < inhaleSplit) {
+                return 0.5f * (p / inhaleSplit);
+            } else {
+                return 0.5f + 0.5f * ((p - inhaleSplit) / (1.0f - inhaleSplit));
+            }
+        }
+        return p;
     }
 
     public void setPhaseLeadOffset(float offset) {
