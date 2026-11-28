@@ -359,6 +359,11 @@ public class SessionExportManager {
 
                 if (!capturedSnapshots.isEmpty()) {
                     for (SessionSnapshot snapshot : capturedSnapshots) {
+                        String normalizedRatio = HrvSnapshotEntity.normalizeBreathRatio(
+                                snapshot.getBreathRatio(),
+                                snapshot.isPstiPhase(),
+                                snapshot.isMayerTestMode()
+                        );
                         HrvSnapshotEntity entity = new HrvSnapshotEntity(
                                 snapshot.getTimestamp(),
                                 snapshot.getMetrics(),
@@ -369,7 +374,8 @@ public class SessionExportManager {
                                 snapshot.getSliceIndex(),
                                 snapshot.getDumpIndex(),
                                 snapshot.getBlockNumber(),
-                                snapshot.getPhim()
+                                snapshot.getPhim(),
+                                normalizedRatio
                         );
                         if (entity.getBaevskySi() > 0 && entity.getBaevskySi() <= 300) {
                             entityList.add(entity);
@@ -399,6 +405,12 @@ public class SessionExportManager {
 
                 // Сопоставляем каждый снимок отчёта с актуальным значением FM из capturedSnapshots
                 final List<Float> snapshotFmValues = resolveSnapshotFmValues(reportSnapshots, capturedSnapshots, profileFm);
+
+                // Подготавливаем значения колонки «Вдох/выдох» для каждого снимка отчёта
+                final List<String> snapshotBreathRatios = resolveSnapshotBreathRatios(reportSnapshots, capturedSnapshots);
+                if (DEBUG) {
+                    Log.d(TAG, "[EXPORT_MANAGER] Подготовлены значения Вдох/выдох для снимков отчёта: " + snapshotBreathRatios.size());
+                }
 
                 // Определяем первичную частоту теста по снимкам тестового режима (при наличии) для сопоставления по хронологии
                 final float primaryTestFrequencyHz = resolvePrimaryTestFrequencyHz(
@@ -507,6 +519,66 @@ public class SessionExportManager {
                 }
             }
         });
+    }
+
+    /**
+     * Формирует упорядоченный список значений колонки «Вдох/выдох» для каждого снимка отчёта:
+     * "--" для фазы PSTI, "1/1" для теста частоты Майера, иначе "1/1" или "1/2".
+     */
+    private static List<String> resolveSnapshotBreathRatios(
+            List<HrvSnapshotEntity> reportSnapshots,
+            List<SessionSnapshot> capturedSnapshots
+    ) {
+        List<String> ratios = new ArrayList<>();
+        if (reportSnapshots == null || reportSnapshots.isEmpty()) {
+            return ratios;
+        }
+        boolean[] used = (capturedSnapshots != null && !capturedSnapshots.isEmpty())
+                ? new boolean[capturedSnapshots.size()]
+                : null;
+
+        for (HrvSnapshotEntity entity : reportSnapshots) {
+            if (entity == null) {
+                ratios.add("1/1");
+                continue;
+            }
+            if (entity.isPstiPhase()) {
+                ratios.add("--");
+                continue;
+            }
+            if (entity.isMayerTestMode()) {
+                ratios.add("1/1");
+                continue;
+            }
+
+            String candidate = entity.getBreathRatio();
+            if (used != null) {
+                int bestIdx = -1;
+                long bestDiff = Long.MAX_VALUE;
+                for (int i = 0; i < capturedSnapshots.size(); i++) {
+                    if (used[i]) continue;
+                    SessionSnapshot snap = capturedSnapshots.get(i);
+                    if (snap.isMacroDump() != entity.isMacroDump()) continue;
+                    if (snap.getDumpIndex() != entity.getDumpIndex()) continue;
+                    long diff = Math.abs(snap.getTimestamp() - entity.getTimestamp());
+                    if (diff < bestDiff) {
+                        bestDiff = diff;
+                        bestIdx = i;
+                    }
+                }
+                if (bestIdx != -1 && bestDiff <= 5000L) {
+                    used[bestIdx] = true;
+                    candidate = capturedSnapshots.get(bestIdx).getBreathRatio();
+                }
+            }
+
+            ratios.add(HrvSnapshotEntity.normalizeBreathRatio(
+                    candidate,
+                    entity.isPstiPhase(),
+                    entity.isMayerTestMode()
+            ));
+        }
+        return ratios;
     }
 
     /**
