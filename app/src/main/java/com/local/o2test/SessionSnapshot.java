@@ -13,8 +13,9 @@ public class SessionSnapshot {
     private final int blockNumber;
     private final float phim;
     private final float fmHz;
+    private final String breathRatio;
 
-    // Строгий конструктор без устаревшего globalUniqueIndex (опорное значение FM по умолчанию 0.1 Гц)
+    // Строгий конструктор без устаревшего globalUniqueIndex (опорное значение FM по умолчанию 0.1 Гц, режим "1/1")
     public SessionSnapshot(
             long timestamp,
             HrvCalculator.Metrics metrics,
@@ -38,7 +39,8 @@ public class SessionSnapshot {
                 dumpIndex,
                 blockNumber,
                 phim,
-                0.1f
+                0.1f,
+                "1/1"
         );
     }
 
@@ -56,6 +58,37 @@ public class SessionSnapshot {
             float phim,
             float fmHz
     ) {
+        this(
+                timestamp,
+                metrics,
+                modulationSec,
+                isPstiPhase,
+                isMacroDump,
+                isMayerTestMode,
+                sliceIndex,
+                dumpIndex,
+                blockNumber,
+                phim,
+                fmHz,
+                "1/1"
+        );
+    }
+
+    // Полный конструктор с фиксацией соотношения фаз дыхательного цикла ("1/1", "1/2" или "--" для PSTI)
+    public SessionSnapshot(
+            long timestamp,
+            HrvCalculator.Metrics metrics,
+            float modulationSec,
+            boolean isPstiPhase,
+            boolean isMacroDump,
+            boolean isMayerTestMode,
+            int sliceIndex,
+            int dumpIndex,
+            int blockNumber,
+            float phim,
+            float fmHz,
+            String breathRatio
+    ) {
         this.timestamp = timestamp;
         this.metrics = metrics;
         this.modulationSec = modulationSec;
@@ -67,6 +100,25 @@ public class SessionSnapshot {
         this.blockNumber = blockNumber;
         this.phim = phim;
         this.fmHz = fmHz;
+        this.breathRatio = normalizeBreathRatio(breathRatio, isPstiPhase, isMayerTestMode);
+    }
+
+    private static String normalizeBreathRatio(
+            String rawRatio,
+            boolean isPstiPhase,
+            boolean isMayerTestMode
+    ) {
+        if (isPstiPhase) {
+            return "--";
+        }
+        if (isMayerTestMode) {
+            return "1/1";
+        }
+        if (rawRatio == null) {
+            return "1/1";
+        }
+        String trimmed = rawRatio.trim();
+        return "1/2".equals(trimmed) ? "1/2" : "1/1";
     }
 
     /**
@@ -144,6 +196,13 @@ public class SessionSnapshot {
      */
     public float getFmHz() {
         return fmHz;
+    }
+
+    /**
+     * Соотношение длительностей фаз дыхательного цикла ("1/1", "1/2" или "--" для фазы PSTI)
+     */
+    public String getBreathRatio() {
+        return breathRatio;
     }
 
     /**
