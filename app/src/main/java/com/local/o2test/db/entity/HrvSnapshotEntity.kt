@@ -31,7 +31,8 @@ data class HrvSnapshotEntity(
     val sliceIndex: Int = 0,                // Порядковый номер микро-среза
     val dumpIndex: Int = 0,                 // Порядковый номер макро-дампа
     val blockNumber: Int = 1,
-    val phim: Float                         // Мгновенная фаза Майера
+    val phim: Float,                        // Мгновенная фаза Майера
+    val breathRatio: String = "1/1"         // Соотношение вдох/выдох ("1/1", "1/2" или "--" для PSTI)
 ) {
     constructor(
         timestamp: Long,
@@ -44,6 +45,32 @@ data class HrvSnapshotEntity(
         dumpIndex: Int,
         blockNumber: Int,
         phim: Float
+    ) : this(
+        timestamp = timestamp,
+        m = m,
+        modulationSec = modulationSec,
+        isPstiPhase = isPstiPhase,
+        isMacroDump = isMacroDump,
+        isMayerTestMode = isMayerTestMode,
+        sliceIndex = sliceIndex,
+        dumpIndex = dumpIndex,
+        blockNumber = blockNumber,
+        phim = phim,
+        breathRatio = "1/1"
+    )
+
+    constructor(
+        timestamp: Long,
+        m: HrvCalculator.Metrics,
+        modulationSec: Float,
+        isPstiPhase: Boolean,
+        isMacroDump: Boolean,
+        isMayerTestMode: Boolean,
+        sliceIndex: Int,
+        dumpIndex: Int,
+        blockNumber: Int,
+        phim: Float,
+        breathRatio: String
     ) : this(
         timestamp = timestamp,
         rmssd = m.rmssd,
@@ -68,6 +95,28 @@ data class HrvSnapshotEntity(
         sliceIndex = sliceIndex,
         dumpIndex = dumpIndex,
         blockNumber = blockNumber,
-        phim = phim
+        phim = phim,
+        breathRatio = normalizeBreathRatio(breathRatio, isPstiPhase, isMayerTestMode)
     )
+
+    companion object {
+        @JvmStatic
+        fun normalizeBreathRatio(
+            rawRatio: String?,
+            isPstiPhase: Boolean,
+            isMayerTestMode: Boolean
+        ): String {
+            if (isPstiPhase) {
+                return "--"
+            }
+            if (isMayerTestMode) {
+                return "1/1"
+            }
+            if (rawRatio == null) {
+                return "1/1"
+            }
+            val trimmed = rawRatio.trim()
+            return if (trimmed == "1/2") "1/2" else "1/1"
+        }
+    }
 }
