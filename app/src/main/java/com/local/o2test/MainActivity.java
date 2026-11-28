@@ -69,6 +69,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
     private boolean isTrainingModeActive = false;
     private boolean isTrainingSelected = false;
     private int trainingTargetX = 1;
+    private String currentBreathRatio = "1/1";
 
     private boolean isCalibrationCompleted = false;
     private int sessionDumpCount = 0;
@@ -143,6 +144,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 if (isRecording) {
                     hrvService.setCallback(createServiceCallback());
                 }
+                hrvService.setBreathRatio(currentBreathRatio);
                 // Шаг 2.1: синхронизируем FM и период модуляции из modulationManager при подключении/ребиндинге сервиса
                 if (modulationManager != null) {
                     if (modulationManager.getModulationFrequencyHz() > 0f) {
@@ -150,6 +152,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     }
                     modulationManager.applyModulation(hrvService, isBound);
                 }
+            }
+
+            if (ui != null && ui.pacerView != null) {
+                ui.pacerView.setBreathRatio(currentBreathRatio);
             }
 
             updateRightPanelStatus();
@@ -248,6 +254,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                 }
                 if (isBound && hrvService != null) {
                     hrvService.setMayerTestMode(isActive);
+                }
+                if (isActive && !"1/1".equals(currentBreathRatio)) {
+                    runOnUiThread(() -> applyBreathRatioSelection("1/1", false));
                 }
             }
 
@@ -422,15 +431,29 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
     }
 
-    // Заглушки обработчиков для кнопок «1/1» и «1/2» (логика будет внедрена на следующем этапе)
+    private void applyBreathRatioSelection(String ratio, boolean logChange) {
+        String normalized = "1/2".equals(ratio) ? "1/2" : "1/1";
+        currentBreathRatio = normalized;
+        if (isBound && hrvService != null) {
+            hrvService.setBreathRatio(normalized);
+        }
+        if (ui != null && ui.pacerView != null) {
+            ui.pacerView.setBreathRatio(normalized);
+        }
+        updatePresetButtonsState();
+        if (logChange) {
+            onLog("[РЕЖИМ ДЫХАНИЯ] Выбрано соотношение фаз: " + normalized);
+        }
+    }
+
     private void onPreset1of1Clicked() {
         if (ui != null && ui.btnPreset1of1 != null && !ui.btnPreset1of1.isEnabled()) return;
-        onLog("[КНОПКА 1/1] Нажата заглушка 1/1 (логика будет добавлена на следующем этапе)");
+        applyBreathRatioSelection("1/1", true);
     }
 
     private void onPreset1of2Clicked() {
         if (ui != null && ui.btnPreset1of2 != null && !ui.btnPreset1of2.isEnabled()) return;
-        onLog("[КНОПКА 1/2] Нажата заглушка 1/2 (логика будет добавлена на следующем этапе)");
+        applyBreathRatioSelection("1/2", true);
     }
 
     /**
@@ -477,6 +500,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         ui = UiBuilder.buildUi(this);
         oxygenSensorManager = new OxygenSensorManager(ui);
         progressManager = new BreatheProgressManager(ui.pacerView);
+        if (ui.pacerView != null) {
+            ui.pacerView.setBreathRatio(currentBreathRatio);
+        }
 
         // Инициализация менеджера кнопки «Тест» (MayerTestManager)
         mayerTestManager = new MayerTestManager(this, ui.btnTest, createMayerTestListener());
@@ -516,6 +542,9 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
             ui = UiBuilder.buildUi(this);
             oxygenSensorManager = new OxygenSensorManager(ui);
             progressManager = new BreatheProgressManager(ui.pacerView);
+            if (ui.pacerView != null) {
+                ui.pacerView.setBreathRatio(currentBreathRatio);
+            }
 
             // Реинициализируем MayerTestManager для нового экземпляра кнопки из пересозданного UI
             boolean wasActive = mayerTestManager != null && mayerTestManager.isMayerTestModeActive();
@@ -612,6 +641,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                         mayerTestManager.resetTestMode();
                     }
                     currentMayerTestStartTimeMs = 0L;
+                    applyBreathRatioSelection("1/1", false);
                     updateMayerTestButtonAvailability();
                 });
             }
@@ -875,6 +905,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
                     ui.pacerView.stopMonitoring();
                 }
                 isRecording = false;
+                applyBreathRatioSelection("1/1", false);
                 updatePresetButtonsState();
                 finish();
             });
@@ -933,6 +964,13 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         boolean isPolarActive = polarManager != null && polarManager.isConnected();
         int hrToDisplay = isPolarActive ? currentPolarHr : 0;
         UiBuilder.updateStatusHeader(ui.tvLiveMetrics, currentSpo2, hrToDisplay, currentPi, currentBattery, polarBatt);
+
+        if (ui.pacerView != null) {
+            ui.pacerView.setBreathRatio(currentBreathRatio);
+        }
+        if (isBound && hrvService != null) {
+            hrvService.setBreathRatio(currentBreathRatio);
+        }
 
         updateRightPanelStatus();
         updatePacerPeriodRegulatorState();
@@ -1322,6 +1360,11 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
 
         stopAudioAndClockInService();
 
+        currentBreathRatio = "1/1";
+        if (ui != null && ui.pacerView != null) {
+            ui.pacerView.setBreathRatio("1/1");
+        }
+
         isRecording = true;
         updatePresetButtonsState();
         isCalibrationCompleted = false;
@@ -1349,6 +1392,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         if (isBound && hrvService != null) {
             hrvService.stopPostiRecording();
             hrvService.setPresetPattern(trainingTargetX);
+            hrvService.setBreathRatio("1/1");
 
             // Шаг 2.2 и 2.3: передаем FM и период модуляции в сервис ДО startSessionRecording()
             if (modulationManager != null && modulationManager.getModulationFrequencyHz() > 0f) {
@@ -1462,6 +1506,10 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         isRecording = false;
         isTrainingModeActive = false;
         isCalibrationCompleted = false;
+        currentBreathRatio = "1/1";
+        if (ui != null && ui.pacerView != null) {
+            ui.pacerView.setBreathRatio("1/1");
+        }
         sessionDumpCount = 0;
         currentBlockNumber = 1;
         completedCyclesInCurrentDump = 0;
@@ -1481,6 +1529,7 @@ public class MainActivity extends Activity implements O2BleManager.BleListener {
         }
 
         if (isBound && hrvService != null) {
+            hrvService.setBreathRatio("1/1");
             hrvService.stopSessionRecording();
             hrvService.stopPostiRecording();
         }
