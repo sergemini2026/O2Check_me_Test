@@ -25,6 +25,9 @@ public class AudioPacerEngine {
     private Thread audioThread;
 
     private volatile float currentPhase = 0f;
+    // Шаг Б.4: текущее соотношение фаз дыхательного цикла ("1/1" — 50/50 или "1/2" — 1/3 вдох / 2/3 выдох)
+    private volatile String breathRatio = "1/1";
+
     private final Context context;
     private final int audioResId; // Поддерживаемый ресурс выбранной аудиодорожки
     private short[] decodedPcmSamples;
@@ -39,16 +42,47 @@ public class AudioPacerEngine {
     }
 
     /**
+     * Шаг Б.4: установка соотношения фаз ("1/1" или "1/2") для синхронизации звуковой огибающей.
+     */
+    public void setBreathRatio(String ratio) {
+        this.breathRatio = ("1/2".equals(ratio != null ? ratio.trim() : "")) ? "1/2" : "1/1";
+    }
+
+    public String getBreathRatio() {
+        return breathRatio;
+    }
+
+    /**
+     * Шаг Б.1 / Б.4: маппинг сырой фазы [0.0..1.0) в отображаемую фазу [0.0..1.0)
+     * с учётом выбранного соотношения вдох/выдох ("1/1" — 50/50, "1/2" — 1/3 вдох, 2/3 выдох).
+     */
+    private static float mapPhaseForRatio(float rawPhase, String ratio) {
+        float p = rawPhase % 1.0f;
+        if (p < 0f) {
+            p += 1.0f;
+        }
+        if ("1/2".equals(ratio)) {
+            float inhaleSplit = 1.0f / 3.0f;
+            if (p < inhaleSplit) {
+                return 0.5f * (p / inhaleSplit);
+            } else {
+                return 0.5f + 0.5f * ((p - inhaleSplit) / (1.0f - inhaleSplit));
+            }
+        }
+        return p;
+    }
+
+    /**
      * Асинхронная предзагрузка и декодирование аудио в фоновом потоке
      */
     public void prepareAsync(Runnable onReadyCallback) {
         Executors.newSingleThreadExecutor().execute(() -> {
             Log.d(TAG, "Старт фоновой декодировки MP3 (resId: " + audioResId + ")...");
             short[] rawPcm = loadPcmFromRaw(context, audioResId);
-            
+
             // Применяем кроссфейд для бесшовной кольцевой закольцовки (окна по 2048 семплов на стерео-канал)
             decodedPcmSamples = applyLoopCrossfade(rawPcm, 2048);
-            
+
             isPrepared = true;
             Log.d(TAG, "Декодирование и кроссфейд завершены. Семплов в памяти: " + decodedPcmSamples.length);
             if (onReadyCallback != null) {
@@ -98,7 +132,7 @@ public class AudioPacerEngine {
 
     public void start() {
         if (isRunning) return;
-        
+
         currentVolumeGain = 0.0f; // Всегда начинаем с нуля для реализации плавного Fade-in
 
         // Если предзагрузка не успела или не была вызвана, подгружаем синхронно с кроссфейдом
@@ -158,6 +192,7 @@ public class AudioPacerEngine {
             // Цикл работает пока идет сессия ИЛИ пока не завершился плавный Fade-out звука
             while (isRunning || currentVolumeGain > 0.0f) {
                 float phase = currentPhase;
+                String activeRatio = breathRatio;
 
                 // Плавное регулирование коэффициента громкости (Fade-in / Fade-out)
                 if (isRunning) {
@@ -175,8 +210,11 @@ public class AudioPacerEngine {
                 double freqLeft = baseFreq;
                 double freqRight = baseFreq + binauralDelta;
 
-                // Единая амплитудная огибающая для основного трека и бинаурального сигнала с учетом MasterClock и гейна
-                float volumeEnvelope = (float) (0.4f + 0.6f * Math.abs(Math.sin(phase * Math.PI))) * currentVolumeGain;
+                // Шаг Б.4: отображаем фазу с учётом соотношения вдох/выдох ("1/1" или "1/2")
+                float mappedPhase = mapPhaseForRatio(phase, activeRatio);
+
+                // Единая амплитудная огибающая для основного трека и бинаурального сигнала с учетом фазы и гейна
+                float volumeEnvelope = (float) (0.4f + 0.6f * Math.abs(Math.sin(mappedPhase * Math.PI))) * currentVolumeGain;
 
                 for (int i = 0; i < outBuffer.length; i += 2) {
                     short ambientL = 0;
@@ -187,7 +225,7 @@ public class AudioPacerEngine {
                         if (pcmIndex + 1 < decodedPcmSamples.length) {
                             ambientR = decodedPcmSamples[pcmIndex + 1];
                         }
-                        
+
                         pcmIndex += 2;
                         if (pcmIndex >= decodedPcmSamples.length) {
                             pcmIndex = 0; // Абсолютно бесшовное кольцо без щелчков
@@ -324,7 +362,7 @@ public class AudioPacerEngine {
 
     public void stop() {
         isRunning = false; // Сигнализирует потоку о необходимости плавного затухания (Fade-out)
-        
+
         // Предотвращаем блокировку главного потока UI через join, если вызов происходит изнутри аудиопотока
         if (audioThread != null && Thread.currentThread() != audioThread) {
             try {
